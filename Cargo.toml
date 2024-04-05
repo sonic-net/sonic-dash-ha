@@ -1,0 +1,41 @@
+[package]
+name = "hamgrd"
+version.workspace = true
+authors.workspace = true
+description = "DASH HA manager daemon"
+license = "Apache-2.0"
+documentation = "https://github.com/sonic/sonic-dash-ha/blob/master/README.md"
+categories = ["command-line-utilities "]
+keywords = ["sonic", "dash"]
+repository = "https://github.com/sonic/sonic-dash-ha"
+readme = "README.md"
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+#
+# Workspace settings
+#
+[workspace]
+resolver = '2'
+members = [
+]
+exclude = []
+
+[workspace.package]
+version = "0.1.0"
+authors = ["SONiC"]
+edition = "2021"
+
+[workspace.lints.rust]
+unused_extern_crates = 'warn'
+trivial_numeric_casts = 'warn'
+unstable_features = 'warn'
+unused_import_braces = 'warn'
+
+[workspace.lints.clippy]
+all = 'allow'
+
+[workspace.dependencies]
