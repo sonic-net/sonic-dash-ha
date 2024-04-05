@@ -1,0 +1,8 @@
+# IDE
+.vscode/
+.vs/
+.idea/
+
+# Build related files
+target/
+*.log
