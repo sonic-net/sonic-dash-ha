@@ -3,5 +3,13 @@
 version = 3
 
 [[package]]
-name = "hamgrd"
+name = "sonic-hamgrd"
+version = "0.1.0"
+
+[[package]]
+name = "sonic-swbus-core"
+version = "0.1.0"
+
+[[package]]
+name = "sonic-swbusd"
 version = "0.1.0"

@@ -1,0 +1,18 @@
+[package]
+name = "sonic-swbusd"
+description = "SONiC Switch Bus Daemon"
+categories = ["command-line-utilities"]
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[lints]
+workspace = true

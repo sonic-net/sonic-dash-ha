@@ -1,14 +1,14 @@
 [package]
-name = "hamgrd"
+name = "sonic-hamgrd"
+description = "DASH HA manager daemon"
+categories = ["command-line-utilities"]
+readme = "README.md"
 version.workspace = true
 authors.workspace = true
-description = "DASH HA manager daemon"
-license = "Apache-2.0"
-documentation = "https://github.com/sonic/sonic-dash-ha/blob/master/README.md"
-categories = ["command-line-utilities "]
-keywords = ["sonic", "dash"]
-repository = "https://github.com/sonic/sonic-dash-ha"
-readme = "README.md"
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
 edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -21,12 +21,18 @@ edition.workspace = true
 [workspace]
 resolver = '2'
 members = [
+    "crates/swbus-core",
+    "crates/swbusd"
 ]
 exclude = []
 
 [workspace.package]
 version = "0.1.0"
 authors = ["SONiC"]
+license = "Apache-2.0"
+repository = "https://github.com/sonic/sonic-dash-ha"
+documentation = "https://github.com/sonic-net/SONiC/tree/master/doc/smart-switch/high-availability"
+keywords = ["sonic", "dash"]
 edition = "2021"
 
 [workspace.lints.rust]

@@ -8,7 +8,7 @@ SHELL = /bin/bash
 all: build
 
 build:
-	cargo build --release
+	cargo build --release --all
 
 #
 # Debug build targets
@@ -16,4 +16,4 @@ build:
 dbg: build-debug
 
 build-debug:
-	cargo build --debug
+	cargo build --all
