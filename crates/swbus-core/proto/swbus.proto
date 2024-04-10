@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package swbus;
+
+//
+// Service path is used to identify a service uniquely.
+//
+// To demosntrate the usage of service path, we can use the following example with "." and "/" as the delimiter:
+// - region-a.switch-cluster-a.10.0.0.1/hamgrd/dpu3/hascope/dpu
+// - region-b.switch-cluster-b.10.0.0.2/hamgrd/dpu4/hascope/eni-0a1b2c3d4e5f6
+// - region-c.switch-cluster-c.10.0.0.3/redis/dpu5/APPL.SOME_TABLE/some_key:some_subkey
+//
+// When message is routed, it will:
+// - First, use all fields of server location in the destination service path to find the service and resource.
+//   If there is a match, route the message there.
+// - If not, do it again with only region id and cluster id.
+// - If not, do it again with only region id.
+// - If not, reply response with infra error and error code as NO_ROUTE.
+//
+message ServicePath {
+  // Server location
+  string region_id = 10;
+  string cluster_id = 20;
+  string node_id = 30;
+
+  // Service info
+  string service_type = 110;
+  string service_id = 120;
+
+  // Resource info
+  string resource_type = 210;
+  string resource_id = 220;
+}
+
+//
+// Common message header for all swbus messages.
+//
+message SwBusMessageHeader {
+  uint32 magic = 1;
+
+  // Message info
+  uint64 epoch = 10;
+  uint32 flag = 20;
+  uint32 ttl = 30;
+
+  // Source and destination info
+  ServicePath source = 110;
+  ServicePath destination = 120;
+}
+
+//
+// Common request response message.
+//
+enum ResponseType {
+  RESPONSE_TYPE_SUCCESS = 0;
+  RESPONSE_TYPE_INFRA_ERROR = 1;
+  RESPONSE_TYPE_APP_ERROR = 2;
+}
+
+enum InfraErrorType {
+  INFRA_ERROR_TYPE_NO_ROUTE = 1;
+}
+
+message RequestResponse {
+  ResponseType type = 10;
+  uint64 request_message_epoch = 20;
+  uint64 error_code = 110;
+  string error_message = 120;
+}
+
+//
+// Register and unregister request messages.
+//
+message RegisterRequest {
+  repeated ServicePath service_paths = 10;
+}
+
+message UnregisterRequest {
+  repeated ServicePath service_paths = 10;
+}
+
+//
+// Ping request
+//
+message PingRequest {}
+
+//
+// Trace route request and response.
+//
+message TraceRouteRequest {
+  string trace_id = 10;
+}
+
+message TraceRouteResponse {
+  string trace_id = 10;
+}
+
+//
+// Route message request
+//
+message RouteMessageRequest {
+  bytes payload = 20;
+}
+
+//
+// SwBus message
+//
+message SwBusMessage {
+  SwBusMessageHeader header = 10;
+
+  oneof SwBusMessageType {
+    RequestResponse response = 20;
+
+    // Register and unregister
+    RegisterRequest register_request = 110;
+    UnregisterRequest unregister_request = 120;
+
+    // Ping
+    PingRequest ping_request = 210;
+
+    // Trace route
+    TraceRouteRequest trace_route_request = 310;
+    TraceRouteResponse trace_route_response = 320;
+
+    // Route message
+    RouteMessageRequest route_message = 10000;
+  }
+}
+
+service SwBusService {
+    rpc StreamMessages(stream SwBusMessage) returns (stream SwBusMessage) {}
+}

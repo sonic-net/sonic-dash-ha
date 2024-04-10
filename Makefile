@@ -17,3 +17,9 @@ dbg: build-debug
 
 build-debug:
 	cargo build --all
+
+#
+# Install dependencies
+#
+install-deps:
+	sudo apt install -y protobuf-compiler libprotobuf-dev
