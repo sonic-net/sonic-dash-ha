@@ -2,6 +2,11 @@ syntax = "proto3";
 
 package swbus;
 
+// SwBus service
+service SwBusService {
+    rpc StreamMessages(stream SwBusMessage) returns (stream SwBusMessage) {}
+}
+
 //
 // Service path is used to identify a service uniquely.
 //
@@ -125,8 +130,4 @@ message SwBusMessage {
     // Route message
     RouteMessageRequest route_message = 10000;
   }
-}
-
-service SwBusService {
-    rpc StreamMessages(stream SwBusMessage) returns (stream SwBusMessage) {}
 }
