@@ -276,6 +276,4 @@ mod tests {
 
         assert!(swbus_message.body.is_some());
     }
-
-// RequestResponse
 }
