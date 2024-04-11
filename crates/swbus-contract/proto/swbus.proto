@@ -57,8 +57,9 @@ message SwbusMessageHeader {
 // Common request response message.
 //
 enum SwbusInfraErrorType {
-  SWBUS_INFRA_ERROR_TYPE_INVALID_MESSAGE = 0;
-  SWBUS_INFRA_ERROR_TYPE_NO_ROUTE = 1;
+  SWBUS_INFRA_ERROR_TYPE_OK = 0;
+  SWBUS_INFRA_ERROR_TYPE_INVALID_MESSAGE = 1;
+  SWBUS_INFRA_ERROR_TYPE_NO_ROUTE = 2;
 }
 
 message RequestResponse {

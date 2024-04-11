@@ -100,7 +100,8 @@ impl RequestResponse {
     pub fn ok(request_epoch: u64) -> Self {
         RequestResponse {
             request_epoch,
-            error: Some(SwbusError { code: Some(swbus_error::Code::NoError(0)), message: "".to_string() }),
+            error_code: SwbusInfraErrorType::Ok as i32,
+            error_message: "".to_string(),
         }
     }
 
@@ -108,15 +109,8 @@ impl RequestResponse {
     pub fn infra_error(request_epoch: u64, error_code: SwbusInfraErrorType, error_message: &str) -> Self {
         RequestResponse {
             request_epoch,
-            error: Some(SwbusError { code: Some(swbus_error::Code::InfraError(error_code as i32)), message: error_message.to_string() }),
-        }
-    }
-
-    /// Create a new app error response.
-    pub fn app_error(request_epoch: u64, error_code: u64, error_message: &str) -> Self {
-        RequestResponse {
-            request_epoch,
-            error: Some(SwbusError { code: Some(swbus_error::Code::AppError(error_code)), message: error_message.to_string() }),
+            error_code: error_code as i32,
+            error_message: error_message.to_string(),
         }
     }
 }
@@ -205,9 +199,6 @@ mod tests {
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
 
         let response = RequestResponse::infra_error(123, SwbusInfraErrorType::NoRoute, "No route is found.");
-        test_packing_with_swbus_message(swbus_message::Body::Response(response));
-
-        let response = RequestResponse::app_error(123, 123123, "No route is found.");
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
     }
 
