@@ -3,20 +3,26 @@ SHELL = /bin/bash
 .SHELLFLAGS += -e
 
 #
-# Release build targets
-#
-all: build
-
-build:
-	cargo build --release --all
-
-#
 # Debug build targets
 #
-dbg: build-debug
+all: build test
 
-build-debug:
+build:
 	cargo build --all
+
+test:
+	cargo test --all
+
+#
+# Release build targets
+#
+release: build-release test-release
+
+build-release:
+	cargo build --release --all
+
+test-release:
+	cargo test --release --all
 
 #
 # Install dependencies

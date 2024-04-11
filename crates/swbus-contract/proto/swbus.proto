@@ -2,9 +2,9 @@ syntax = "proto3";
 
 package swbus;
 
-// SwBus service
-service SwBusService {
-    rpc StreamMessages(stream SwBusMessage) returns (stream SwBusMessage) {}
+// Swbus service
+service SwbusService {
+    rpc StreamMessages(stream SwbusMessage) returns (stream SwbusMessage) {}
 }
 
 //
@@ -40,7 +40,7 @@ message ServicePath {
 //
 // Common message header for all swbus messages.
 //
-message SwBusMessageHeader {
+message SwbusMessageHeader {
   uint32 magic = 1;
 
   // Message info
@@ -56,21 +56,23 @@ message SwBusMessageHeader {
 //
 // Common request response message.
 //
-enum ResponseType {
-  RESPONSE_TYPE_SUCCESS = 0;
-  RESPONSE_TYPE_INFRA_ERROR = 1;
-  RESPONSE_TYPE_APP_ERROR = 2;
+enum SwbusInfraErrorType {
+  SWBUS_INFRA_ERROR_TYPE_INVALID_MESSAGE = 0;
+  SWBUS_INFRA_ERROR_TYPE_NO_ROUTE = 1;
 }
 
-enum InfraErrorType {
-  INFRA_ERROR_TYPE_NO_ROUTE = 1;
+message SwbusError {
+  oneof Code {
+    uint64 no_error = 10;
+    SwbusInfraErrorType infra_error = 20;
+    uint64 app_error = 30;
+  }
+  string message = 100;
 }
 
 message RequestResponse {
-  ResponseType type = 10;
-  uint64 request_message_epoch = 20;
-  uint64 error_code = 110;
-  string error_message = 120;
+  uint64 request_epoch = 10;
+  SwbusError error = 20;
 }
 
 //
@@ -108,12 +110,12 @@ message RouteMessageRequest {
 }
 
 //
-// SwBus message
+// Swbus message
 //
-message SwBusMessage {
-  SwBusMessageHeader header = 10;
+message SwbusMessage {
+  SwbusMessageHeader header = 10;
 
-  oneof SwBusMessageType {
+  oneof Body {
     RequestResponse response = 20;
 
     // Register and unregister
@@ -128,6 +130,6 @@ message SwBusMessage {
     TraceRouteResponse trace_route_response = 320;
 
     // Route message
-    RouteMessageRequest route_message = 10000;
+    RouteMessageRequest route_message_request = 10000;
   }
 }
