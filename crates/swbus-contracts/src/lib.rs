@@ -1,1 +1,1 @@
-pub mod contracts;
+pub mod swbus;
