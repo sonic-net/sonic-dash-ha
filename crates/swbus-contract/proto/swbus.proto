@@ -61,18 +61,10 @@ enum SwbusInfraErrorType {
   SWBUS_INFRA_ERROR_TYPE_NO_ROUTE = 1;
 }
 
-message SwbusError {
-  oneof Code {
-    uint64 no_error = 10;
-    SwbusInfraErrorType infra_error = 20;
-    uint64 app_error = 30;
-  }
-  string message = 100;
-}
-
 message RequestResponse {
   uint64 request_epoch = 10;
-  SwbusError error = 20;
+  SwbusInfraErrorType error_code = 110;
+  string error_message = 120;
 }
 
 //
