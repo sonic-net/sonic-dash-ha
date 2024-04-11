@@ -4,7 +4,13 @@ tonic::include_proto!("swbus");
 
 impl ServicePath {
     /// Create a new region level service path.
-    pub fn with_region(region_id: &str, service_type: &str, service_id: &str, resource_type: &str, resource_id: &str) -> Self {
+    pub fn with_region(
+        region_id: &str,
+        service_type: &str,
+        service_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+    ) -> Self {
         ServicePath {
             region_id: region_id.to_string(),
             cluster_id: "".to_string(),
@@ -17,7 +23,14 @@ impl ServicePath {
     }
 
     /// Create a new cluster level service path.
-    pub fn with_cluster(region_id: &str, cluster_id: &str, service_type: &str, service_id: &str, resource_type: &str, resource_id: &str) -> Self {
+    pub fn with_cluster(
+        region_id: &str,
+        cluster_id: &str,
+        service_type: &str,
+        service_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+    ) -> Self {
         ServicePath {
             region_id: region_id.to_string(),
             cluster_id: cluster_id.to_string(),
@@ -30,7 +43,15 @@ impl ServicePath {
     }
 
     /// Create a new node level service path.
-    pub fn with_node(region_id: &str, cluster_id: &str, node_id: &str, service_type: &str, service_id: &str, resource_type: &str, resource_id: &str) -> Self {
+    pub fn with_node(
+        region_id: &str,
+        cluster_id: &str,
+        node_id: &str,
+        service_type: &str,
+        service_id: &str,
+        resource_type: &str,
+        resource_id: &str,
+    ) -> Self {
         ServicePath {
             region_id: region_id.to_string(),
             cluster_id: cluster_id.to_string(),
@@ -106,7 +127,11 @@ impl RequestResponse {
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(request_epoch: u64, error_code: SwbusInfraErrorType, error_message: &str) -> Self {
+    pub fn infra_error(
+        request_epoch: u64,
+        error_code: SwbusInfraErrorType,
+        error_message: &str,
+    ) -> Self {
         RequestResponse {
             request_epoch,
             error_code: error_code as i32,
@@ -198,7 +223,8 @@ mod tests {
         let response = RequestResponse::ok(123);
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
 
-        let response = RequestResponse::infra_error(123, SwbusInfraErrorType::NoRoute, "No route is found.");
+        let response =
+            RequestResponse::infra_error(123, SwbusInfraErrorType::NoRoute, "No route is found.");
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
     }
 
