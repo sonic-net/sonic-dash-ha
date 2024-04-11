@@ -777,7 +777,7 @@ name = "sonic-hamgrd"
 version = "0.1.0"
 
 [[package]]
-name = "sonic-swbus-contract"
+name = "sonic-swbus-contracts"
 version = "0.1.0"
 dependencies = [
  "pretty_assertions",

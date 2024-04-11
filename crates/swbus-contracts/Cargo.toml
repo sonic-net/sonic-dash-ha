@@ -1,5 +1,5 @@
 [package]
-name = "sonic-swbus-contract"
+name = "sonic-swbus-contracts"
 description = "SONiC Switch Bus Contract"
 version.workspace = true
 authors.workspace = true
