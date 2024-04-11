@@ -21,7 +21,7 @@ edition.workspace = true
 [workspace]
 resolver = '2'
 members = [
-    "crates/swbus-core",
+    "crates/swbus-contracts",
     "crates/swbusd"
 ]
 exclude = []
@@ -45,3 +45,12 @@ unused_import_braces = 'warn'
 all = 'allow'
 
 [workspace.dependencies]
+tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
+prost = "0.12"
+tonic = "0.11"
+
+# Dev dependencies
+pretty_assertions = "1"
+
+# Build dependencies
+tonic-build = "0.11"

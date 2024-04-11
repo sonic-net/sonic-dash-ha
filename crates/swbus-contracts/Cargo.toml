@@ -1,6 +1,6 @@
 [package]
-name = "sonic-swbus-core"
-description = "SONiC Switch Bus Core"
+name = "sonic-swbus-contracts"
+description = "SONiC Switch Bus Contract"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -12,6 +12,15 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tokio = { workspace = true }
+prost = { workspace = true }
+tonic = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }
 
 [lints]
 workspace = true
