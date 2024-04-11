@@ -2,6 +2,9 @@
 SHELL = /bin/bash
 .SHELLFLAGS += -e
 
+#
+# Top level targets
+#
 all: format lint build test
 release: format lint build-release test-release
 
