@@ -53,10 +53,11 @@ fn new_file_subscriber(
 > {
     let log_folder = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap());
     let log_folder = log_folder.join("sonic").join("log");
-    std::fs::create_dir_all(log_folder.clone()).wrap_err(format!("Unable to create log folder: {}", log_folder))?;
+    std::fs::create_dir_all(log_folder.clone()).wrap_err(format!("Unable to create log folder: {:?}", log_folder))?;
 
     let log_path = log_folder.join(program_name);
-    let log_file = std::fs::File::create(log_path).wrap_err(format!("Unable to create log file: {}", log_path))?;
+    let log_file =
+        std::fs::File::create(log_path.clone()).wrap_err(format!("Unable to create log file: {:?}", log_path))?;
     Ok(tracing_subscriber::fmt::layer().with_writer(log_file))
 }
 
