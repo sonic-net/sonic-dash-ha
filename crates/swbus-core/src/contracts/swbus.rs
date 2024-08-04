@@ -62,6 +62,25 @@ impl ServicePath {
             resource_id: resource_id.to_string(),
         }
     }
+
+    pub fn to_regional_prefix(&self) -> String {
+        return self.region_id.clone();
+    }
+
+    pub fn to_cluster_prefix(&self) -> String {
+        format!("{}.{}", self.region_id, self.cluster_id)
+    }
+
+    pub fn to_node_prefix(&self) -> String {
+        format!("{}.{}.{}", self.region_id, self.cluster_id, self.node_id)
+    }
+
+    pub fn to_service_prefix(&self) -> String {
+        format!(
+            "{}.{}.{}/{}/{}",
+            self.region_id, self.cluster_id, self.node_id, self.service_type, self.service_id
+        )
+    }
 }
 
 impl fmt::Display for ServicePath {
@@ -93,11 +112,7 @@ impl fmt::Display for ServicePath {
             write!(
                 f,
                 "{}/{}/{}/{}/{}",
-                self.region_id,
-                self.service_type,
-                self.service_id,
-                self.resource_type,
-                self.resource_id
+                self.region_id, self.service_type, self.service_id, self.resource_type, self.resource_id
             )
         }
     }
@@ -106,7 +121,7 @@ impl fmt::Display for ServicePath {
 impl SwbusMessageHeader {
     pub fn new(source: ServicePath, destination: ServicePath) -> Self {
         SwbusMessageHeader {
-            magic: 0x512F512F,
+            version: 1,
             epoch: 0,
             flag: 0,
             ttl: 64,
@@ -127,11 +142,7 @@ impl RequestResponse {
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(
-        request_epoch: u64,
-        error_code: SwbusInfraErrorType,
-        error_message: &str,
-    ) -> Self {
+    pub fn infra_error(request_epoch: u64, error_code: SwbusInfraErrorType, error_message: &str) -> Self {
         RequestResponse {
             request_epoch,
             error_code: error_code as i32,
@@ -162,9 +173,9 @@ impl TraceRouteResponse {
     }
 }
 
-impl RouteMessageRequest {
+impl RouteDataRequest {
     pub fn new(payload: Vec<u8>) -> Self {
-        RouteMessageRequest { payload }
+        RouteDataRequest { payload }
     }
 }
 
@@ -223,9 +234,16 @@ mod tests {
         let response = RequestResponse::ok(123);
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
 
-        let response =
-            RequestResponse::infra_error(123, SwbusInfraErrorType::NoRoute, "No route is found.");
+        let response = RequestResponse::infra_error(123, SwbusInfraErrorType::NoRoute, "No route is found.");
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
+    }
+
+    #[test]
+    fn update_connection_info_request_can_be_created() {
+        let request = UpdateConnectionInfoRequest {
+            connection_type: ConnectionType::Client as i32,
+        };
+        test_packing_with_swbus_message(swbus_message::Body::UpdateConnectionInfoRequest(request));
     }
 
     #[test]
@@ -234,14 +252,6 @@ mod tests {
             service_paths: vec![create_mock_service_path()],
         };
         test_packing_with_swbus_message(swbus_message::Body::RegisterRequest(request));
-    }
-
-    #[test]
-    fn unregister_request_can_be_created() {
-        let request = UnregisterRequest {
-            service_paths: vec![create_mock_service_path()],
-        };
-        test_packing_with_swbus_message(swbus_message::Body::UnregisterRequest(request));
     }
 
     #[test]
@@ -263,9 +273,9 @@ mod tests {
     }
 
     #[test]
-    fn route_message_request_can_be_created() {
-        let request = RouteMessageRequest::new("mock-payload".as_bytes().to_vec());
-        test_packing_with_swbus_message(swbus_message::Body::RouteMessageRequest(request));
+    fn route_data_request_can_be_created() {
+        let request = RouteDataRequest::new("mock-payload".as_bytes().to_vec());
+        test_packing_with_swbus_message(swbus_message::Body::RouteDataRequest(request));
     }
 
     fn create_mock_service_path() -> ServicePath {

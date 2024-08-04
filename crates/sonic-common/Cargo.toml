@@ -1,0 +1,33 @@
+[package]
+name = "sonic-common"
+description = "SONiC common library"
+categories = ["network-programming"]
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# Log and error handling
+tracing.workspace = true
+tracing-error.workspace = true
+tracing-subscriber.workspace = true
+syslog-tracing.workspace = true
+better-panic.workspace = true
+human-panic.workspace = true
+signal-hook.workspace = true
+color-eyre.workspace = true
+
+# Utils
+lazy_static.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[lints]
+workspace = true

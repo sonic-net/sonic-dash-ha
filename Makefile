@@ -23,6 +23,9 @@ format:
 #
 # Lint tasks
 #
+pre-commit:
+	pre-commit run --all-files
+
 lint:
 	cargo clippy --all-targets --all-features
 

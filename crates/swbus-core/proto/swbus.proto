@@ -16,11 +16,11 @@ service SwbusService {
 // - region-c.switch-cluster-c.10.0.0.3/redis/dpu5/APPL.SOME_TABLE/some_key:some_subkey
 //
 // When message is routed, it will:
-// - First, use all fields of server location in the destination service path to find the service and resource.
-//   If there is a match, route the message there.
-// - If not, do it again with only region id and cluster id.
-// - If not, do it again with only region id.
-// - If not, reply response with infra error and error code as NO_ROUTE.
+// - First, use the full path to find the exact match. If there is a match, route the message there.
+// - If not, try again with only the service location to find the match.
+// - If not, try again with only region id and cluster id to find the match.
+// - If not, try again with only region id to find the match.
+// - If still not, return NO_ROUTE error.
 //
 message ServicePath {
   // Server location
@@ -41,7 +41,7 @@ message ServicePath {
 // Common message header for all swbus messages.
 //
 message SwbusMessageHeader {
-  uint32 magic = 1;
+  uint32 version = 1;
 
   // Message info
   uint64 epoch = 10;
@@ -58,8 +58,15 @@ message SwbusMessageHeader {
 //
 enum SwbusInfraErrorType {
   SWBUS_INFRA_ERROR_TYPE_OK = 0;
+
+  // Bad message format
   SWBUS_INFRA_ERROR_TYPE_INVALID_MESSAGE = 1;
+
+  // No route found
   SWBUS_INFRA_ERROR_TYPE_NO_ROUTE = 2;
+
+  // TTL expired
+  SWBUS_INFRA_ERROR_TYPE_UNREACHABLE = 3;
 }
 
 message RequestResponse {
@@ -69,15 +76,28 @@ message RequestResponse {
 }
 
 //
-// Register and unregister request messages.
+// Register connection request
+//
+enum ConnectionType {
+  CONNECTION_TYPE_CLIENT = 0;
+  CONNECTION_TYPE_NODE = 1;
+  CONNECTION_TYPE_CLUSTER = 2;
+  CONNECTION_TYPE_REGIONAL = 3;
+  CONNECTION_TYPE_GLOBAL = 4;
+}
+
+message UpdateConnectionInfoRequest {
+  ConnectionType connection_type = 10;
+}
+
+//
+// Register request messages.
 //
 message RegisterRequest {
   repeated ServicePath service_paths = 10;
 }
 
-message UnregisterRequest {
-  repeated ServicePath service_paths = 10;
-}
+message RegisterQueryRequest { }
 
 //
 // Ping request
@@ -96,9 +116,9 @@ message TraceRouteResponse {
 }
 
 //
-// Route message request
+// Route data request
 //
-message RouteMessageRequest {
+message RouteDataRequest {
   bytes payload = 20;
 }
 
@@ -111,18 +131,21 @@ message SwbusMessage {
   oneof Body {
     RequestResponse response = 20;
 
-    // Register and unregister
-    RegisterRequest register_request = 110;
-    UnregisterRequest unregister_request = 120;
+    // Update connection info update
+    UpdateConnectionInfoRequest update_connection_info_request = 110;
+
+    // Register
+    RegisterRequest register_request = 210;
+    RegisterQueryRequest register_query_request = 220;
 
     // Ping
-    PingRequest ping_request = 210;
+    PingRequest ping_request = 310;
 
     // Trace route
-    TraceRouteRequest trace_route_request = 310;
-    TraceRouteResponse trace_route_response = 320;
+    TraceRouteRequest trace_route_request = 410;
+    TraceRouteResponse trace_route_response = 420;
 
-    // Route message
-    RouteMessageRequest route_message_request = 10000;
+    // Route data
+    RouteDataRequest route_data_request = 10000;
   }
 }
