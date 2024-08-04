@@ -1,7 +1,7 @@
 [package]
-name = "swbusd"
-description = "SONiC Switch Bus Daemon"
-categories = ["command-line-utilities", "network-programming"]
+name = "hamgrd"
+description = "SONiC DASH high availability manager daemon"
+categories = ["command-line-utilities"]
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -13,9 +13,3 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio.workspace = true
-tokio-stream.workspace = true
-tonic.workspace = true
-
-[lints]
-workspace = true

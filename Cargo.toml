@@ -1,28 +1,10 @@
-[package]
-name = "sonic-hamgrd"
-description = "DASH HA manager daemon"
-categories = ["command-line-utilities"]
-readme = "README.md"
-version.workspace = true
-authors.workspace = true
-license.workspace = true
-repository.workspace = true
-documentation.workspace = true
-keywords.workspace = true
-edition.workspace = true
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-
-#
-# Workspace settings
-#
 [workspace]
 resolver = '2'
 members = [
-    "crates/swbus-contracts",
-    "crates/swbusd"
+    "crates/sonic-common",
+    "crates/swbus-core",
+    "crates/swbusd",
+    "crates/hamgrd"
 ]
 exclude = []
 
@@ -45,12 +27,53 @@ unused_import_braces = 'warn'
 all = 'allow'
 
 [workspace.dependencies]
-tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
-prost = "0.12"
-tonic = "0.11"
+# Async framework
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
+tokio-stream = "0.1"
+
+# Log and error handling
+tracing = { version = "0.1", features = ["log"] }
+tracing-error = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "serde"] }
+syslog-tracing = "0.3"
+thiserror = "1"
+anyhow = "1"
+human-panic = "2"
+better-panic = "0.3"
+signal-hook = "0.3"
+
+# Serializatoin
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+
+# Command line utils
+clap = { version = "4", features = ["derive", "cargo", "wrap_help", "unicode", "string", "unstable-styles"] }
+color-eyre = "0.6"
+
+# gRPC
+prost = "0.13"
+tonic = "0.12"
+
+# Utility
+contracts = "0.6"
+derivative = "2"
+derive_builder = "0.20"
+getset = "0.1"
+lazy_static = "1.4"
+owning_ref = "0.4"
+strum = { version = "0.26", features = ["derive"] }
+regex = "1"
+dashmap = "6"
+itertools = "0.13"
+
+# Internal dependencies
+sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
 
 # Dev dependencies
+criterion = "0.5"
+fakeit = "1.1"
 pretty_assertions = "1"
 
 # Build dependencies
-tonic-build = "0.11"
+tonic-build = "0.12"
+vergen = { version = "8.2", features = [ "build", "git", "gitoxide", "cargo", "rustc", "si" ]}
