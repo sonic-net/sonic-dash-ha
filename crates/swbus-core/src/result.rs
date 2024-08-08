@@ -43,6 +43,7 @@ impl SwbusError {
 pub type Result<T, E = SwbusError> = core::result::Result<T, E>;
 
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]

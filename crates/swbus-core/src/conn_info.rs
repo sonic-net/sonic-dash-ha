@@ -33,7 +33,7 @@ impl SwbusConnInfo {
         }
     }
 
-    pub fn server(conn_type: ConnectionType, remote_addr: SocketAddr) -> SwbusConnInfo {
+    pub fn new_server(conn_type: ConnectionType, remote_addr: SocketAddr) -> SwbusConnInfo {
         SwbusConnInfo {
             id: format!("from-{}:{}", remote_addr.ip(), remote_addr.port()),
             mode: SwbusConnMode::Server,

@@ -1,11 +1,10 @@
 use crate::conn_info::*;
 use crate::contracts::swbus::*;
 use crate::result::*;
-use getset::{CopyGetters, Getters};
 use std::io;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
+use tokio_stream::StreamExt;
 use tonic::Streaming;
 use tracing::{error, info};
 
@@ -20,6 +19,7 @@ impl SwbusConnWorker {
         info: Arc<SwbusConnInfo>,
         mut control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         mut message_stream: Streaming<SwbusMessage>,
+        mut dispatch_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> Result<()> {
         loop {
             match control_queue_rx.try_recv() {
@@ -29,7 +29,7 @@ impl SwbusConnWorker {
                 }
 
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    Self::process_incoming_messages(&mut message_stream).await?;
+                    Self::process_incoming_messages(&mut message_stream, &mut dispatch_queue_tx).await?;
                 }
 
                 // We never close the control queue while the worker is running, so this error should never be hit.
@@ -42,7 +42,10 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    async fn process_incoming_messages(message_stream: &mut Streaming<SwbusMessage>) -> Result<()> {
+    async fn process_incoming_messages(
+        message_stream: &mut Streaming<SwbusMessage>,
+        dispatch_queue_tx: &mut mpsc::Sender<SwbusMessage>,
+    ) -> Result<()> {
         while let Some(result) = message_stream.next().await {
             if let Err(err) = result {
                 error!("Failed to receive message: {}.", err);
@@ -53,7 +56,7 @@ impl SwbusConnWorker {
             }
 
             let message = result.unwrap();
-            match Self::process_incoming_message(message).await {
+            match Self::process_incoming_message(message, dispatch_queue_tx).await {
                 Ok(_) => {}
                 Err(err) => {
                     error!("Failed to process the incoming message: {}", err);
@@ -64,9 +67,21 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    async fn process_incoming_message(message: SwbusMessage) -> Result<()> {
+    async fn process_incoming_message(
+        message: SwbusMessage,
+        dispatch_queue_tx: &mut mpsc::Sender<SwbusMessage>,
+    ) -> Result<()> {
         Self::validate_message_common(&message)?;
-        todo!("route packet via mux");
+        match dispatch_queue_tx.send(message).await {
+            Ok(_) => {}
+            Err(err) => {
+                error!("Failed to dispatch message: {}.", err);
+                return Err(SwbusError::connection(
+                    SwbusErrorCode::ConnectionError,
+                    io::Error::new(io::ErrorKind::ConnectionReset, err.to_string()),
+                ));
+            }
+        }
         Ok(())
     }
 

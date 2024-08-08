@@ -1,5 +1,5 @@
+use crate::conn::*;
 use crate::contracts::swbus::*;
-use crate::MessageHandler;
 use dashmap::DashMap;
 
 #[derive(Debug, Clone, Default)]
@@ -14,17 +14,12 @@ impl SwbusMuxNextHop {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct SwbusMuxConnInfo {
-    conn_type: ConnectionType,
-}
-
 pub struct SwbusMux {
     /// Route table. Each entry is a registered prefix to a next hop, which points to a connection.
     routes: DashMap<String, SwbusMuxNextHop>,
 
     /// Connection table. Each entry is a connection id to a connection info.
-    connections: DashMap<String, SwbusMuxConnInfo>,
+    connections: DashMap<String, SwbusConn>,
 }
 
 impl SwbusMux {
@@ -35,11 +30,11 @@ impl SwbusMux {
         }
     }
 
-    pub fn register(&self, conn_type: ConnectionType, path: &ServicePath) {
+    pub fn register(&self, path: &ServicePath, conn: SwbusConn) {
         // First, we insert the connection to connection table.
-        let conn_id = path.to_string();
-        let conn_info = SwbusMuxConnInfo { conn_type };
-        self.connections.insert(conn_id.clone(), conn_info);
+        let conn_id = conn.id().to_string();
+        let conn_type = conn.connection_type();
+        self.connections.insert(conn_id.clone(), conn);
 
         // Next, we update the route table.
         let route_key = match conn_type {
