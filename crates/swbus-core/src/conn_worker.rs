@@ -13,35 +13,23 @@ pub(crate) enum SwbusConnControlMessage {
     Shutdown,
 }
 
-pub struct SwbusConnWorker {
-    info: Arc<SwbusConnInfo>,
-    control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
-    message_stream: Streaming<SwbusMessage>,
-}
+pub struct SwbusConnWorker {}
 
 impl SwbusConnWorker {
-    pub fn new(
+    pub async fn run(
         info: Arc<SwbusConnInfo>,
-        control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
-        message_stream: Streaming<SwbusMessage>,
-    ) -> SwbusConnWorker {
-        SwbusConnWorker {
-            info,
-            control_queue_rx,
-            message_stream,
-        }
-    }
-
-    pub async fn run(&mut self) -> Result<()> {
+        mut control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
+        mut message_stream: Streaming<SwbusMessage>,
+    ) -> Result<()> {
         loop {
-            match self.control_queue_rx.try_recv() {
+            match control_queue_rx.try_recv() {
                 Ok(SwbusConnControlMessage::Shutdown) => {
                     info!("Shutting down connection worker.");
                     break;
                 }
 
                 Err(mpsc::error::TryRecvError::Empty) => {
-                    self.process_incoming_messages().await?;
+                    Self::process_incoming_messages(&mut message_stream).await?;
                 }
 
                 // We never close the control queue while the worker is running, so this error should never be hit.
@@ -54,15 +42,18 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    async fn process_incoming_messages(&mut self) -> Result<()> {
-        while let Some(result) = self.message_stream.next().await {
+    async fn process_incoming_messages(message_stream: &mut Streaming<SwbusMessage>) -> Result<()> {
+        while let Some(result) = message_stream.next().await {
             if let Err(err) = result {
                 error!("Failed to receive message: {}.", err);
-                return Err(SwbusError::internal(SwbusErrorCode::ConnectionError, err.to_string()));
+                return Err(SwbusError::connection(
+                    SwbusErrorCode::ConnectionError,
+                    io::Error::new(io::ErrorKind::ConnectionReset, err.to_string()),
+                ));
             }
 
             let message = result.unwrap();
-            match self.process_incoming_message(message) {
+            match Self::process_incoming_message(message).await {
                 Ok(_) => {}
                 Err(err) => {
                     error!("Failed to process the incoming message: {}", err);
@@ -73,13 +64,13 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    fn process_incoming_message(&self, message: SwbusMessage) -> Result<()> {
-        self.validate_message_common(&message)?;
+    async fn process_incoming_message(message: SwbusMessage) -> Result<()> {
+        Self::validate_message_common(&message)?;
         todo!("route packet via mux");
         Ok(())
     }
 
-    fn validate_message_common(&self, message: &SwbusMessage) -> Result<()> {
+    fn validate_message_common(message: &SwbusMessage) -> Result<()> {
         if message.header.is_none() {
             return Err(SwbusError::input(
                 SwbusErrorCode::InvalidHeader,

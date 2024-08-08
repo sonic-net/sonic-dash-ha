@@ -26,13 +26,15 @@ pub struct SwbusConn {
 impl SwbusConn {
     pub async fn start_shutdown(&self) -> Result<()> {
         self.control_queue_tx
-            .send(SwbusConnControlMessage::Shutdown).await
+            .send(SwbusConnControlMessage::Shutdown)
+            .await
             .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
     }
 
     pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
         self.message_queue_tx
-            .send(message).await
+            .send(message)
+            .await
             .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
     }
 }
@@ -86,6 +88,7 @@ impl SwbusConn {
         let worker_task = tokio::spawn(async move {
             let request_stream = ReceiverStream::new(message_queue_rx);
             let stream_message_request = Request::new(request_stream);
+
             let response_stream = match client.stream_messages(stream_message_request).await {
                 Ok(response) => response.into_inner(),
                 Err(e) => {
@@ -97,8 +100,7 @@ impl SwbusConn {
                 }
             };
 
-            let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, response_stream);
-            conn_worker.run().await
+            SwbusConnWorker::run(conn_info, control_queue_rx, response_stream).await
         });
 
         (worker_task, control_queue_tx, message_queue_tx)
