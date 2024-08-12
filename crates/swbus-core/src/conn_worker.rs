@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::Streaming;
 use tracing::{error, info};
+use crate::SwbusMux;
 
 pub(crate) enum SwbusConnControlMessage {
     Shutdown,
@@ -16,6 +17,7 @@ pub struct SwbusConnWorker {
     info: Arc<SwbusConnInfo>,
     control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
     message_stream: Streaming<SwbusMessage>,
+    mux: Arc<SwbusMux>,
 }
 
 impl SwbusConnWorker {
@@ -23,51 +25,73 @@ impl SwbusConnWorker {
         info: Arc<SwbusConnInfo>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_stream: Streaming<SwbusMessage>,
+        mux: Arc<SwbusMux>,
     ) -> Self {
         Self {
             info,
             control_queue_rx,
             message_stream,
+            mux,
         }
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        loop {
-            match self.control_queue_rx.try_recv() {
-                Ok(SwbusConnControlMessage::Shutdown) => {
-                    info!("Shutting down connection worker.");
-                    break;
-                }
+        self.register_to_mux();
+        let result = self.run_worker_loop().await;
+        self.unregister_from_mux();
+        result
+    }
 
-                Err(mpsc::error::TryRecvError::Empty) => {
-                    self.process_incoming_messages().await?;
-                }
-
-                // We never close the control queue while the worker is running, so this error should never be hit.
-                Err(mpsc::error::TryRecvError::Disconnected) => {
-                    unreachable!("Control queue closed unexpectedly.");
-                }
-            }
-        }
-
+    pub fn register_to_mux(&self) -> Result<()> {
+        // self.mux.register(&self.info);
         Ok(())
     }
 
-    async fn process_incoming_messages(&mut self) -> Result<()> {
-        while let Some(result) = self.message_stream.next().await {
-            if let Err(err) = result {
-                error!("Failed to receive message: {}.", err);
-                return Err(SwbusError::connection(
-                    SwbusErrorCode::ConnectionError,
-                    io::Error::new(io::ErrorKind::ConnectionReset, err.to_string()),
-                ));
-            }
+    pub fn unregister_from_mux(&self) -> Result<()> {
+        // self.mux.unregister(&self.info);
+        Ok(())
+    }
 
-            let message = result.unwrap();
-            match self.process_incoming_message(message).await {
-                Ok(_) => {}
-                Err(err) => {
-                    error!("Failed to process the incoming message: {}", err);
+    pub async fn run_worker_loop(&mut self) -> Result<()> {
+        loop {
+            tokio::select! {
+                control_message = self.control_queue_rx.recv() => {
+                    match control_message {
+                        Some(SwbusConnControlMessage::Shutdown) => {
+                            info!("Shutting down connection worker.");
+                            break;
+                        }
+                        None => {
+                            unreachable!("Control queue closed unexpectedly.");
+                        }
+                    }
+                }
+
+                data_message = self.message_stream.next() => {
+                    match data_message {
+                        Some(Ok(message)) => {
+                            match self.process_incoming_message(message).await {
+                                Ok(_) => {}
+                                Err(err) => {
+                                    error!("Failed to process the incoming message: {}", err);
+                                }
+                            }
+                        }
+                        Some(Err(err)) => {
+                            error!("Failed to receive message: {}.", err);
+                            return Err(SwbusError::connection(
+                                SwbusErrorCode::ConnectionError,
+                                io::Error::new(io::ErrorKind::ConnectionReset, err.to_string()),
+                            ));
+                        }
+                        None => {
+                            info!("Message stream closed.");
+                            return Err(SwbusError::connection(
+                                SwbusErrorCode::ConnectionError,
+                                io::Error::new(io::ErrorKind::ConnectionReset, "Message stream closed.".to_string()),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -118,6 +142,6 @@ impl SwbusConnWorker {
             ));
         }
 
-        return Ok(());
+        Ok(())
     }
 }

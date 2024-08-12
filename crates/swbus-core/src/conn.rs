@@ -14,6 +14,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use tracing::error;
+use crate::SwbusMux;
 
 pub struct SwbusConn {
     info: Arc<SwbusConnInfo>,
@@ -57,7 +58,7 @@ impl SwbusConn {
 
 // Client factory and task entry
 impl SwbusConn {
-    pub async fn connect(conn_type: ConnectionType, server_addr: SocketAddr) -> Result<SwbusConn> {
+    pub async fn connect(conn_type: ConnectionType, server_addr: SocketAddr, mux: Arc<SwbusMux>) -> Result<SwbusConn> {
         let conn_info = Arc::new(SwbusConnInfo::new_client(conn_type, server_addr));
 
         let endpoint = Endpoint::from_str(&format!("http://{}", server_addr)).map_err(|e| {
@@ -79,19 +80,20 @@ impl SwbusConn {
         };
 
         let client = SwbusServiceClient::new(channel);
-        Self::start_client_worker_task(conn_info, client).await
+        Self::start_client_worker_task(conn_info, client, mux).await
     }
 
     async fn start_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         client: SwbusServiceClient<Channel>,
+        mux: Arc<SwbusMux>,
     ) -> Result<SwbusConn> {
         let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
         let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
 
         let conn_info_for_worker = conn_info.clone();
         let worker_task = tokio::spawn(async move {
-            Self::run_client_worker_task(conn_info_for_worker, client, control_queue_rx, message_queue_rx).await
+            Self::run_client_worker_task(conn_info_for_worker, client, control_queue_rx, message_queue_rx, mux).await
         });
 
         Ok(SwbusConn {
@@ -107,6 +109,7 @@ impl SwbusConn {
         mut client: SwbusServiceClient<Channel>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_queue_rx: mpsc::Receiver<SwbusMessage>,
+        mux: Arc<SwbusMux>,
     ) -> Result<()> {
         let request_stream = ReceiverStream::new(message_queue_rx);
         let stream_message_request = Request::new(request_stream);
@@ -122,7 +125,7 @@ impl SwbusConn {
             }
         };
 
-        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, response_stream);
+        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, response_stream, mux);
         conn_worker.run().await
     }
 }
