@@ -79,8 +79,20 @@ impl SwbusConn {
         };
 
         let client = SwbusServiceClient::new(channel);
-        let (worker_task, control_queue_tx, message_queue_tx) =
-            Self::start_client_worker_task(conn_info.clone(), client).await;
+        Self::start_client_worker_task(conn_info, client).await
+    }
+
+    async fn start_client_worker_task(
+        conn_info: Arc<SwbusConnInfo>,
+        client: SwbusServiceClient<Channel>,
+    ) -> Result<SwbusConn> {
+        let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
+        let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
+
+        let conn_info_for_worker = conn_info.clone();
+        let worker_task = tokio::spawn(async move {
+            Self::run_client_worker_task(conn_info_for_worker, client, control_queue_rx, message_queue_rx).await
+        });
 
         Ok(SwbusConn {
             info: conn_info,
@@ -88,24 +100,6 @@ impl SwbusConn {
             control_queue_tx,
             message_queue_tx,
         })
-    }
-
-    async fn start_client_worker_task(
-        conn_info: Arc<SwbusConnInfo>,
-        client: SwbusServiceClient<Channel>,
-    ) -> (
-        JoinHandle<Result<()>>,
-        mpsc::Sender<SwbusConnControlMessage>,
-        mpsc::Sender<SwbusMessage>,
-    ) {
-        let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
-        let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
-
-        let worker_task = tokio::spawn(async move {
-            Self::run_client_worker_task(conn_info, client, control_queue_rx, message_queue_rx).await
-        });
-
-        (worker_task, control_queue_tx, message_queue_tx)
     }
 
     async fn run_client_worker_task(
