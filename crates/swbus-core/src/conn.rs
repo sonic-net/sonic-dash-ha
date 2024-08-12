@@ -60,7 +60,6 @@ impl SwbusConn {
     pub async fn connect(
         conn_type: ConnectionType,
         server_addr: SocketAddr,
-        dispatch_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> Result<SwbusConn> {
         let conn_info = Arc::new(SwbusConnInfo::new_client(conn_type, server_addr));
 
@@ -84,7 +83,7 @@ impl SwbusConn {
 
         let client = SwbusServiceClient::new(channel);
         let (worker_task, control_queue_tx, message_queue_tx) =
-            Self::start_client_worker_task(conn_info.clone(), client, dispatch_queue_tx).await;
+            Self::start_client_worker_task(conn_info.clone(), client).await;
 
         Ok(SwbusConn {
             info: conn_info,
@@ -97,7 +96,6 @@ impl SwbusConn {
     async fn start_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         client: SwbusServiceClient<Channel>,
-        dispatch_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> (
         JoinHandle<Result<()>>,
         mpsc::Sender<SwbusConnControlMessage>,
@@ -107,7 +105,7 @@ impl SwbusConn {
         let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
 
         let worker_task = tokio::spawn(async move {
-            Self::run_client_worker_task(conn_info, client, control_queue_rx, message_queue_rx, dispatch_queue_tx).await
+            Self::run_client_worker_task(conn_info, client, control_queue_rx, message_queue_rx).await
         });
 
         (worker_task, control_queue_tx, message_queue_tx)
@@ -118,7 +116,6 @@ impl SwbusConn {
         mut client: SwbusServiceClient<Channel>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_queue_rx: mpsc::Receiver<SwbusMessage>,
-        dispatch_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> Result<()> {
         let request_stream = ReceiverStream::new(message_queue_rx);
         let stream_message_request = Request::new(request_stream);
@@ -134,6 +131,7 @@ impl SwbusConn {
             }
         };
 
-        SwbusConnWorker::run(conn_info, control_queue_rx, response_stream, dispatch_queue_tx).await
+        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, response_stream);
+        conn_worker.run().await
     }
 }
