@@ -31,9 +31,7 @@ impl SwbusConnWorker {
         }
     }
 
-    pub async fn run(
-        &mut self,
-    ) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         loop {
             match self.control_queue_rx.try_recv() {
                 Ok(SwbusConnControlMessage::Shutdown) => {
@@ -55,9 +53,7 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    async fn process_incoming_messages(
-        &mut self,
-    ) -> Result<()> {
+    async fn process_incoming_messages(&mut self) -> Result<()> {
         while let Some(result) = self.message_stream.next().await {
             if let Err(err) = result {
                 error!("Failed to receive message: {}.", err);
@@ -79,10 +75,7 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    async fn process_incoming_message(
-        &mut self,
-        message: SwbusMessage,
-    ) -> Result<()> {
+    async fn process_incoming_message(&mut self, message: SwbusMessage) -> Result<()> {
         Self::validate_message_common(&message)?;
         // TODO: Handle message
         Ok(())

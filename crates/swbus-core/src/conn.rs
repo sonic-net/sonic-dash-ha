@@ -57,10 +57,7 @@ impl SwbusConn {
 
 // Client factory and task entry
 impl SwbusConn {
-    pub async fn connect(
-        conn_type: ConnectionType,
-        server_addr: SocketAddr,
-    ) -> Result<SwbusConn> {
+    pub async fn connect(conn_type: ConnectionType, server_addr: SocketAddr) -> Result<SwbusConn> {
         let conn_info = Arc::new(SwbusConnInfo::new_client(conn_type, server_addr));
 
         let endpoint = Endpoint::from_str(&format!("http://{}", server_addr)).map_err(|e| {
