@@ -1,4 +1,5 @@
-use crate::conn_info::*;
+use super::conn_info::*;
+use super::multiplexer::SwbusMultiplexer;
 use crate::contracts::swbus::*;
 use crate::result::*;
 use std::io;
@@ -7,7 +8,6 @@ use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::Streaming;
 use tracing::{error, info};
-use crate::SwbusMux;
 
 pub(crate) enum SwbusConnControlMessage {
     Shutdown,
@@ -17,7 +17,7 @@ pub struct SwbusConnWorker {
     info: Arc<SwbusConnInfo>,
     control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
     message_stream: Streaming<SwbusMessage>,
-    mux: Arc<SwbusMux>,
+    mux: Arc<SwbusMultiplexer>,
 }
 
 impl SwbusConnWorker {
@@ -25,7 +25,7 @@ impl SwbusConnWorker {
         info: Arc<SwbusConnInfo>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_stream: Streaming<SwbusMessage>,
-        mux: Arc<SwbusMux>,
+        mux: Arc<SwbusMultiplexer>,
     ) -> Self {
         Self {
             info,
@@ -36,19 +36,19 @@ impl SwbusConnWorker {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        self.register_to_mux();
+        self.register_to_mux()?;
         let result = self.run_worker_loop().await;
-        self.unregister_from_mux();
+        self.unregister_from_mux()?;
         result
     }
 
     pub fn register_to_mux(&self) -> Result<()> {
-        // self.mux.register(&self.info);
+        // self.multiplexer.register(&self.info);
         Ok(())
     }
 
     pub fn unregister_from_mux(&self) -> Result<()> {
-        // self.mux.unregister(&self.info);
+        // self.multiplexer.unregister(&self.info);
         Ok(())
     }
 
@@ -70,7 +70,7 @@ impl SwbusConnWorker {
                 data_message = self.message_stream.next() => {
                     match data_message {
                         Some(Ok(message)) => {
-                            match self.process_incoming_message(message).await {
+                            match self.process_data_message(message).await {
                                 Ok(_) => {}
                                 Err(err) => {
                                     error!("Failed to process the incoming message: {}", err);
@@ -99,13 +99,13 @@ impl SwbusConnWorker {
         Ok(())
     }
 
-    async fn process_incoming_message(&mut self, message: SwbusMessage) -> Result<()> {
-        Self::validate_message_common(&message)?;
+    async fn process_data_message(&mut self, message: SwbusMessage) -> Result<()> {
+        self.validate_message_common(&message)?;
         // TODO: Handle message
         Ok(())
     }
 
-    fn validate_message_common(message: &SwbusMessage) -> Result<()> {
+    fn validate_message_common(&mut self, message: &SwbusMessage) -> Result<()> {
         if message.header.is_none() {
             return Err(SwbusError::input(
                 SwbusErrorCode::InvalidHeader,

@@ -4,6 +4,7 @@ use crate::conn_worker::SwbusConnWorker;
 use crate::contracts::swbus::swbus_service_client::SwbusServiceClient;
 use crate::contracts::swbus::*;
 use crate::result::*;
+use crate::{SwbusConnProxy, SwbusMux};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -14,7 +15,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
 use tracing::error;
-use crate::SwbusMux;
 
 pub struct SwbusConn {
     info: Arc<SwbusConnInfo>,
@@ -25,32 +25,20 @@ pub struct SwbusConn {
 
 // Connection operations
 impl SwbusConn {
-    pub fn id(&self) -> &str {
-        self.info.id()
+    pub fn info(&self) -> &Arc<SwbusConnInfo> {
+        &self.info
     }
 
-    pub fn mode(&self) -> SwbusConnMode {
-        self.info.mode()
-    }
-
-    pub fn remote_addr(&self) -> SocketAddr {
-        self.info.remote_addr()
-    }
-
-    pub fn connection_type(&self) -> ConnectionType {
-        self.info.connection_type()
+    pub fn new_proxy(&self) -> SwbusConnProxy {
+        SwbusConnProxy {
+            info: self.info.clone(),
+            message_queue_tx: self.message_queue_tx.clone(),
+        }
     }
 
     pub async fn start_shutdown(&self) -> Result<()> {
         self.control_queue_tx
             .send(SwbusConnControlMessage::Shutdown)
-            .await
-            .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
-    }
-
-    pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
-        self.message_queue_tx
-            .send(message)
             .await
             .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
     }
