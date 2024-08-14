@@ -1,10 +1,11 @@
-use crate::conn_info::*;
-use crate::conn_worker::SwbusConnControlMessage;
-use crate::conn_worker::SwbusConnWorker;
+use super::SwbusConnControlMessage;
+use super::SwbusConnInfo;
+use super::SwbusConnProxy;
+use super::SwbusConnWorker;
+use super::SwbusMultiplexer;
 use crate::contracts::swbus::swbus_service_client::SwbusServiceClient;
 use crate::contracts::swbus::*;
 use crate::result::*;
-use crate::{SwbusConnProxy, SwbusMux};
 use std::io;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -31,7 +32,6 @@ impl SwbusConn {
 
     pub fn new_proxy(&self) -> SwbusConnProxy {
         SwbusConnProxy {
-            info: self.info.clone(),
             message_queue_tx: self.message_queue_tx.clone(),
         }
     }
@@ -46,7 +46,7 @@ impl SwbusConn {
 
 // Client factory and task entry
 impl SwbusConn {
-    pub async fn connect(conn_type: ConnectionType, server_addr: SocketAddr, mux: Arc<SwbusMux>) -> Result<SwbusConn> {
+    pub async fn connect(conn_type: ConnectionType, server_addr: SocketAddr, mux: Arc<SwbusMultiplexer>) -> Result<SwbusConn> {
         let conn_info = Arc::new(SwbusConnInfo::new_client(conn_type, server_addr));
 
         let endpoint = Endpoint::from_str(&format!("http://{}", server_addr)).map_err(|e| {
@@ -74,7 +74,7 @@ impl SwbusConn {
     async fn start_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         client: SwbusServiceClient<Channel>,
-        mux: Arc<SwbusMux>,
+        mux: Arc<SwbusMultiplexer>,
     ) -> Result<SwbusConn> {
         let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
         let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
@@ -97,7 +97,7 @@ impl SwbusConn {
         mut client: SwbusServiceClient<Channel>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_queue_rx: mpsc::Receiver<SwbusMessage>,
-        mux: Arc<SwbusMux>,
+        mux: Arc<SwbusMultiplexer>,
     ) -> Result<()> {
         let request_stream = ReceiverStream::new(message_queue_rx);
         let stream_message_request = Request::new(request_stream);

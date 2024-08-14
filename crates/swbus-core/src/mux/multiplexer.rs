@@ -1,37 +1,16 @@
-use super::conn::*;
-use super::conn_proxy::SwbusConnProxy;
+use super::SwbusNextHop;
 use crate::contracts::swbus::*;
 use dashmap::DashMap;
 
-#[derive(Debug)]
-struct SwbusMultiplexerNextHop {
-    conn_proxy: SwbusConnProxy,
-    hop_count: u32,
-}
-
-impl SwbusMultiplexerNextHop {
-    pub fn new(conn_proxy: SwbusConnProxy, hop_count: u32) -> Self {
-        SwbusMultiplexerNextHop { conn_proxy, hop_count }
-    }
-
-    pub async fn queue_message(&self, message: SwbusMessage) -> crate::Result<()> {
-        self.conn_proxy.queue_message(message).await
-    }
-}
-
 pub struct SwbusMultiplexer {
     /// Route table. Each entry is a registered prefix to a next hop, which points to a connection.
-    routes: DashMap<String, SwbusMultiplexerNextHop>,
-
-    /// Connection table. Each entry is a connection id to a connection info.
-    connections: DashMap<String, SwbusConn>,
+    routes: DashMap<String, Option<SwbusNextHop>>,
 }
 
 impl SwbusMultiplexer {
     pub fn new() -> Self {
         SwbusMultiplexer {
             routes: DashMap::new(),
-            connections: DashMap::new(),
         }
     }
 
@@ -48,11 +27,11 @@ impl SwbusMultiplexer {
             ConnectionType::Node => path.to_service_prefix(),
             ConnectionType::Client => path.to_string(),
         };
-        let nexthop = SwbusMultiplexerNextHop::new(conn_id, 1);
+        let nexthop = SwbusNextHop::new(conn_id, 1);
         self.update_route(route_key, nexthop);
     }
 
-    fn update_route(&self, route_key: String, nexthop: SwbusMultiplexerNextHop) {
+    fn update_route(&self, route_key: String, nexthop: SwbusNextHop) {
         // If route entry doesn't exist, we insert the next hop as a new one.
         let mut route_entry = self.routes.entry(route_key).or_insert(nexthop.clone());
 

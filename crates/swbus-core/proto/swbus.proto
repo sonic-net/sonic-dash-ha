@@ -4,7 +4,7 @@ package swbus;
 
 // Swbus service
 service SwbusService {
-    rpc StreamMessages(stream SwbusMessage) returns (stream SwbusMessage) {}
+  rpc StreamMessages(stream SwbusMessage) returns (stream SwbusMessage) {}
 }
 
 //
@@ -78,7 +78,7 @@ enum SwbusErrorCode {
   SWBUS_ERROR_CODE_INPUT_ERROR_MIN = 200;
 
   // Generic invalid arguments
-  SWBUS_ERROR_CODE_INVALID_ARGS  = 201;
+  SWBUS_ERROR_CODE_INVALID_ARGS = 201;
 
   // Invalid destination
   SWBUS_ERROR_CODE_INVALID_DESTINATION = 202;
@@ -116,7 +116,7 @@ enum SwbusErrorCode {
 
   // Routing errors ends
   SWBUS_ERROR_CODE_ROUTE_ERROR_MAX = 399;
-  
+
   // Internal error starts
   // This section captures all error code that caused by service itself, not a user error.
   // The errors in this section are rare to happen, and should be logged and investigated.
@@ -153,9 +153,9 @@ message UpdateConnectionInfoRequest {
 //
 // Registration related messages.
 //
-message RegistrationQueryRequest { }
+message RegistrationQueryRequest {}
 
-message RegistrationQueryResponse { }
+message RegistrationQueryResponse {}
 
 //
 // Ping request

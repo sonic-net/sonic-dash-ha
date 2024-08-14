@@ -1,5 +1,5 @@
-use super::conn_info::*;
-use super::multiplexer::SwbusMultiplexer;
+use super::SwbusConnInfo;
+use super::SwbusMultiplexer;
 use crate::contracts::swbus::*;
 use crate::result::*;
 use std::io;
