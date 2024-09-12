@@ -4,7 +4,8 @@ members = [
     "crates/sonic-common",
     "crates/swbus-core",
     "crates/swbusd",
-    "crates/hamgrd"
+    "crates/hamgrd",
+    "crates/swss-common"
 ]
 exclude = []
 
