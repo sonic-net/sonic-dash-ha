@@ -9,6 +9,7 @@ use std::{
     ffi::{CStr, CString},
     ptr::null,
     slice,
+    sync::Arc,
 };
 
 use crate::bindings::*;
@@ -83,7 +84,10 @@ unsafe fn take_key_op_field_values_array(arr: SWSSKeyOpFieldValuesArray) -> Vec<
     out
 }
 
-fn make_key_op_field_values_array(kfvs: &[KeyOpFieldValues]) -> (SWSSKeyOpFieldValuesArray, Vec<Box<dyn Any>>) {
+fn make_key_op_field_values_array<'a, I>(kfvs: I) -> (SWSSKeyOpFieldValuesArray, Vec<Box<dyn Any>>)
+where
+    I: IntoIterator<Item = &'a KeyOpFieldValues>,
+{
     let mut droppables: Vec<Box<dyn Any>> = Vec::new();
     let mut data = Vec::new();
 
@@ -114,47 +118,73 @@ fn cstr(s: &str) -> CString {
     CString::new(s).expect("str must not contain null bytes")
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyOpFieldValues {
     pub key: String,
     pub operation: String,
     pub field_values: HashMap<String, String>,
 }
 
-pub struct DBConnector {
-    db: SWSSDBConnector,
+macro_rules! obj_wrapper {
+    ($(struct $obj:ident { ptr: $inner:ident } $freefn:ident)*) => {
+        $(
+        #[derive(Debug)]
+        struct $obj { ptr: $inner }
+
+        impl Drop for $obj {
+            fn drop(&mut self) {
+                unsafe {
+                    $freefn(self.ptr);
+                }
+            }
+        }
+
+        impl From<$inner> for $obj {
+            fn from(ptr: $inner) -> Self {
+                Self { ptr }
+            }
+        }
+        )*
+    };
 }
 
-impl DBConnector {
-    pub fn new_tcp(db_id: i32, hostname: &str, port: u16, timeout: u32) -> DBConnector {
+obj_wrapper! {
+    struct DBConnectorObj { ptr: SWSSDBConnector } SWSSDBConnector_free
+}
+
+#[derive(Clone, Debug)]
+pub struct DbConnector {
+    obj: Arc<DBConnectorObj>,
+}
+
+impl DbConnector {
+    pub fn new_tcp(db_id: i32, hostname: &str, port: u16, timeout: u32) -> DbConnector {
         let hostname = cstr(hostname);
-        Self {
-            db: unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), port, timeout) },
-        }
+        let obj = unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), port, timeout).into() };
+        Self { obj: Arc::new(obj) }
     }
 
-    pub fn new_unix(db_id: i32, sock_path: &str, timeout: u32) -> DBConnector {
+    pub fn new_unix(db_id: i32, sock_path: &str, timeout: u32) -> DbConnector {
         let sock_path = cstr(sock_path);
-        Self {
-            db: unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout) },
-        }
+        let obj = unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout).into() };
+        Self { obj: Arc::new(obj) }
     }
 
     pub fn del(&self, key: &str) -> bool {
         let key = cstr(key);
-        unsafe { SWSSDBConnector_del(self.db, key.as_ptr()) == 1 }
+        unsafe { SWSSDBConnector_del(self.obj.ptr, key.as_ptr()) == 1 }
     }
 
     pub fn set(&self, key: &str, val: &str) {
         let key = cstr(key);
         let val = cstr(val);
-        unsafe { SWSSDBConnector_set(self.db, key.as_ptr(), val.as_ptr()) };
+        unsafe { SWSSDBConnector_set(self.obj.ptr, key.as_ptr(), val.as_ptr()) };
     }
 
     pub fn get(&self, key: &str) -> Option<String> {
         let key = cstr(key);
         unsafe {
-            let ans = SWSSDBConnector_get(self.db, key.as_ptr());
+            let ans = SWSSDBConnector_get(self.obj.ptr, key.as_ptr());
             if ans.is_null() {
                 None
             } else {
@@ -165,27 +195,27 @@ impl DBConnector {
 
     pub fn exists(&self, key: &str) -> bool {
         let key = cstr(key);
-        unsafe { SWSSDBConnector_exists(self.db, key.as_ptr()) == 1 }
+        unsafe { SWSSDBConnector_exists(self.obj.ptr, key.as_ptr()) == 1 }
     }
 
     pub fn hdel(&self, key: &str, field: &str) -> bool {
         let key = cstr(key);
         let field = cstr(field);
-        unsafe { SWSSDBConnector_hdel(self.db, key.as_ptr(), field.as_ptr()) == 1 }
+        unsafe { SWSSDBConnector_hdel(self.obj.ptr, key.as_ptr(), field.as_ptr()) == 1 }
     }
 
     pub fn hset(&self, key: &str, field: &str, val: &str) {
         let key = cstr(key);
         let field = cstr(field);
         let val = cstr(val);
-        unsafe { SWSSDBConnector_hset(self.db, key.as_ptr(), field.as_ptr(), val.as_ptr()) };
+        unsafe { SWSSDBConnector_hset(self.obj.ptr, key.as_ptr(), field.as_ptr(), val.as_ptr()) };
     }
 
     pub fn hget(&self, key: &str, field: &str) -> Option<String> {
         let key = cstr(key);
         let field = cstr(field);
         unsafe {
-            let ans = SWSSDBConnector_hget(self.db, key.as_ptr(), field.as_ptr());
+            let ans = SWSSDBConnector_hget(self.obj.ptr, key.as_ptr(), field.as_ptr());
             if ans.is_null() {
                 None
             } else {
@@ -197,7 +227,7 @@ impl DBConnector {
     pub fn hgetall(&self, key: &str) -> HashMap<String, String> {
         let key = cstr(key);
         unsafe {
-            let ans = SWSSDBConnector_hgetall(self.db, key.as_ptr());
+            let ans = SWSSDBConnector_hgetall(self.obj.ptr, key.as_ptr());
             take_field_value_array(ans)
         }
     }
@@ -205,106 +235,107 @@ impl DBConnector {
     pub fn hexists(&self, key: &str, field: &str) -> bool {
         let key = cstr(key);
         let field = cstr(field);
-        unsafe { SWSSDBConnector_hexists(self.db, key.as_ptr(), field.as_ptr()) == 1 }
+        unsafe { SWSSDBConnector_hexists(self.obj.ptr, key.as_ptr(), field.as_ptr()) == 1 }
     }
 
     pub fn flush_db(&self) -> bool {
-        unsafe { SWSSDBConnector_flushdb(self.db) == 1 }
+        unsafe { SWSSDBConnector_flushdb(self.obj.ptr) == 1 }
     }
 }
 
-impl Drop for DBConnector {
-    fn drop(&mut self) {
-        unsafe { SWSSDBConnector_free(self.db) }
-    }
+obj_wrapper! {
+    struct SubscriberStateTableObj { ptr: SWSSSubscriberStateTable } SWSSSubscriberStateTable_free
 }
 
-pub struct SubscriberStateTable<'a> {
-    tbl: SWSSSubscriberStateTable,
-    _db: &'a DBConnector,
+#[derive(Clone, Debug)]
+pub struct SubscriberStateTable {
+    obj: Arc<SubscriberStateTableObj>,
+    _db: DbConnector,
 }
 
-impl<'a> SubscriberStateTable<'a> {
-    pub fn new(db: &'a DBConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Self {
+impl SubscriberStateTable {
+    pub fn new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Self {
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.map(|n| &n as *const i32).unwrap_or(null());
         let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
-        let tbl = unsafe { SWSSSubscriberStateTable_new(db.db, table_name.as_ptr(), pop_batch_size, pri) };
-        Self { tbl, _db: db }
+        let obj = unsafe {
+            Arc::new(SWSSSubscriberStateTable_new(db.obj.ptr, table_name.as_ptr(), pop_batch_size, pri).into())
+        };
+        Self { obj, _db: db }
     }
 
     pub fn pops(&self) -> Vec<KeyOpFieldValues> {
         unsafe {
-            let ans = SWSSSubscriberStateTable_pops(self.tbl);
+            let ans = SWSSSubscriberStateTable_pops(self.obj.ptr);
             take_key_op_field_values_array(ans)
         }
     }
 
     pub fn has_data(&self) -> bool {
-        unsafe { SWSSSubscriberStateTable_hasData(self.tbl) == 1 }
+        unsafe { SWSSSubscriberStateTable_hasData(self.obj.ptr) == 1 }
     }
 
     pub fn has_cached_data(&self) -> bool {
-        unsafe { SWSSSubscriberStateTable_hasCachedData(self.tbl) == 1 }
+        unsafe { SWSSSubscriberStateTable_hasCachedData(self.obj.ptr) == 1 }
     }
 
     pub fn initialized_with_data(&self) -> bool {
-        unsafe { SWSSSubscriberStateTable_initializedWithData(self.tbl) == 1 }
+        unsafe { SWSSSubscriberStateTable_initializedWithData(self.obj.ptr) == 1 }
     }
 
     pub fn read_data(&self) {
-        unsafe { SWSSSubscriberStateTable_readData(self.tbl) };
+        unsafe { SWSSSubscriberStateTable_readData(self.obj.ptr) };
     }
 }
 
-impl Drop for SubscriberStateTable<'_> {
-    fn drop(&mut self) {
-        unsafe { SWSSSubscriberStateTable_free(self.tbl) };
-    }
+obj_wrapper! {
+    struct ConsumerStateTableObj { ptr: SWSSConsumerStateTable } SWSSConsumerStateTable_free
 }
 
-pub struct ConsumerStateTable<'a> {
-    tbl: SWSSConsumerStateTable,
-    _db: &'a DBConnector,
+#[derive(Clone, Debug)]
+pub struct ConsumerStateTable {
+    obj: Arc<ConsumerStateTableObj>,
+    _db: DbConnector,
 }
 
-impl<'a> ConsumerStateTable<'a> {
-    pub fn new(db: &'a DBConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Self {
+impl ConsumerStateTable {
+    pub fn new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Self {
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.map(|n| &n as *const i32).unwrap_or(null());
         let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
-        let tbl = unsafe { SWSSConsumerStateTable_new(db.db, table_name.as_ptr(), pop_batch_size, pri) };
-        Self { tbl, _db: db }
+        let obj = unsafe {
+            Arc::new(SWSSConsumerStateTable_new(db.obj.ptr, table_name.as_ptr(), pop_batch_size, pri).into())
+        };
+        Self { obj, _db: db }
     }
 
     pub fn pops(&self) -> Vec<KeyOpFieldValues> {
         unsafe {
-            let ans = SWSSConsumerStateTable_pops(self.tbl);
+            let ans = SWSSConsumerStateTable_pops(self.obj.ptr);
             take_key_op_field_values_array(ans)
         }
     }
 }
 
-impl Drop for ConsumerStateTable<'_> {
-    fn drop(&mut self) {
-        unsafe { SWSSConsumerStateTable_free(self.tbl) };
-    }
+obj_wrapper! {
+    struct ProducerStateTableObj { ptr: SWSSProducerStateTable } SWSSProducerStateTable_free
 }
 
-pub struct ProducerStateTable<'a> {
-    tbl: SWSSProducerStateTable,
-    _db: &'a DBConnector,
+#[derive(Clone, Debug)]
+pub struct ProducerStateTable {
+    obj: Arc<ProducerStateTableObj>,
+    _db: DbConnector,
 }
 
-impl<'a> ProducerStateTable<'a> {
-    pub fn new(db: &'a DBConnector, table_name: &str) -> Self {
+impl ProducerStateTable {
+    pub fn new(db: DbConnector, table_name: &str) -> Self {
         let table_name = cstr(table_name);
-        let tbl = unsafe { SWSSProducerStateTable_new(db.db, table_name.as_ptr()) };
-        Self { tbl, _db: db }
+        let obj = Arc::new(unsafe { SWSSProducerStateTable_new(db.obj.ptr, table_name.as_ptr()).into() });
+        Self { obj, _db: db }
     }
 
     pub fn set_buffered(&self, buffered: bool) {
-        unsafe { SWSSProducerStateTable_setBuffered(self.tbl, buffered as u8) };
+        unsafe { SWSSProducerStateTable_setBuffered(self.obj.ptr, buffered as u8) };
     }
 
     pub fn set<I, S>(&self, key: &str, fv_iter: I)
@@ -314,65 +345,73 @@ impl<'a> ProducerStateTable<'a> {
     {
         let key = cstr(key);
         let (arr, _droppables) = make_field_value_array(fv_iter);
-        unsafe { SWSSProducerStateTable_set(self.tbl, key.as_ptr(), arr) };
+        unsafe { SWSSProducerStateTable_set(self.obj.ptr, key.as_ptr(), arr) };
     }
 
     pub fn del(&self, key: &str) {
         let key = cstr(key);
-        unsafe { SWSSProducerStateTable_del(self.tbl, key.as_ptr()) };
+        unsafe { SWSSProducerStateTable_del(self.obj.ptr, key.as_ptr()) };
     }
 
     pub fn flush(&self) {
-        unsafe { SWSSProducerStateTable_flush(self.tbl) };
+        unsafe { SWSSProducerStateTable_flush(self.obj.ptr) };
     }
 
     pub fn count(&self) -> i64 {
-        unsafe { SWSSProducerStateTable_count(self.tbl) }
+        unsafe { SWSSProducerStateTable_count(self.obj.ptr) }
     }
 
     pub fn clear(&self) {
-        unsafe { SWSSProducerStateTable_clear(self.tbl) };
+        unsafe { SWSSProducerStateTable_clear(self.obj.ptr) };
     }
 
     pub fn create_temp_view(&self) {
-        unsafe { SWSSProducerStateTable_create_temp_view(self.tbl) };
+        unsafe { SWSSProducerStateTable_create_temp_view(self.obj.ptr) };
     }
 
     pub fn apply_temp_view(&self) {
-        unsafe { SWSSProducerStateTable_apply_temp_view(self.tbl) };
+        unsafe { SWSSProducerStateTable_apply_temp_view(self.obj.ptr) };
     }
 }
 
-impl Drop for ProducerStateTable<'_> {
-    fn drop(&mut self) {
-        unsafe { SWSSProducerStateTable_free(self.tbl) };
-    }
-}
+// libswsscommon handles zmq messages in another thread, so Send + Sync are required
+// 'static is a simplification and could probably be reduced to the lifetime of ZmqServer, but it probably won't matter
+pub trait ZmqMessageHandlerFn: FnMut(&[KeyOpFieldValues]) + Send + Sync + 'static {}
+impl<T: FnMut(&[KeyOpFieldValues]) + Send + Sync + 'static> ZmqMessageHandlerFn for T {}
 
-struct ZmqMessageHandler {
-    callback: *mut Box<dyn FnMut(&[KeyOpFieldValues]) + 'static>,
+#[derive(Clone, Debug)]
+struct ClosureZmqMessageHandler {
+    callback: *mut Box<dyn ZmqMessageHandlerFn>,
     handler: SWSSZmqMessageHandler,
 }
 
-impl ZmqMessageHandler {
-    fn new<F: FnMut(&[KeyOpFieldValues]) + 'static>(callback: F) -> Self {
+impl ClosureZmqMessageHandler {
+    fn new<F>(callback: F) -> Self
+    where
+        F: FnMut(&[KeyOpFieldValues]) + Send + Sync + 'static,
+    {
         unsafe extern "C" fn real_handler(callback_ptr: *mut libc::c_void, arr: *const SWSSKeyOpFieldValuesArray) {
-            let kfvs = take_key_op_field_values_array(*arr);
-            let callback = (callback_ptr as *mut Box<dyn FnMut(&[KeyOpFieldValues])>)
-                .as_mut()
-                .unwrap();
+            let res = std::panic::catch_unwind(|| {
+                let kfvs = take_key_op_field_values_array(*arr);
+                let callback = (callback_ptr as *mut Box<dyn ZmqMessageHandlerFn>).as_mut().unwrap();
+                callback(&kfvs);
+            });
 
-            callback(&kfvs);
+            if res.is_err() {
+                eprintln!("Aborting to avoid unwinding a Rust panic into C++ code");
+                eprintln!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+                std::process::abort();
+            }
         }
 
-        let callback: *mut Box<dyn FnMut(&[KeyOpFieldValues]) + 'static> = Box::into_raw(Box::new(Box::new(callback)));
+        let callback: *mut Box<dyn ZmqMessageHandlerFn> = Box::into_raw(Box::new(Box::new(callback)));
         let handler = unsafe { SWSSZmqMessageHandler_new(callback as _, Some(real_handler)) };
 
         Self { callback, handler }
     }
 }
 
-impl Drop for ZmqMessageHandler {
+impl Drop for ClosureZmqMessageHandler {
     fn drop(&mut self) {
         unsafe {
             SWSSZmqMessageHandler_free(self.handler);
@@ -381,71 +420,199 @@ impl Drop for ZmqMessageHandler {
     }
 }
 
+// The types that register message handlers with a ZmqServer and are owned on the rust side
+#[derive(Clone, Debug)]
+enum ZmqMessageHandler {
+    Closure { _h: ClosureZmqMessageHandler },
+    ConsumerStateTable { _t: ZmqConsumerStateTable },
+}
+
+obj_wrapper! {
+    struct ZmqServerObj { ptr: SWSSZmqServer } SWSSZmqServer_free
+}
+
+#[derive(Clone, Debug)]
 pub struct ZmqServer {
-    zmqs: SWSSZmqServer,
+    obj: Arc<ZmqServerObj>,
+
+    // The types that register message handlers with a ZmqServer must be kept alive until
+    // the server thread dies, otherwise we risk the server thread calling methods on deleted objects
     handlers: Vec<ZmqMessageHandler>,
 }
 
 impl ZmqServer {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let zmqs = unsafe { SWSSZmqServer_new(endpoint.as_ptr()) };
+        let obj = unsafe { Arc::new(SWSSZmqServer_new(endpoint.as_ptr()).into()) };
         Self {
-            zmqs,
+            obj,
             handlers: Vec::new(),
         }
     }
 
     pub fn register_message_handler<F>(&mut self, db_name: &str, table_name: &str, handler: F)
     where
-        F: FnMut(&[KeyOpFieldValues]) + 'static,
+        F: ZmqMessageHandlerFn,
     {
         let db_name = cstr(db_name);
         let table_name = cstr(table_name);
-        let handler = ZmqMessageHandler::new(handler);
+        let handler = ClosureZmqMessageHandler::new(handler);
         unsafe {
-            SWSSZmqServer_registerMessageHandler(self.zmqs, db_name.as_ptr(), table_name.as_ptr(), handler.handler);
+            SWSSZmqServer_registerMessageHandler(self.obj.ptr, db_name.as_ptr(), table_name.as_ptr(), handler.handler);
         }
-        self.handlers.push(handler);
+        self.handlers.push(ZmqMessageHandler::Closure { _h: handler });
+    }
+
+    fn register_consumer_state_table(&mut self, tbl: ZmqConsumerStateTable) {
+        self.handlers.push(ZmqMessageHandler::ConsumerStateTable { _t: tbl })
     }
 }
 
-impl Drop for ZmqServer {
-    fn drop(&mut self) {
-        unsafe { SWSSZmqServer_free(self.zmqs) };
-    }
+obj_wrapper! {
+    struct ZmqClientObj { ptr: SWSSZmqClient } SWSSZmqClient_free
 }
 
+#[derive(Clone, Debug)]
 pub struct ZmqClient {
-    zmqc: SWSSZmqClient,
+    obj: Arc<ZmqClientObj>,
 }
 
 impl ZmqClient {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let zmqc = unsafe { SWSSZmqClient_new(endpoint.as_ptr()) };
-        Self { zmqc }
+        let obj = unsafe { Arc::new(SWSSZmqClient_new(endpoint.as_ptr()).into()) };
+        Self { obj }
     }
 
     pub fn is_connected(&self) -> bool {
-        unsafe { SWSSZmqClient_isConnected(self.zmqc) == 1 }
+        unsafe { SWSSZmqClient_isConnected(self.obj.ptr) == 1 }
     }
 
     pub fn connect(&self) {
-        unsafe { SWSSZmqClient_connect(self.zmqc) }
+        unsafe { SWSSZmqClient_connect(self.obj.ptr) }
     }
 
-    pub fn send_msg(&self, db_name: &str, table_name: &str, kfvs: &[KeyOpFieldValues]) {
+    pub fn send_msg<'a, I>(&self, db_name: &str, table_name: &str, kfvs: I)
+    where
+        I: IntoIterator<Item = &'a KeyOpFieldValues>,
+    {
         let db_name = cstr(db_name);
         let table_name = cstr(table_name);
         let (kfvs, _droppables) = make_key_op_field_values_array(kfvs);
-        unsafe { SWSSZmqClient_sendMsg(self.zmqc, db_name.as_ptr(), table_name.as_ptr(), &kfvs as *const _) };
+        unsafe { SWSSZmqClient_sendMsg(self.obj.ptr, db_name.as_ptr(), table_name.as_ptr(), &kfvs as *const _) };
     }
 }
 
-impl Drop for ZmqClient {
-    fn drop(&mut self) {
-        unsafe { SWSSZmqClient_free(self.zmqc) };
+obj_wrapper! {
+    struct ZmqConsumerStateTableObj { ptr: SWSSZmqConsumerStateTable } SWSSZmqConsumerStateTable_free
+}
+
+#[derive(Clone, Debug)]
+pub struct ZmqConsumerStateTable {
+    obj: Arc<ZmqConsumerStateTableObj>,
+    _db: DbConnector,
+    // ZmqConsumerStateTable does not own a copy of the ZmqServer because the ZmqServer must be
+    // destroyed first (otherwise its worker thread might call a destroyed ZmqMessageHandler).
+    // Instead, the ZmqServer owns a copy of all handlers registered to it, so they can be kept
+    // alive until the ZmqServer is destroyed.
+}
+
+impl ZmqConsumerStateTable {
+    pub fn new(
+        db: DbConnector,
+        table_name: &str,
+        zmqs: &mut ZmqServer,
+        pop_batch_size: Option<i32>,
+        pri: Option<i32>,
+    ) -> Self {
+        let table_name = cstr(table_name);
+        let pop_batch_size = pop_batch_size.map(|n| &n as *const i32).unwrap_or(null());
+        let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
+        let obj = unsafe {
+            let p = SWSSZmqConsumerStateTable_new(db.obj.ptr, table_name.as_ptr(), zmqs.obj.ptr, pop_batch_size, pri);
+            Arc::new(p.into())
+        };
+        let self_ = Self { obj, _db: db };
+        zmqs.register_consumer_state_table(self_.clone());
+        self_
+    }
+
+    pub fn pops(&self) -> Vec<KeyOpFieldValues> {
+        unsafe {
+            let ans = SWSSZmqConsumerStateTable_pops(self.obj.ptr);
+            take_key_op_field_values_array(ans)
+        }
+    }
+
+    pub fn get_fd(&self) -> i32 {
+        unsafe { SWSSZmqConsumerStateTable_getFd(self.obj.ptr) }
+    }
+
+    pub fn read_data(&self) -> u64 {
+        unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr) }
+    }
+
+    pub fn has_data(&self) -> bool {
+        unsafe { SWSSZmqConsumerStateTable_hasData(self.obj.ptr) == 1 }
+    }
+
+    pub fn has_cached_data(&self) -> bool {
+        unsafe { SWSSZmqConsumerStateTable_hasCachedData(self.obj.ptr) == 1 }
+    }
+
+    pub fn initialized_with_data(&self) -> bool {
+        unsafe { SWSSZmqConsumerStateTable_initializedWithData(self.obj.ptr) == 1 }
+    }
+
+    pub fn db_updater_queue_size(&self) -> u64 {
+        unsafe { SWSSZmqConsumerStateTable_dbUpdaterQueueSize(self.obj.ptr) }
+    }
+}
+
+obj_wrapper! {
+    struct ZmqProducerStateTableObj { ptr: SWSSZmqProducerStateTable } SWSSZmqProducerStateTable_free
+}
+
+#[derive(Clone, Debug)]
+pub struct ZmqProducerStateTable {
+    obj: Arc<ZmqProducerStateTableObj>,
+    _db: DbConnector,
+    _zmqc: ZmqClient,
+}
+
+impl ZmqProducerStateTable {
+    pub fn new(db: DbConnector, table_name: &str, zmqc: ZmqClient, db_persistence: bool) -> Self {
+        let table_name = cstr(table_name);
+        let obj = unsafe {
+            Arc::new(
+                SWSSZmqProducerStateTable_new(db.obj.ptr, table_name.as_ptr(), zmqc.obj.ptr, db_persistence as u8)
+                    .into(),
+            )
+        };
+        Self {
+            obj,
+            _db: db,
+            _zmqc: zmqc,
+        }
+    }
+
+    pub fn set<I, S>(&self, key: &str, fv_iter: I)
+    where
+        I: IntoIterator<Item = (S, S)>,
+        S: AsRef<str>,
+    {
+        let key = cstr(key);
+        let (arr, _droppables) = make_field_value_array(fv_iter);
+        unsafe { SWSSZmqProducerStateTable_set(self.obj.ptr, key.as_ptr(), arr) };
+    }
+
+    pub fn del(&self, key: &str) {
+        let key = cstr(key);
+        unsafe { SWSSZmqProducerStateTable_del(self.obj.ptr, key.as_ptr()) };
+    }
+
+    pub fn db_updater_queue_size(&self) -> u64 {
+        unsafe { SWSSZmqProducerStateTable_dbUpdaterQueueSize(self.obj.ptr) }
     }
 }
 
@@ -456,6 +623,9 @@ mod test {
         fs::File,
         io::{BufRead, BufReader, Read},
         process::{Child, Command, Stdio},
+        sync::{Arc, Mutex},
+        thread::sleep,
+        time::{Duration, Instant},
     };
 
     use super::*;
@@ -463,7 +633,7 @@ mod test {
     #[test]
     fn dbconnector() {
         let _redis = Redis::start("/tmp/dbconnector_test.sock");
-        let db = DBConnector::new_unix(0, "/tmp/dbconnector_test.sock", 0);
+        let db = DbConnector::new_unix(0, "/tmp/dbconnector_test.sock", 0);
 
         assert!(db.flush_db());
 
@@ -528,38 +698,54 @@ mod test {
     fn zmq() {
         let ep = "ipc:///tmp/zmq_test.sock";
         let mut s = ZmqServer::new(ep);
-        s.register_message_handler("a", "b", |kvfs| {
-            println!("{kvfs:?}");
+
+        let kvfs_seen: Arc<Mutex<Option<KeyOpFieldValues>>> = Arc::new(Mutex::new(None));
+        let kvfs_seen_ = kvfs_seen.clone();
+
+        s.register_message_handler("a", "b", move |kvfs| {
+            *kvfs_seen_.lock().unwrap() = Some(kvfs[0].clone());
         });
 
+        let kvfs = KeyOpFieldValues {
+            key: "akey".into(),
+            operation: "SET".into(),
+            field_values: HashMap::from_iter([("afield".into(), "avalue".into())]),
+        };
         let c = ZmqClient::new(ep);
-        c.send_msg(
-            "a",
-            "b",
-            &[KeyOpFieldValues {
-                key: "akey".into(),
-                operation: "HSET".into(),
-                field_values: HashMap::from_iter([("afield".into(), "avalue".into())]),
-            }],
-        );
+        c.send_msg("a", "b", [&kvfs]);
+
+        let start_time = Instant::now();
+        loop {
+            let kvfs_seen_lock = kvfs_seen.lock().unwrap();
+            match &*kvfs_seen_lock {
+                Some(kvfs_seen) => {
+                    assert_eq!(&kvfs, kvfs_seen);
+                    break;
+                }
+                None => {
+                    drop(kvfs_seen_lock);
+                    sleep(Duration::from_secs_f32(0.1));
+                    assert!(
+                        Instant::now().duration_since(start_time) < Duration::from_secs(5),
+                        "timeout waiting for kvfs_seen"
+                    )
+                }
+            }
+        }
     }
 
     struct Redis(Child);
 
     impl Redis {
         fn start(sock_path: impl AsRef<str>) -> Self {
+            #[rustfmt::skip]
             let mut child = Command::new("redis-server")
                 .args([
-                    "--appendonly",
-                    "no",
-                    "--save",
-                    "",
-                    "--notify-keyspace-events",
-                    "AKE",
-                    "--port",
-                    "0",
-                    "--unixsocket",
-                    sock_path.as_ref(),
+                    "--appendonly", "no",
+                    "--save", "",
+                    "--notify-keyspace-events", "AKE",
+                    "--port", "0",
+                    "--unixsocket", sock_path.as_ref(),
                 ])
                 .stdout(Stdio::piped())
                 .spawn()
