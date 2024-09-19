@@ -74,7 +74,7 @@ unsafe fn take_key_op_field_values_array(arr: SWSSKeyOpFieldValuesArray) -> Vec<
             for kfv in kfvs {
                 out.push(KeyOpFieldValues {
                     key: str(kfv.key),
-                    operation: str(kfv.operation),
+                    operation: KeyOperation::from_str(str(kfv.operation)),
                     field_values: take_field_value_array(kfv.fieldValues),
                 });
             }
@@ -93,15 +93,13 @@ where
 
     for kfv in kfvs {
         let key = cstr(&kfv.key);
-        let operation = cstr(&kfv.operation);
         let (fv_arr, arr_droppables) = make_field_value_array(&kfv.field_values);
         data.push(SWSSKeyOpFieldValues {
             key: key.as_ptr(),
-            operation: operation.as_ptr(),
+            operation: kfv.operation.as_c_str(),
             fieldValues: fv_arr,
         });
         droppables.push(Box::new(key));
-        droppables.push(Box::new(operation));
         droppables.extend(arr_droppables);
     }
 
@@ -118,18 +116,68 @@ fn cstr(s: &str) -> CString {
     CString::new(s).expect("str must not contain null bytes")
 }
 
+pub fn sonic_db_config_initialize(path: &str) {
+    let path = cstr(path);
+    unsafe { SWSSSonicDBConfig_initialize(path.as_ptr()) }
+}
+
+pub fn sonic_db_config_initialize_global(path: &str) {
+    let path = cstr(path);
+    unsafe { SWSSSonicDBConfig_initializeGlobalConfig(path.as_ptr()) }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum KeyOperation {
+    Set,
+    Del,
+}
+
+impl KeyOperation {
+    fn as_c_str(self) -> *const i8 {
+        static SET: &'static CStr = c"SET";
+        static DEL: &'static CStr = c"DEL";
+        match self {
+            KeyOperation::Set => SET.as_ptr(),
+            KeyOperation::Del => DEL.as_ptr(),
+        }
+    }
+
+    fn from_str(s: impl AsRef<str>) -> Self {
+        match s.as_ref() {
+            "SET" => Self::Set,
+            "DEL" => Self::Del,
+            s => panic!("invalid KeyOperation: {s}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyOpFieldValues {
     pub key: String,
-    pub operation: String,
+    pub operation: KeyOperation,
     pub field_values: HashMap<String, String>,
 }
 
+/// Intended for testing, ordered by key
+impl PartialOrd for KeyOpFieldValues {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Intended for testing, ordered by key
+impl Ord for KeyOpFieldValues {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.key.cmp(&other.key)
+    }
+}
+
 macro_rules! obj_wrapper {
-    ($(struct $obj:ident { ptr: $inner:ident } $freefn:ident)*) => {
-        $(
+    (struct $obj:ident { ptr: $ptr:ty } $freefn:expr) => {
         #[derive(Debug)]
-        struct $obj { ptr: $inner }
+        struct $obj {
+            ptr: $ptr,
+        }
 
         impl Drop for $obj {
             fn drop(&mut self) {
@@ -139,12 +187,11 @@ macro_rules! obj_wrapper {
             }
         }
 
-        impl From<$inner> for $obj {
-            fn from(ptr: $inner) -> Self {
+        impl From<$ptr> for $obj {
+            fn from(ptr: $ptr) -> Self {
                 Self { ptr }
             }
         }
-        )*
     };
 }
 
@@ -158,15 +205,15 @@ pub struct DbConnector {
 }
 
 impl DbConnector {
-    pub fn new_tcp(db_id: i32, hostname: &str, port: u16, timeout: u32) -> DbConnector {
+    pub fn new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector {
         let hostname = cstr(hostname);
-        let obj = unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), port, timeout).into() };
+        let obj = unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), port, timeout_ms).into() };
         Self { obj: Arc::new(obj) }
     }
 
-    pub fn new_unix(db_id: i32, sock_path: &str, timeout: u32) -> DbConnector {
+    pub fn new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector {
         let sock_path = cstr(sock_path);
-        let obj = unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout).into() };
+        let obj = unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout_ms).into() };
         Self { obj: Arc::new(obj) }
     }
 
@@ -338,13 +385,13 @@ impl ProducerStateTable {
         unsafe { SWSSProducerStateTable_setBuffered(self.obj.ptr, buffered as u8) };
     }
 
-    pub fn set<I, S>(&self, key: &str, fv_iter: I)
+    pub fn set<I, S>(&self, key: &str, fvs: I)
     where
         I: IntoIterator<Item = (S, S)>,
         S: AsRef<str>,
     {
         let key = cstr(key);
-        let (arr, _droppables) = make_field_value_array(fv_iter);
+        let (arr, _droppables) = make_field_value_array(fvs);
         unsafe { SWSSProducerStateTable_set(self.obj.ptr, key.as_ptr(), arr) };
     }
 
@@ -596,13 +643,13 @@ impl ZmqProducerStateTable {
         }
     }
 
-    pub fn set<I, S>(&self, key: &str, fv_iter: I)
+    pub fn set<I, S>(&self, key: &str, fvs: I)
     where
         I: IntoIterator<Item = (S, S)>,
         S: AsRef<str>,
     {
         let key = cstr(key);
-        let (arr, _droppables) = make_field_value_array(fv_iter);
+        let (arr, _droppables) = make_field_value_array(fvs);
         unsafe { SWSSZmqProducerStateTable_set(self.obj.ptr, key.as_ptr(), arr) };
     }
 
@@ -620,32 +667,161 @@ impl ZmqProducerStateTable {
 mod test {
     use std::{
         collections::HashMap,
-        fs::File,
-        io::{BufRead, BufReader, Read},
+        fs::{self, remove_file},
+        io::{BufRead, BufReader},
+        iter,
         process::{Child, Command, Stdio},
         sync::{Arc, Mutex},
-        thread::sleep,
-        time::{Duration, Instant},
+        thread::{self},
+        time::Duration,
     };
+
+    use rand::{random, Rng};
 
     use super::*;
 
+    struct Redis {
+        proc: Child,
+        sock: String,
+    }
+
+    impl Redis {
+        fn start() -> Self {
+            let sock = random_unix_sock();
+            #[rustfmt::skip]
+            let mut child = Command::new("redis-server")
+                .args([
+                    "--appendonly", "no",
+                    "--save", "",
+                    "--notify-keyspace-events", "AKE",
+                    "--port", "0",
+                    "--unixsocket", &sock,
+                ])
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let mut stdout = BufReader::new(child.stdout.take().unwrap());
+            let mut buf = String::new();
+            loop {
+                buf.clear();
+                if stdout.read_line(&mut buf).unwrap() == 0 {
+                    panic!("Redis didn't start");
+                }
+                if buf.contains("ready to accept connections") {
+                    break Self { proc: child, sock };
+                }
+            }
+        }
+    }
+
+    impl Drop for Redis {
+        fn drop(&mut self) {
+            Command::new("kill")
+                .args(["-s", "TERM", &self.proc.id().to_string()])
+                .status()
+                .unwrap();
+            self.proc.wait().unwrap();
+        }
+    }
+
+    struct Defer<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> Defer<F> {
+        fn new(f: F) -> Self {
+            Self(Some(f))
+        }
+    }
+
+    impl<F: FnOnce()> Drop for Defer<F> {
+        fn drop(&mut self) {
+            self.0.take().unwrap()()
+        }
+    }
+
+    const DB_CONFIG_JSON: &str = r#"
+        {
+            "DATABASES": {
+                "db name doesn't matter": {
+                    "id": 0,
+                    "separator": ":",
+                    "instance": "redis"
+                }
+            }
+        }
+    "#;
+
+    const DB_GLOBAL_CONFIG_JSON: &str = "{}";
+
+    fn sonic_db_config_init_for_test() {
+        // HACK
+        // We need to do our own locking here because locking is not correctly implemented in
+        // swss::SonicDBConfig :/
+        static INITIALIZED: Mutex<bool> = Mutex::new(false);
+        let mut is_init = INITIALIZED.lock().unwrap();
+        if !*is_init {
+            fs::write("/tmp/db_config_test.json", DB_CONFIG_JSON).unwrap();
+            fs::write("/tmp/db_global_config_test.json", DB_GLOBAL_CONFIG_JSON).unwrap();
+            sonic_db_config_initialize("/tmp/db_config_test.json");
+            sonic_db_config_initialize_global("/tmp/db_global_config_test.json");
+            fs::remove_file("/tmp/db_config_test.json").unwrap();
+            fs::remove_file("/tmp/db_global_config_test.json").unwrap();
+            *is_init = true;
+        }
+    }
+
+    fn random_string() -> String {
+        format!("{:0X}", random::<u64>())
+    }
+
+    fn random_kfv() -> KeyOpFieldValues {
+        let key = random_string();
+        let operation = if random() { KeyOperation::Set } else { KeyOperation::Del };
+        let mut field_values = HashMap::new();
+
+        if operation == KeyOperation::Set {
+            // We need at least one field-value pair, otherwise swss::BinarySerializer infers that
+            // the operation is DEL even if the .operation field is SET
+            for _ in 0..rand::thread_rng().gen_range(100..1000) {
+                field_values.insert(random_string(), random_string());
+            }
+        }
+
+        KeyOpFieldValues {
+            key,
+            operation,
+            field_values,
+        }
+    }
+
+    fn random_kfvs() -> Vec<KeyOpFieldValues> {
+        iter::repeat_with(random_kfv).take(100).collect()
+    }
+
+    fn random_unix_sock() -> String {
+        format!("/tmp/{}.sock", random_string())
+    }
+
+    // zmq doesn't clean up its own ipc sockets, so we include a deferred operation for that
+    fn random_zmq_endpoint() -> (String, impl Drop) {
+        let sock = random_unix_sock();
+        let endpoint = format!("ipc://{sock}");
+        (endpoint, Defer::new(|| remove_file(sock).unwrap()))
+    }
+
+    // swss::ZmqServer spawns a thread which polls for messages every second. When we want to test
+    // the receipt of a message, we need to wait one second plus a little extra wiggle room.
+    fn sleep_zmq_poll() {
+        thread::sleep(Duration::from_millis(1100));
+    }
+
     #[test]
     fn dbconnector() {
-        let _redis = Redis::start("/tmp/dbconnector_test.sock");
-        let db = DbConnector::new_unix(0, "/tmp/dbconnector_test.sock", 0);
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
 
         assert!(db.flush_db());
 
-        let random = {
-            let mut buf = [0u8; 8];
-            File::open("/dev/urandom")
-                .unwrap()
-                .take(8)
-                .read_exact(&mut buf)
-                .unwrap();
-            format!("{:0X}", u64::from_be_bytes(buf))
-        };
+        let random = random_string();
 
         db.set("hello", "hello, world!");
         db.set("random", &random);
@@ -695,82 +871,164 @@ mod test {
     }
 
     #[test]
-    fn zmq() {
-        let ep = "ipc:///tmp/zmq_test.sock";
-        let mut s = ZmqServer::new(ep);
+    fn consumer_producer_subscriber_state_tables() {
+        sonic_db_config_init_for_test();
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
 
-        let kvfs_seen: Arc<Mutex<Option<KeyOpFieldValues>>> = Arc::new(Mutex::new(None));
-        let kvfs_seen_ = kvfs_seen.clone();
+        let pst = ProducerStateTable::new(db.clone(), "table_a");
+        let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
+        // let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
 
-        s.register_message_handler("a", "b", move |kvfs| {
-            *kvfs_seen_.lock().unwrap() = Some(kvfs[0].clone());
+        // TODO properly understand and test SubscriberStateTable
+        // swss::SubscriberStateTable::readData claims to be non blocking, but it is blocking.
+        // This makes it impossible to test in one thread.
+
+        // sst.read_data();
+        // assert!(!sst.has_data());
+        // assert!(sst.pops().is_empty());
+
+        assert!(cst.pops().is_empty());
+
+        let mut kfvs = random_kfvs();
+        for (i, kfv) in kfvs.iter().enumerate() {
+            assert_eq!(pst.count(), i as i64);
+            match kfv.operation {
+                KeyOperation::Set => pst.set(&kfv.key, &kfv.field_values),
+                KeyOperation::Del => pst.del(&kfv.key),
+            }
+        }
+
+        let mut kfvs_cst = cst.pops();
+        assert!(cst.pops().is_empty());
+
+        // sst.read_data();
+        // assert!(sst.has_data());
+        // let mut kfvs_sst = sst.pops();
+        // assert!(!sst.has_data());
+        // assert!(sst.pops().is_empty());
+
+        kfvs.sort_unstable();
+        kfvs_cst.sort_unstable();
+        // kfvs_sst.sort_unstable();
+        assert_eq!(kfvs_cst.len(), kfvs.len());
+        assert_eq!(kfvs_cst, kfvs);
+
+        // TODO properly understand and test ProducerStateTable::{create_temp_view,set_buffered}
+        // Neither of these features work as I expected.
+        // set_buffered(true) does not actually buffer anything - it flushes on every .set() or .del()
+        // create_temp_view() and apply_temp_view() reintroduces keys that have already been popped by a ConsumerStateTable, and randomly throws out new keys.
+        /*
+        pst.create_temp_view();
+        let mut kfvs = random_kfvs();
+        for kfv in &kfvs {
+            match kfv.operation {
+                KeyOperation::Set => pst.set(&kfv.key, &kfv.field_values),
+                KeyOperation::Del => pst.del(&kfv.key),
+            }
+        }
+
+        assert!(cst.pops().is_empty());
+        pst.apply_temp_view();
+        let mut kfvs_seen = cst.pops();
+        // kfvs.sort_unstable();
+        // kfvs_seen.sort_unstable();
+
+        // assert_eq!(kfvs_seen.len(), kfvs.len());
+        println!("len={}", kfvs_seen.len());
+
+        use std::collections::BTreeSet;
+        let kfvs_keys: BTreeSet<_> = kfvs.into_iter().map(|x| x.key).collect();
+        let kfvs_seen_keys: BTreeSet<_> = kfvs_seen.into_iter().map(|x| x.key).collect();
+
+        println!("{:?}", kfvs_keys.difference(&kfvs_seen_keys).collect::<Vec<_>>());
+        println!("{:?}", kfvs_seen_keys.difference(&kfvs_keys).collect::<Vec<_>>());
+
+        // assert_eq!(kfvs_seen, kfvs);
+        */
+    }
+
+    #[test]
+    fn zmq_message_handler() {
+        let (endpoint, _delete) = random_zmq_endpoint();
+        let mut s = ZmqServer::new(&endpoint);
+
+        let kvf_seen: Arc<Mutex<Option<KeyOpFieldValues>>> = Arc::new(Mutex::new(None));
+        let kvf_seen_ = kvf_seen.clone();
+
+        s.register_message_handler("db_a", "table_a", move |kvfs| {
+            *kvf_seen_.lock().unwrap() = Some(kvfs[0].clone());
         });
 
-        let kvfs = KeyOpFieldValues {
-            key: "akey".into(),
-            operation: "SET".into(),
-            field_values: HashMap::from_iter([("afield".into(), "avalue".into())]),
-        };
-        let c = ZmqClient::new(ep);
-        c.send_msg("a", "b", [&kvfs]);
+        let kvfs = random_kfv();
+        let c = ZmqClient::new(&endpoint);
+        assert!(c.is_connected());
+        c.send_msg("db_a", "table_a", [&kvfs]);
 
-        let start_time = Instant::now();
-        loop {
-            let kvfs_seen_lock = kvfs_seen.lock().unwrap();
-            match &*kvfs_seen_lock {
-                Some(kvfs_seen) => {
-                    assert_eq!(&kvfs, kvfs_seen);
-                    break;
-                }
-                None => {
-                    drop(kvfs_seen_lock);
-                    sleep(Duration::from_secs_f32(0.1));
-                    assert!(
-                        Instant::now().duration_since(start_time) < Duration::from_secs(5),
-                        "timeout waiting for kvfs_seen"
-                    )
-                }
-            }
-        }
+        sleep_zmq_poll();
+        let kvf_seen_lock = kvf_seen.lock().unwrap();
+        assert_eq!(&kvfs, kvf_seen_lock.as_ref().unwrap());
     }
 
-    struct Redis(Child);
+    #[test]
+    fn zmq_consumer_state_table() {
+        let (endpoint, _delete) = random_zmq_endpoint();
+        let mut zmqs = ZmqServer::new(&endpoint);
+        let zmqc = ZmqClient::new(&endpoint);
+        assert!(zmqc.is_connected());
 
-    impl Redis {
-        fn start(sock_path: impl AsRef<str>) -> Self {
-            #[rustfmt::skip]
-            let mut child = Command::new("redis-server")
-                .args([
-                    "--appendonly", "no",
-                    "--save", "",
-                    "--notify-keyspace-events", "AKE",
-                    "--port", "0",
-                    "--unixsocket", sock_path.as_ref(),
-                ])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
-            let mut stdout = BufReader::new(child.stdout.take().unwrap());
-            let mut buf = String::new();
-            loop {
-                buf.clear();
-                if stdout.read_line(&mut buf).unwrap() == 0 {
-                    panic!("Redis didn't start");
-                }
-                if buf.contains("ready to accept connections") {
-                    break Self(child);
-                }
-            }
-        }
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
+
+        let kfvs = random_kfvs();
+        let zcst_table_a = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
+        let zcst_table_b = ZmqConsumerStateTable::new(db.clone(), "table_b", &mut zmqs, None, None);
+        assert!(!zcst_table_a.has_data());
+        assert!(!zcst_table_b.has_data());
+
+        zmqc.send_msg("", "table_a", &kfvs); // db name is empty because we are using DbConnector::new_unix
+        sleep_zmq_poll();
+        assert!(zcst_table_a.has_data());
+        assert!(!zcst_table_b.has_data());
+
+        zmqc.send_msg("", "table_b", &kfvs);
+        sleep_zmq_poll();
+        assert!(zcst_table_a.has_data());
+        assert!(zcst_table_b.has_data());
+
+        let kfvs_a = zcst_table_a.pops();
+        let kvfs_b = zcst_table_b.pops();
+        assert_eq!(kfvs_a, kvfs_b);
+        assert_eq!(kfvs, kfvs_a);
+        assert!(!zcst_table_a.has_data());
+        assert!(!zcst_table_b.has_data());
     }
 
-    impl Drop for Redis {
-        fn drop(&mut self) {
-            Command::new("kill")
-                .args(["-s", "TERM", &self.0.id().to_string()])
-                .status()
-                .unwrap();
-            self.0.wait().unwrap();
+    #[test]
+    fn zmq_consumer_producer_state_tables() {
+        let (endpoint, _delete) = random_zmq_endpoint();
+        let mut zmqs = ZmqServer::new(&endpoint);
+        let zmqc = ZmqClient::new(&endpoint);
+
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
+
+        let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
+        let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
+        assert!(!zcst.has_data());
+
+        let kfvs = random_kfvs();
+        for kfv in &kfvs {
+            match kfv.operation {
+                KeyOperation::Set => zpst.set(&kfv.key, &kfv.field_values),
+                KeyOperation::Del => zpst.del(&kfv.key),
+            }
         }
+
+        sleep_zmq_poll();
+        assert!(zcst.has_data());
+        let kfvs_seen = zcst.pops();
+        assert_eq!(kfvs.len(), kfvs_seen.len());
+        assert_eq!(kfvs, kfvs_seen);
     }
 }
