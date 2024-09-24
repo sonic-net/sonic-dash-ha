@@ -1,0 +1,20 @@
+[package]
+name = "container"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+bollard = { version = "0.17.1", features = ["chrono"] }
+chrono = "0.4.38"
+enumset = "1.1.5"
+futures-util = "0.3.30"
+swss-common = { version = "0.1.0", path = "../swss-common" }
+tokio.workspace = true
+
+[lints]
+workspace = true
