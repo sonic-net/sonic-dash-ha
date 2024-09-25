@@ -6,9 +6,12 @@ mod bindings {
 use std::{
     any::Any,
     collections::HashMap,
+    error::Error,
     ffi::{CStr, CString},
+    fmt::Display,
     ptr::null,
     slice,
+    str::FromStr,
     sync::Arc,
 };
 
@@ -74,7 +77,7 @@ unsafe fn take_key_op_field_values_array(arr: SWSSKeyOpFieldValuesArray) -> Vec<
             for kfv in kfvs {
                 out.push(KeyOpFieldValues {
                     key: str(kfv.key),
-                    operation: KeyOperation::from_str(str(kfv.operation)),
+                    operation: KeyOperation::from_str(&str(kfv.operation)).unwrap(),
                     field_values: take_field_value_array(kfv.fieldValues),
                 });
             }
@@ -141,15 +144,30 @@ impl KeyOperation {
             KeyOperation::Del => DEL.as_ptr(),
         }
     }
+}
 
-    fn from_str(s: impl AsRef<str>) -> Self {
-        match s.as_ref() {
-            "SET" => Self::Set,
-            "DEL" => Self::Del,
-            s => panic!("invalid KeyOperation: {s}"),
+impl FromStr for KeyOperation {
+    type Err = InvalidKeyOperationString;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "SET" => Ok(Self::Set),
+            "DEL" => Ok(Self::Del),
+            _ => Err(InvalidKeyOperationString(s.to_string())),
         }
     }
 }
+
+#[derive(Debug)]
+pub struct InvalidKeyOperationString(String);
+
+impl Display for InvalidKeyOperationString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, r#"A KeyOperation String must be "SET" or "DEL", but was {}"#, self.0)
+    }
+}
+
+impl Error for InvalidKeyOperationString {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyOpFieldValues {
