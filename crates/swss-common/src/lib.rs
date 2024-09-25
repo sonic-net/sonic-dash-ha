@@ -889,22 +889,13 @@ mod test {
     }
 
     #[test]
-    fn consumer_producer_subscriber_state_tables() {
+    fn consumer_producer_state_tables() {
         sonic_db_config_init_for_test();
         let redis = Redis::start();
         let db = DbConnector::new_unix(0, &redis.sock, 0);
 
         let pst = ProducerStateTable::new(db.clone(), "table_a");
         let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
-        // let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
-
-        // TODO properly understand and test SubscriberStateTable
-        // swss::SubscriberStateTable::readData claims to be non blocking, but it is blocking.
-        // This makes it impossible to test in one thread.
-
-        // sst.read_data();
-        // assert!(!sst.has_data());
-        // assert!(sst.pops().is_empty());
 
         assert!(cst.pops().is_empty());
 
@@ -920,50 +911,51 @@ mod test {
         let mut kfvs_cst = cst.pops();
         assert!(cst.pops().is_empty());
 
-        // sst.read_data();
-        // assert!(sst.has_data());
-        // let mut kfvs_sst = sst.pops();
-        // assert!(!sst.has_data());
-        // assert!(sst.pops().is_empty());
-
         kfvs.sort_unstable();
         kfvs_cst.sort_unstable();
-        // kfvs_sst.sort_unstable();
         assert_eq!(kfvs_cst.len(), kfvs.len());
         assert_eq!(kfvs_cst, kfvs);
+    }
 
-        // TODO properly understand and test ProducerStateTable::{create_temp_view,set_buffered}
-        // Neither of these features work as I expected.
-        // set_buffered(true) does not actually buffer anything - it flushes on every .set() or .del()
-        // create_temp_view() and apply_temp_view() reintroduces keys that have already been popped by a ConsumerStateTable, and randomly throws out new keys.
-        /*
-        pst.create_temp_view();
-        let mut kfvs = random_kfvs();
-        for kfv in &kfvs {
-            match kfv.operation {
-                KeyOperation::Set => pst.set(&kfv.key, &kfv.field_values),
-                KeyOperation::Del => pst.del(&kfv.key),
-            }
-        }
+    #[test]
+    fn subscriber_state_table() {
+        sonic_db_config_init_for_test();
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
 
-        assert!(cst.pops().is_empty());
-        pst.apply_temp_view();
-        let mut kfvs_seen = cst.pops();
-        // kfvs.sort_unstable();
-        // kfvs_seen.sort_unstable();
+        let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
+        assert!(!sst.has_data());
+        assert!(sst.pops().is_empty());
 
-        // assert_eq!(kfvs_seen.len(), kfvs.len());
-        println!("len={}", kfvs_seen.len());
+        db.hset("table_a:key_a", "field_a", "value_a");
+        db.hset("table_a:key_a", "field_b", "value_b");
+        sst.read_data();
+        assert!(sst.has_data());
+        let mut kfvs = sst.pops();
 
-        use std::collections::BTreeSet;
-        let kfvs_keys: BTreeSet<_> = kfvs.into_iter().map(|x| x.key).collect();
-        let kfvs_seen_keys: BTreeSet<_> = kfvs_seen.into_iter().map(|x| x.key).collect();
+        // SubscriberStateTable will pick up duplicate KeyOpFieldValues' after two SETs on the same
+        // key. I'm not actually sure if this is intended.
+        assert_eq!(kfvs.len(), 2);
+        assert_eq!(kfvs[0], kfvs[1]);
 
-        println!("{:?}", kfvs_keys.difference(&kfvs_seen_keys).collect::<Vec<_>>());
-        println!("{:?}", kfvs_seen_keys.difference(&kfvs_keys).collect::<Vec<_>>());
+        assert!(!sst.has_data());
+        assert!(sst.pops().is_empty());
 
-        // assert_eq!(kfvs_seen, kfvs);
-        */
+        let KeyOpFieldValues {
+            key,
+            operation,
+            field_values,
+        } = kfvs.pop().unwrap();
+
+        assert_eq!(key, "key_a");
+        assert_eq!(operation, KeyOperation::Set);
+        assert_eq!(
+            field_values,
+            HashMap::from_iter([
+                ("field_a".into(), "value_a".into()),
+                ("field_b".into(), "value_b".into())
+            ])
+        );
     }
 
     #[test]
