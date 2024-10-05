@@ -15,7 +15,8 @@ enumset = "1.1.5"
 futures-util = "0.3.30"
 clap = { workspace = true }
 swss-common = { version = "0.1.0", path = "../swss-common" }
-tokio.workspace = true
+tokio = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

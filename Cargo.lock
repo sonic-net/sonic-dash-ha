@@ -458,6 +458,7 @@ dependencies = [
  "clap",
  "enumset",
  "futures-util",
+ "serde_json",
  "swss-common",
  "tokio",
 ]
