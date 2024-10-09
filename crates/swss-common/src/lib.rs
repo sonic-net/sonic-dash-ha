@@ -13,6 +13,7 @@ use std::{
     slice,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use crate::bindings::*;
@@ -127,6 +128,30 @@ pub fn sonic_db_config_initialize(path: &str) {
 pub fn sonic_db_config_initialize_global(path: &str) {
     let path = cstr(path);
     unsafe { SWSSSonicDBConfig_initializeGlobalConfig(path.as_ptr()) }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SelectResult {
+    /// Data is now available.
+    Data,
+    /// Waiting was interrupted by a signal.
+    Signal,
+    /// Timed out.
+    Timeout,
+}
+
+impl SelectResult {
+    fn from_raw(raw: SWSSSelectResult) -> Self {
+        if raw == SWSSSelectResult_SWSSSelectResult_DATA {
+            SelectResult::Data
+        } else if raw == SWSSSelectResult_SWSSSelectResult_SIGNAL {
+            SelectResult::Signal
+        } else if raw == SWSSSelectResult_SWSSSelectResult_TIMEOUT {
+            SelectResult::Timeout
+        } else {
+            panic!("unhandled SWSSSelectResult: {raw}")
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -348,8 +373,11 @@ impl SubscriberStateTable {
         unsafe { SWSSSubscriberStateTable_initializedWithData(self.obj.ptr) == 1 }
     }
 
-    pub fn read_data(&self) {
-        unsafe { SWSSSubscriberStateTable_readData(self.obj.ptr) };
+    /// Panics if `timeout.as_millis()` would overflow a `u32`
+    pub fn read_data(&self, timeout: Duration) -> SelectResult {
+        let timeout_ms = timeout.as_millis().try_into().unwrap();
+        let res = unsafe { SWSSSubscriberStateTable_readData(self.obj.ptr, timeout_ms) };
+        SelectResult::from_raw(res)
     }
 }
 
@@ -613,8 +641,10 @@ impl ZmqConsumerStateTable {
         unsafe { SWSSZmqConsumerStateTable_getFd(self.obj.ptr) }
     }
 
-    pub fn read_data(&self) -> u64 {
-        unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr) }
+    pub fn read_data(&self, timeout: Duration) -> SelectResult {
+        let timeout_ms = timeout.as_millis().try_into().unwrap();
+        let res = unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr, timeout_ms) };
+        SelectResult::from_raw(res)
     }
 
     pub fn has_data(&self) -> bool {
@@ -929,7 +959,7 @@ mod test {
 
         db.hset("table_a:key_a", "field_a", "value_a");
         db.hset("table_a:key_a", "field_b", "value_b");
-        sst.read_data();
+        assert_eq!(sst.read_data(Duration::from_millis(1000)), SelectResult::Data);
         assert!(sst.has_data());
         let mut kfvs = sst.pops();
 
@@ -982,6 +1012,8 @@ mod test {
 
     #[test]
     fn zmq_consumer_state_table() {
+        use SelectResult::*;
+
         let (endpoint, _delete) = random_zmq_endpoint();
         let mut zmqs = ZmqServer::new(&endpoint);
         let zmqc = ZmqClient::new(&endpoint);
@@ -997,12 +1029,14 @@ mod test {
         assert!(!zcst_table_b.has_data());
 
         zmqc.send_msg("", "table_a", &kfvs); // db name is empty because we are using DbConnector::new_unix
-        sleep_zmq_poll();
+        assert_eq!(zcst_table_a.read_data(Duration::from_millis(1500)), Data);
+        assert_eq!(zcst_table_b.read_data(Duration::from_millis(1500)), Timeout);
         assert!(zcst_table_a.has_data());
         assert!(!zcst_table_b.has_data());
 
         zmqc.send_msg("", "table_b", &kfvs);
-        sleep_zmq_poll();
+        assert_eq!(zcst_table_a.read_data(Duration::from_millis(1500)), Timeout);
+        assert_eq!(zcst_table_b.read_data(Duration::from_millis(1500)), Data);
         assert!(zcst_table_a.has_data());
         assert!(zcst_table_b.has_data());
 
