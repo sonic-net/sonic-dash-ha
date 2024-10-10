@@ -10,9 +10,9 @@ use std::{
     ffi::{CStr, CString},
     fmt::Display,
     ptr::null,
+    rc::Rc,
     slice,
     str::FromStr,
-    sync::Arc,
     time::Duration,
 };
 
@@ -244,20 +244,20 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct DbConnector {
-    obj: Arc<DBConnectorObj>,
+    obj: Rc<DBConnectorObj>,
 }
 
 impl DbConnector {
     pub fn new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector {
         let hostname = cstr(hostname);
         let obj = unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), port, timeout_ms).into() };
-        Self { obj: Arc::new(obj) }
+        Self { obj: Rc::new(obj) }
     }
 
     pub fn new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector {
         let sock_path = cstr(sock_path);
         let obj = unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout_ms).into() };
-        Self { obj: Arc::new(obj) }
+        Self { obj: Rc::new(obj) }
     }
 
     pub fn del(&self, key: &str) -> bool {
@@ -339,7 +339,7 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct SubscriberStateTable {
-    obj: Arc<SubscriberStateTableObj>,
+    obj: Rc<SubscriberStateTableObj>,
     _db: DbConnector,
 }
 
@@ -349,7 +349,7 @@ impl SubscriberStateTable {
         let pop_batch_size = pop_batch_size.map(|n| &n as *const i32).unwrap_or(null());
         let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
         let obj = unsafe {
-            Arc::new(SWSSSubscriberStateTable_new(db.obj.ptr, table_name.as_ptr(), pop_batch_size, pri).into())
+            Rc::new(SWSSSubscriberStateTable_new(db.obj.ptr, table_name.as_ptr(), pop_batch_size, pri).into())
         };
         Self { obj, _db: db }
     }
@@ -387,7 +387,7 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct ConsumerStateTable {
-    obj: Arc<ConsumerStateTableObj>,
+    obj: Rc<ConsumerStateTableObj>,
     _db: DbConnector,
 }
 
@@ -396,9 +396,8 @@ impl ConsumerStateTable {
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.map(|n| &n as *const i32).unwrap_or(null());
         let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
-        let obj = unsafe {
-            Arc::new(SWSSConsumerStateTable_new(db.obj.ptr, table_name.as_ptr(), pop_batch_size, pri).into())
-        };
+        let obj =
+            unsafe { Rc::new(SWSSConsumerStateTable_new(db.obj.ptr, table_name.as_ptr(), pop_batch_size, pri).into()) };
         Self { obj, _db: db }
     }
 
@@ -416,14 +415,14 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct ProducerStateTable {
-    obj: Arc<ProducerStateTableObj>,
+    obj: Rc<ProducerStateTableObj>,
     _db: DbConnector,
 }
 
 impl ProducerStateTable {
     pub fn new(db: DbConnector, table_name: &str) -> Self {
         let table_name = cstr(table_name);
-        let obj = Arc::new(unsafe { SWSSProducerStateTable_new(db.obj.ptr, table_name.as_ptr()).into() });
+        let obj = Rc::new(unsafe { SWSSProducerStateTable_new(db.obj.ptr, table_name.as_ptr()).into() });
         Self { obj, _db: db }
     }
 
@@ -473,7 +472,7 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct ZmqServer {
-    obj: Arc<ZmqServerObj>,
+    obj: Rc<ZmqServerObj>,
 
     // The types that register message handlers with a ZmqServer must be kept alive until
     // the server thread dies, otherwise we risk the server thread calling methods on deleted objects.
@@ -485,7 +484,7 @@ pub struct ZmqServer {
 impl ZmqServer {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let obj = unsafe { Arc::new(SWSSZmqServer_new(endpoint.as_ptr()).into()) };
+        let obj = unsafe { Rc::new(SWSSZmqServer_new(endpoint.as_ptr()).into()) };
         Self {
             obj,
             handlers: Vec::new(),
@@ -503,13 +502,13 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct ZmqClient {
-    obj: Arc<ZmqClientObj>,
+    obj: Rc<ZmqClientObj>,
 }
 
 impl ZmqClient {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let obj = unsafe { Arc::new(SWSSZmqClient_new(endpoint.as_ptr()).into()) };
+        let obj = unsafe { Rc::new(SWSSZmqClient_new(endpoint.as_ptr()).into()) };
         Self { obj }
     }
 
@@ -538,7 +537,7 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct ZmqConsumerStateTable {
-    obj: Arc<ZmqConsumerStateTableObj>,
+    obj: Rc<ZmqConsumerStateTableObj>,
     _db: DbConnector,
     // ZmqConsumerStateTable does not own a copy of the ZmqServer because the ZmqServer must be
     // destroyed first (otherwise its worker thread might call a destroyed ZmqMessageHandler).
@@ -559,7 +558,7 @@ impl ZmqConsumerStateTable {
         let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
         let obj = unsafe {
             let p = SWSSZmqConsumerStateTable_new(db.obj.ptr, table_name.as_ptr(), zmqs.obj.ptr, pop_batch_size, pri);
-            Arc::new(p.into())
+            Rc::new(p.into())
         };
         let self_ = Self { obj, _db: db };
         zmqs.register_consumer_state_table(self_.clone());
@@ -598,7 +597,7 @@ obj_wrapper! {
 
 #[derive(Clone, Debug)]
 pub struct ZmqProducerStateTable {
-    obj: Arc<ZmqProducerStateTableObj>,
+    obj: Rc<ZmqProducerStateTableObj>,
     _db: DbConnector,
     _zmqc: ZmqClient,
 }
@@ -607,7 +606,7 @@ impl ZmqProducerStateTable {
     pub fn new(db: DbConnector, table_name: &str, zmqc: ZmqClient, db_persistence: bool) -> Self {
         let table_name = cstr(table_name);
         let obj = unsafe {
-            Arc::new(
+            Rc::new(
                 SWSSZmqProducerStateTable_new(db.obj.ptr, table_name.as_ptr(), zmqc.obj.ptr, db_persistence as u8)
                     .into(),
             )
