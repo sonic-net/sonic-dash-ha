@@ -467,59 +467,6 @@ impl ProducerStateTable {
     }
 }
 
-// libswsscommon handles zmq messages in another thread, so Send + Sync are required
-// 'static is a simplification and could probably be reduced to the lifetime of ZmqServer, but it probably won't matter
-pub trait ZmqMessageHandlerFn: FnMut(&[KeyOpFieldValues]) + Send + Sync + 'static {}
-impl<T: FnMut(&[KeyOpFieldValues]) + Send + Sync + 'static> ZmqMessageHandlerFn for T {}
-
-#[derive(Clone, Debug)]
-struct ClosureZmqMessageHandler {
-    callback: *mut Box<dyn ZmqMessageHandlerFn>,
-    handler: SWSSZmqMessageHandler,
-}
-
-impl ClosureZmqMessageHandler {
-    fn new<F>(callback: F) -> Self
-    where
-        F: FnMut(&[KeyOpFieldValues]) + Send + Sync + 'static,
-    {
-        unsafe extern "C" fn real_handler(callback_ptr: *mut libc::c_void, arr: *const SWSSKeyOpFieldValuesArray) {
-            let res = std::panic::catch_unwind(|| {
-                let kfvs = take_key_op_field_values_array(*arr);
-                let callback = (callback_ptr as *mut Box<dyn ZmqMessageHandlerFn>).as_mut().unwrap();
-                callback(&kfvs);
-            });
-
-            if res.is_err() {
-                eprintln!("Aborting to avoid unwinding a Rust panic into C++ code");
-                eprintln!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
-                std::process::abort();
-            }
-        }
-
-        let callback: *mut Box<dyn ZmqMessageHandlerFn> = Box::into_raw(Box::new(Box::new(callback)));
-        let handler = unsafe { SWSSZmqMessageHandler_new(callback as _, Some(real_handler)) };
-
-        Self { callback, handler }
-    }
-}
-
-impl Drop for ClosureZmqMessageHandler {
-    fn drop(&mut self) {
-        unsafe {
-            SWSSZmqMessageHandler_free(self.handler);
-            drop(Box::from_raw(self.callback));
-        }
-    }
-}
-
-// The types that register message handlers with a ZmqServer and are owned on the rust side
-#[derive(Clone, Debug)]
-enum ZmqMessageHandler {
-    Closure { _h: ClosureZmqMessageHandler },
-    ConsumerStateTable { _t: ZmqConsumerStateTable },
-}
-
 obj_wrapper! {
     struct ZmqServerObj { ptr: SWSSZmqServer } SWSSZmqServer_free
 }
@@ -529,8 +476,10 @@ pub struct ZmqServer {
     obj: Arc<ZmqServerObj>,
 
     // The types that register message handlers with a ZmqServer must be kept alive until
-    // the server thread dies, otherwise we risk the server thread calling methods on deleted objects
-    handlers: Vec<ZmqMessageHandler>,
+    // the server thread dies, otherwise we risk the server thread calling methods on deleted objects.
+    // Currently this is just ZmqConsumerStateTable, but in the future there may be other types added
+    // and this vec will need to hold an enum of the possible message handlers.
+    handlers: Vec<ZmqConsumerStateTable>,
 }
 
 impl ZmqServer {
@@ -543,21 +492,8 @@ impl ZmqServer {
         }
     }
 
-    pub fn register_message_handler<F>(&mut self, db_name: &str, table_name: &str, handler: F)
-    where
-        F: ZmqMessageHandlerFn,
-    {
-        let db_name = cstr(db_name);
-        let table_name = cstr(table_name);
-        let handler = ClosureZmqMessageHandler::new(handler);
-        unsafe {
-            SWSSZmqServer_registerMessageHandler(self.obj.ptr, db_name.as_ptr(), table_name.as_ptr(), handler.handler);
-        }
-        self.handlers.push(ZmqMessageHandler::Closure { _h: handler });
-    }
-
     fn register_consumer_state_table(&mut self, tbl: ZmqConsumerStateTable) {
-        self.handlers.push(ZmqMessageHandler::ConsumerStateTable { _t: tbl })
+        self.handlers.push(tbl);
     }
 }
 
@@ -637,10 +573,6 @@ impl ZmqConsumerStateTable {
         }
     }
 
-    pub fn get_fd(&self) -> i32 {
-        unsafe { SWSSZmqConsumerStateTable_getFd(self.obj.ptr) }
-    }
-
     pub fn read_data(&self, timeout: Duration) -> SelectResult {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
         let res = unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr, timeout_ms) };
@@ -657,10 +589,6 @@ impl ZmqConsumerStateTable {
 
     pub fn initialized_with_data(&self) -> bool {
         unsafe { SWSSZmqConsumerStateTable_initializedWithData(self.obj.ptr) == 1 }
-    }
-
-    pub fn db_updater_queue_size(&self) -> u64 {
-        unsafe { SWSSZmqConsumerStateTable_dbUpdaterQueueSize(self.obj.ptr) }
     }
 }
 
@@ -719,7 +647,7 @@ mod test {
         io::{BufRead, BufReader},
         iter,
         process::{Child, Command, Stdio},
-        sync::{Arc, Mutex},
+        sync::Mutex,
         thread::{self},
         time::Duration,
     };
@@ -986,28 +914,6 @@ mod test {
                 ("field_b".into(), "value_b".into())
             ])
         );
-    }
-
-    #[test]
-    fn zmq_message_handler() {
-        let (endpoint, _delete) = random_zmq_endpoint();
-        let mut s = ZmqServer::new(&endpoint);
-
-        let kvf_seen: Arc<Mutex<Option<KeyOpFieldValues>>> = Arc::new(Mutex::new(None));
-        let kvf_seen_ = kvf_seen.clone();
-
-        s.register_message_handler("db_a", "table_a", move |kvfs| {
-            *kvf_seen_.lock().unwrap() = Some(kvfs[0].clone());
-        });
-
-        let kvfs = random_kfv();
-        let c = ZmqClient::new(&endpoint);
-        assert!(c.is_connected());
-        c.send_msg("db_a", "table_a", [&kvfs]);
-
-        sleep_zmq_poll();
-        let kvf_seen_lock = kvf_seen.lock().unwrap();
-        assert_eq!(&kvfs, kvf_seen_lock.as_ref().unwrap());
     }
 
     #[test]
