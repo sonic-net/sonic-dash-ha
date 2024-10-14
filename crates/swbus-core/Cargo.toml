@@ -13,11 +13,26 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# Async framework
 tokio.workspace = true
 tokio-stream.workspace = true
+
+# gRPC
 tonic.workspace = true
 prost.workspace = true
+
+# Log and error handling
+tracing.workspace = true
+thiserror.workspace = true
+color-eyre.workspace = true
+
+# Utility
+contracts.workspace = true
+strum.workspace = true
+derivative.workspace = true
 dashmap.workspace = true
+getset.workspace = true
+atomic_enum.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

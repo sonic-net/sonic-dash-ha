@@ -136,13 +136,13 @@ impl RequestResponse {
     pub fn ok(request_epoch: u64) -> Self {
         RequestResponse {
             request_epoch,
-            error_code: SwbusInfraErrorType::Ok as i32,
+            error_code: SwbusErrorCode::Ok as i32,
             error_message: "".to_string(),
         }
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(request_epoch: u64, error_code: SwbusInfraErrorType, error_message: &str) -> Self {
+    pub fn infra_error(request_epoch: u64, error_code: SwbusErrorCode, error_message: &str) -> Self {
         RequestResponse {
             request_epoch,
             error_code: error_code as i32,
@@ -234,24 +234,20 @@ mod tests {
         let response = RequestResponse::ok(123);
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
 
-        let response = RequestResponse::infra_error(123, SwbusInfraErrorType::NoRoute, "No route is found.");
+        let response = RequestResponse::infra_error(123, SwbusErrorCode::NoRoute, "No route is found.");
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
     }
 
     #[test]
-    fn update_connection_info_request_can_be_created() {
-        let request = UpdateConnectionInfoRequest {
-            connection_type: ConnectionType::Client as i32,
-        };
-        test_packing_with_swbus_message(swbus_message::Body::UpdateConnectionInfoRequest(request));
+    fn registration_query_request_can_be_created() {
+        let request = RegistrationQueryRequest {};
+        test_packing_with_swbus_message(swbus_message::Body::RegistrationQueryRequest(request));
     }
 
     #[test]
-    fn register_request_can_be_created() {
-        let request = RegisterRequest {
-            service_paths: vec![create_mock_service_path()],
-        };
-        test_packing_with_swbus_message(swbus_message::Body::RegisterRequest(request));
+    fn registration_query_response_can_be_created() {
+        let response = RegistrationQueryResponse {};
+        test_packing_with_swbus_message(swbus_message::Body::RegistrationQueryResponse(response));
     }
 
     #[test]

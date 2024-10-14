@@ -9,7 +9,7 @@ use tonic::{Request, Response, Status, Streaming};
 pub struct SwbusServiceImpl {}
 
 type SwbusMessageResult<T> = Result<Response<T>, Status>;
-type SwbusMessageStream = Pin<Box<dyn Stream<Item = Result<SwbusMessage, Status>> + Send>>;
+type SwbusMessageStream = Pin<Box<dyn Stream<Item=Result<SwbusMessage, Status>> + Send>>;
 
 #[tonic::async_trait]
 impl SwbusService for SwbusServiceImpl {

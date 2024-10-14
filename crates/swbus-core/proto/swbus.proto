@@ -4,7 +4,7 @@ package swbus;
 
 // Swbus service
 service SwbusService {
-    rpc StreamMessages(stream SwbusMessage) returns (stream SwbusMessage) {}
+  rpc StreamMessages(stream SwbusMessage) returns (stream SwbusMessage) {}
 }
 
 //
@@ -56,27 +56,87 @@ message SwbusMessageHeader {
 //
 // Common request response message.
 //
-enum SwbusInfraErrorType {
-  SWBUS_INFRA_ERROR_TYPE_OK = 0;
+enum SwbusErrorCode {
+  // OK
+  SWBUS_ERROR_CODE_OK = 0;
 
-  // Bad message format
-  SWBUS_INFRA_ERROR_TYPE_INVALID_MESSAGE = 1;
+  // Connection error starts
+  // This section captures all error code that related to connection or network.
+  SWBUS_ERROR_CODE_CONNECTION_ERROR_MIN = 100;
 
-  // No route found
-  SWBUS_INFRA_ERROR_TYPE_NO_ROUTE = 2;
+  // Failed to connect or not connected
+  SWBUS_ERROR_CODE_CONNECTION_ERROR = 101;
+
+  // Message timed out
+  SWBUS_ERROR_CODE_TIMEOUT = 102;
+
+  // Connection error ends
+  SWBUS_ERROR_CODE_CONNECTION_ERROR_MAX = 199;
+
+  // Input error starts
+  // This section captures all error code that caused by user input, either API parameter or message format.
+  SWBUS_ERROR_CODE_INPUT_ERROR_MIN = 200;
+
+  // Generic invalid arguments
+  SWBUS_ERROR_CODE_INVALID_ARGS = 201;
+
+  // Invalid destination
+  SWBUS_ERROR_CODE_INVALID_DESTINATION = 202;
+
+  // Invalid source
+  SWBUS_ERROR_CODE_INVALID_SOURCE = 203;
+
+  // Invalid message header
+  SWBUS_ERROR_CODE_INVALID_HEADER = 210;
+
+  // Invalid message payload
+  SWBUS_ERROR_CODE_INVALID_PAYLOAD = 211;
+
+  // Input error ends
+  SWBUS_ERROR_CODE_INPUT_ERROR_MAX = 299;
+
+  // Routing errors starts
+  // This section captures all error code that happens during message routing or forwarding.
+  SWBUS_ERROR_CODE_ROUTE_ERROR_MIN = 300;
+
+  // Destination route not found
+  SWBUS_ERROR_CODE_NO_ROUTE = 301;
+
+  // Message queue full
+  SWBUS_ERROR_CODE_QUEUE_FULL = 302;
 
   // TTL expired
-  SWBUS_INFRA_ERROR_TYPE_UNREACHABLE = 3;
+  SWBUS_ERROR_CODE_UNREACHABLE = 303;
+
+  // Service not found
+  SWBUS_ERROR_CODE_SERVICE_NOT_FOUND = 370;
+
+  // Resource not found
+  SWBUS_ERROR_CODE_RESOURCE_NOT_FOUND = 380;
+
+  // Routing errors ends
+  SWBUS_ERROR_CODE_ROUTE_ERROR_MAX = 399;
+
+  // Internal error starts
+  // This section captures all error code that caused by service itself, not a user error.
+  // The errors in this section are rare to happen, and should be logged and investigated.
+  SWBUS_ERROR_CODE_INTERNAL_ERROR_MIN = 900;
+
+  // Uncategorized internal error
+  SWBUS_ERROR_CODE_FAIL = 901;
+
+  // Internal error ends
+  SWBUS_ERROR_CODE_INTERNAL_ERROR_MAX = 999;
 }
 
 message RequestResponse {
   uint64 request_epoch = 10;
-  SwbusInfraErrorType error_code = 110;
+  SwbusErrorCode error_code = 110;
   string error_message = 120;
 }
 
 //
-// Register connection request
+// Registration connection request
 //
 enum ConnectionType {
   CONNECTION_TYPE_CLIENT = 0;
@@ -91,13 +151,11 @@ message UpdateConnectionInfoRequest {
 }
 
 //
-// Register request messages.
+// Registration related messages.
 //
-message RegisterRequest {
-  repeated ServicePath service_paths = 10;
-}
+message RegistrationQueryRequest {}
 
-message RegisterQueryRequest { }
+message RegistrationQueryResponse {}
 
 //
 // Ping request
@@ -131,12 +189,9 @@ message SwbusMessage {
   oneof Body {
     RequestResponse response = 20;
 
-    // Update connection info update
-    UpdateConnectionInfoRequest update_connection_info_request = 110;
-
-    // Register
-    RegisterRequest register_request = 210;
-    RegisterQueryRequest register_query_request = 220;
+    // Registration
+    RegistrationQueryRequest registration_query_request = 101;
+    RegistrationQueryResponse registration_query_response = 102;
 
     // Ping
     PingRequest ping_request = 310;
