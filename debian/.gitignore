@@ -1,0 +1,5 @@
+.debhelper
+dash-ha.substvars
+dash-ha/
+debhelper-build-stamp
+files
