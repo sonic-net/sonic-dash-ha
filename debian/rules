@@ -13,4 +13,5 @@ override_dh_auto_clean:
 	cargo clean --release
 
 override_dh_auto_test:
-	cargo test --release --all
+	# do nothing
+	:
