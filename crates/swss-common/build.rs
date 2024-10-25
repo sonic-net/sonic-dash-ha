@@ -46,7 +46,8 @@ fn main() {
         // otherwise, we will assume the libswsscommon-dev package is installed and files
         // will be found at the locations defined in <sonic-swss-common repo>/debian/libswsscommon-dev.install
         None => {
-            const INCLUDE_DIR: &str = "/usr/include/swss/c-api/";
+            eprintln!("NOTE: If you are compiling outside of sonic-buildimage, you must set SWSS_COMMON_REPO to the path of a built copy of the sonic-swss-common repo");
+            const INCLUDE_DIR: &str = "/usr/include/swss/c-api";
             const HEADERS: &[&str] = &[
                 "consumerstatetable.h",
                 "dbconnector.h",
