@@ -664,8 +664,11 @@ mod test {
         fn start() -> Self {
             let sock = random_unix_sock();
             #[rustfmt::skip]
-            let mut child = Command::new("redis-server")
+            let mut child = Command::new("timeout")
                 .args([
+                    "--signal=KILL",
+                    "15s",
+                    "redis-server",
                     "--appendonly", "no",
                     "--save", "",
                     "--notify-keyspace-events", "AKE",
