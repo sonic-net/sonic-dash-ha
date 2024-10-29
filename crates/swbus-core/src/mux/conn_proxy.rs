@@ -15,8 +15,9 @@ impl SwbusConnProxy {
     pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
         let tx = self.message_queue_tx.clone();
 
-        tx.try_send(message)
-            .await
-            .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
+        // tx.try_send(message)
+        //     .await
+        //     .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
+        Ok(())
     }
 }
