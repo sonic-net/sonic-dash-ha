@@ -2,19 +2,19 @@ mod bindings {
     #![allow(unused, non_snake_case, non_upper_case_globals, non_camel_case_types)]
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
-use crate::bindings::*;
-
 mod types;
+
+use bindings::*;
 pub use types::*;
 
 pub fn sonic_db_config_initialize(path: &str) {
     let path = cstr(path);
-    unsafe { SWSSSonicDBConfig_initialize(path.as_ptr()) }
+    unsafe { bindings::SWSSSonicDBConfig_initialize(path.as_ptr()) }
 }
 
 pub fn sonic_db_config_initialize_global(path: &str) {
     let path = cstr(path);
-    unsafe { SWSSSonicDBConfig_initializeGlobalConfig(path.as_ptr()) }
+    unsafe { bindings::SWSSSonicDBConfig_initializeGlobalConfig(path.as_ptr()) }
 }
 
 #[cfg(test)]
