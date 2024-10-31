@@ -80,7 +80,7 @@ impl SelectResult {
         } else if raw == SWSSSelectResult_SWSSSelectResult_TIMEOUT {
             SelectResult::Timeout
         } else {
-            panic!("unhandled SWSSSelectResult: {raw}")
+            unreachable!("Invalid SWSSSelectResult: {raw}");
         }
     }
 }
@@ -100,13 +100,13 @@ impl KeyOperation {
         }
     }
 
-    pub(crate) fn from_raw(op: SWSSKeyOperation) -> Self {
-        if op == SWSSKeyOperation_SWSSKeyOperation_SET {
+    pub(crate) fn from_raw(raw: SWSSKeyOperation) -> Self {
+        if raw == SWSSKeyOperation_SWSSKeyOperation_SET {
             KeyOperation::Set
-        } else if op == SWSSKeyOperation_SWSSKeyOperation_DEL {
+        } else if raw == SWSSKeyOperation_SWSSKeyOperation_DEL {
             KeyOperation::Del
         } else {
-            unreachable!("Invalid SWSSKeyOperation");
+            unreachable!("Invalid SWSSKeyOperation: {raw}");
         }
     }
 }
