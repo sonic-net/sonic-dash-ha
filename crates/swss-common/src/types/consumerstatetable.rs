@@ -6,6 +6,7 @@ obj_wrapper! {
     struct ConsumerStateTableObj { ptr: SWSSConsumerStateTable } SWSSConsumerStateTable_free
 }
 
+/// Rust wrapper around `swss::ConsumerStateTable`.
 #[derive(Clone, Debug)]
 pub struct ConsumerStateTable {
     obj: Rc<ConsumerStateTableObj>,

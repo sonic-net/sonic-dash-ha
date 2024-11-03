@@ -6,6 +6,7 @@ obj_wrapper! {
     struct DBConnectorObj { ptr: SWSSDBConnector } SWSSDBConnector_free
 }
 
+/// Rust wrapper around `swss::DBConnector`.
 #[derive(Clone, Debug)]
 pub struct DbConnector {
     pub(crate) obj: Rc<DBConnectorObj>,

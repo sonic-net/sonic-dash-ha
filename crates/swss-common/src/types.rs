@@ -61,13 +61,20 @@ pub(crate) unsafe fn str(p: *const i8) -> String {
     CStr::from_ptr(p).to_str().unwrap().to_string()
 }
 
+/// Rust version of the return type from `swss::Select::select`.
+///
+/// This enum does not include the `swss::Select::ERROR` because errors are handled via a different
+/// mechanism in this library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SelectResult {
     /// Data is now available.
+    /// (`swss::Select::OBJECT`)
     Data,
     /// Waiting was interrupted by a signal.
+    /// (`swss::Select::SIGNALINT`)
     Signal,
     /// Timed out.
+    /// (`swss::Select::TIMEOUT`)
     Timeout,
 }
 
@@ -86,6 +93,9 @@ impl SelectResult {
 }
 
 /// Type of the `operation` field in [KeyOpFieldValues].
+///
+/// In swsscommon, this is represented as a string of `"SET"` or `"DEL"`.
+/// This type can be constructed similarly - `let op: KeyOperation = "SET".parse().unwrap()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KeyOperation {
     Set,
@@ -114,15 +124,21 @@ impl KeyOperation {
 impl FromStr for KeyOperation {
     type Err = InvalidKeyOperationString;
 
+    /// Create a KeyOperation from `"SET"` or `"DEL"` (case insensitive).
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "SET" => Ok(Self::Set),
-            "DEL" => Ok(Self::Del),
+        let Ok(mut bytes): Result<[u8; 3], _> = s.as_bytes().try_into() else {
+            return Err(InvalidKeyOperationString(s.to_string()));
+        };
+        bytes.make_ascii_uppercase();
+        match &bytes {
+            b"SET" => Ok(Self::Set),
+            b"DEL" => Ok(Self::Del),
             _ => Err(InvalidKeyOperationString(s.to_string())),
         }
     }
 }
 
+/// Error type indicating that a `KeyOperation` string was neither `"SET"` nor `"DEL"`.
 #[derive(Debug)]
 pub struct InvalidKeyOperationString(String);
 

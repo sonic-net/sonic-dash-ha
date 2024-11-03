@@ -6,6 +6,7 @@ obj_wrapper! {
     struct ZmqClientObj { ptr: SWSSZmqClient } SWSSZmqClient_free
 }
 
+/// Rust wrapper around `swss::ZmqClient`.
 #[derive(Clone, Debug)]
 pub struct ZmqClient {
     pub(crate) obj: Rc<ZmqClientObj>,
