@@ -68,7 +68,7 @@ fn read_data(db_connector: &DbConnector, feature: &String, fields: &mut HashMap<
     let data = db_connector.hgetall(&format!("{}|{}", table_name, feature));
     for (field, default) in fields.iter_mut() {
         match data.get(field as &str) {
-            Some(value) => *default = value.to_string(),
+            Some(value) => *default = value.to_str().unwrap().to_string(),
             None => {},
         }
     }
@@ -146,10 +146,10 @@ fn initialize_connection() -> DbConnections {
 
 fn get_container_id(feature: &String, db_connections: &DbConnections) -> String {
     let data = db_connections.state_db.hgetall(&format!("FEATURE|{}", feature));
-    if data.get(CURRENT_OWNER).unwrap_or(&String::new()) == "local" {
+    if data.get(CURRENT_OWNER).map_or("", |value| value.to_str().unwrap()) == "local" {
         return feature.clone();
     } else {
-        return data.get(CONTAINER_ID).unwrap_or(feature).clone();
+        return data.get(CONTAINER_ID).map_or(feature.clone(), |value| value.to_str().unwrap().to_string());
     }
 }
 
