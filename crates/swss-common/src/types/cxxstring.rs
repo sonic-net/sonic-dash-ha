@@ -44,6 +44,13 @@ impl CxxString {
             CxxString::take_raw(&mut obj).unwrap()
         }
     }
+
+    /// Borrows a `CxxStr` from this string.
+    ///
+    /// Like `String::as_str`, this method is unnecessary where deref coercion can be used.
+    pub fn as_cxx_str(&self) -> &CxxStr {
+        self
+    }
 }
 
 impl<T: AsRef<[u8]>> From<T> for CxxString {
@@ -58,7 +65,7 @@ impl Drop for CxxString {
     }
 }
 
-/// This calls [CxxStr::to_string_lossy] which may clone the string. Use sparingly to avoid potential copies.
+/// This calls [CxxStr::to_string_lossy] which may clone the underlying data (i.e. may be expensive).
 impl Debug for CxxString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.deref().fmt(f)
@@ -131,7 +138,9 @@ impl Borrow<CxxStr> for CxxString {
     }
 }
 
-/// Like Rust's String and str, this is equivalent to a C++ `std::string&` and can be derived from a [CxxString].
+/// Equivalent of a C++ `std::string&`, which can be borrowed from a [CxxString].
+///
+/// `CxxStr` has the same conceptual relationship with `CxxString` as a Rust `&str` does with `String`.
 #[repr(transparent)]
 #[derive(PartialOrd, Eq)]
 pub struct CxxStr {
@@ -143,12 +152,12 @@ impl CxxStr {
         self.ptr.as_ptr()
     }
 
-    /// Length of the string, not including a null pointer
+    /// Length of the string, not including a null terminator.
     pub fn len(&self) -> usize {
         unsafe { SWSSStrRef_length(self.as_raw()).try_into().unwrap() }
     }
 
-    /// Underlying buffer, not including a null pointer
+    /// The underlying bytes of the string, not including a null terminator.
     pub fn as_bytes(&self) -> &[u8] {
         unsafe {
             let data = SWSSStrRef_c_str(self.as_raw());
@@ -156,15 +165,15 @@ impl CxxStr {
         }
     }
 
-    /// Try to convert the C++ string to a rust `&str` without copying. This can only be done if the
-    /// string contains valid UTF-8. See [std::str::from_utf8].
+    /// Tries to convert the C++ string to a Rust `&str` without copying. This can only be done if
+    /// the string contains valid UTF-8. See [std::str::from_utf8].
     pub fn to_str(&self) -> Result<&str, Utf8Error> {
         std::str::from_utf8(self.as_bytes())
     }
 
-    /// Convert the C++ string to a [Cow::Borrowed] if the string contains valid UTF-8, the same as
-    /// [Self::to_str]. Otherwise, make a [Cow::Owned] copy of the string and replace invalid UTF-8
-    /// with replacement bytes. See [String::from_utf8_lossy]. Mainly intended for debugging.
+    /// Converts the C++ string to a Rust `&str` or `String`. If the string is valid UTF-8, the
+    /// result is a `&str` pointing to the original data. Otherwise, the result is a `String` with
+    /// a copy of the data, but with invalid UTF-8 replaced. See [String::from_utf8_lossy].
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(self.as_bytes())
     }

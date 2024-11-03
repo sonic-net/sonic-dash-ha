@@ -6,6 +6,7 @@ obj_wrapper! {
     struct ProducerStateTableObj { ptr: SWSSProducerStateTable } SWSSProducerStateTable_free
 }
 
+/// Rust wrapper around `swss::ProducerStateTable`.
 #[derive(Clone, Debug)]
 pub struct ProducerStateTable {
     obj: Rc<ProducerStateTableObj>,

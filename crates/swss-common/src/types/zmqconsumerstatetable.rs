@@ -6,6 +6,7 @@ obj_wrapper! {
     struct ZmqConsumerStateTableObj { ptr: SWSSZmqConsumerStateTable } SWSSZmqConsumerStateTable_free
 }
 
+/// Rust wrapper around `swss::ZmqConsumerStateTable`.
 #[derive(Clone, Debug)]
 pub struct ZmqConsumerStateTable {
     obj: Rc<ZmqConsumerStateTableObj>,
