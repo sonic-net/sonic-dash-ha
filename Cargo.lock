@@ -1324,12 +1324,28 @@ dependencies = [
  "pretty_assertions",
  "prost",
  "strum",
+ "swbus-proto",
  "thiserror",
  "tokio",
  "tokio-stream",
  "tonic",
  "tonic-build",
  "tracing",
+]
+
+[[package]]
+name = "swbus-edge"
+version = "0.1.0"
+
+[[package]]
+name = "swbus-proto"
+version = "0.1.0"
+dependencies = [
+ "pretty_assertions",
+ "prost",
+ "strum",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

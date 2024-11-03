@@ -34,6 +34,9 @@ dashmap.workspace = true
 getset.workspace = true
 atomic_enum.workspace = true
 
+# Internal dependencies
+swbus-proto.workspace = true
+
 [dev-dependencies]
 pretty_assertions.workspace = true
 

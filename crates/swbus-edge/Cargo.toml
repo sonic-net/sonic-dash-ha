@@ -1,0 +1,14 @@
+[package]
+name = "swbus-edge"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

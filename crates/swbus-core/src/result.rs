@@ -1,6 +1,6 @@
-use crate::contracts::swbus::SwbusErrorCode;
 use contracts::requires;
 use std::io;
+use swbus_proto::swbus::SwbusErrorCode;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
