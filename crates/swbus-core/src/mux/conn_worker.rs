@@ -1,9 +1,9 @@
 use super::SwbusConnInfo;
 use super::SwbusMultiplexer;
-use crate::contracts::swbus::*;
 use crate::result::*;
 use std::io;
 use std::sync::Arc;
+use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use tonic::Streaming;

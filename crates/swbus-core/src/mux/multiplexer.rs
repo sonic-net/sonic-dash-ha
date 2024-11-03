@@ -1,6 +1,6 @@
 use super::{SwbusConn, SwbusNextHop};
-use crate::contracts::swbus::*;
 use dashmap::DashMap;
+use swbus_proto::swbus::*;
 
 pub struct SwbusMultiplexer {
     /// Route table. Each entry is a registered prefix to a next hop, which points to a connection.

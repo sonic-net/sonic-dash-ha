@@ -1,7 +1,7 @@
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
-use crate::contracts::swbus::*;
 use std::sync::Arc;
+use swbus_proto::swbus::*;
 
 #[derive(Debug)]
 pub(crate) struct SwbusNextHop {
