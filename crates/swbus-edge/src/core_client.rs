@@ -27,15 +27,15 @@ pub struct SwbusCoreClient {
 
 // Factory functions
 impl SwbusCoreClient {
-    pub fn new(uri: String, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Result<Self> {
-        Ok(Self {
+    pub fn new(uri: String, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Self {
+        Self {
             uri,
             local_services: Arc::new(DashSet::new()),
             client: None,
             send_queue_tx: None,
             message_processor_tx,
             recv_stream_task: None,
-        })
+        }
     }
 }
 
@@ -45,11 +45,11 @@ impl SwbusCoreClient {
         self.local_services.insert(svc);
     }
 
-    pub async fn unregister_svc(&self, svc: ServicePath) {
+    pub fn unregister_svc(&self, svc: ServicePath) {
         self.local_services.remove(&svc);
     }
 
-    pub async fn push_svc(&self) -> Result<()> {
+    pub fn push_svc(&self) -> Result<()> {
         Ok(())
     }
 }

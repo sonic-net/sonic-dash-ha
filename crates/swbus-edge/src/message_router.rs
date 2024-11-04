@@ -2,6 +2,7 @@ use crate::core_client::SwbusCoreClient;
 use crate::message_handler_proxy::SwbusMessageHandlerProxy;
 use dashmap::DashMap;
 use std::sync::Arc;
+use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc::Receiver;
 use tokio::task;
@@ -27,10 +28,11 @@ impl SwbusMessageRouter {
 }
 
 impl SwbusMessageRouter {
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<()> {
         let routes_clone = self.routes.clone();
         let recv_rx = self.recv_rx.take().unwrap();
-        let swbus_client = self.swbus_client.take().unwrap();
+        let mut swbus_client = self.swbus_client.take().unwrap();
+        swbus_client.start().await?;
 
         let route_task = task::spawn(async move {
             let routes = routes_clone;
@@ -42,6 +44,8 @@ impl SwbusMessageRouter {
             }
         });
         self.route_task = Some(route_task);
+
+        Ok(())
     }
 
     async fn route_message(
