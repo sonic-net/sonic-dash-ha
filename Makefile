@@ -41,6 +41,9 @@ build:
 test:
 	cargo test --all
 
+clean:
+	cargo clean
+
 #
 # Release build targets
 #

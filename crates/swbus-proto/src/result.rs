@@ -1,6 +1,6 @@
+use crate::swbus::SwbusErrorCode;
 use contracts::requires;
 use std::io;
-use swbus_proto::swbus::SwbusErrorCode;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -19,8 +19,7 @@ pub enum SwbusError {
 }
 
 impl SwbusError {
-    #[requires(code > SwbusErrorCode::ConnectionErrorMin && code < SwbusErrorCode::ConnectionErrorMax
-    )]
+    #[requires(code > SwbusErrorCode::ConnectionErrorMin && code < SwbusErrorCode::ConnectionErrorMax)]
     pub fn connection(code: SwbusErrorCode, detail: io::Error) -> Self {
         SwbusError::ConnectionError { code, detail }
     }

@@ -23,7 +23,6 @@ prost.workspace = true
 
 # Log and error handling
 tracing.workspace = true
-thiserror.workspace = true
 color-eyre.workspace = true
 
 # Utility
