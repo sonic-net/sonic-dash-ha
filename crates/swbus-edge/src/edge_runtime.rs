@@ -2,6 +2,7 @@ use crate::core_client::SwbusCoreClient;
 use crate::message_router::SwbusMessageRouter;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
+use tokio::sync::mpsc::Sender;
 
 const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
@@ -22,7 +23,15 @@ impl SwbusEdgeRuntime {
         }
     }
 
-    pub async fn start(&mut self) {
-        self.message_router.start().await;
+    pub async fn start(&mut self) -> Result<()> {
+        self.message_router.start().await
+    }
+
+    pub async fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
+        todo!()
+    }
+
+    pub async fn send(&self, message: SwbusMessage) -> Result<()> {
+        todo!()
     }
 }
