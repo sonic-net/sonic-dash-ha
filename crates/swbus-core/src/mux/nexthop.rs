@@ -1,6 +1,7 @@
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
 use std::sync::Arc;
+use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 
 #[derive(Debug)]
@@ -19,7 +20,7 @@ impl SwbusNextHop {
         }
     }
 
-    pub async fn queue_message(&self, message: SwbusMessage) -> crate::Result<()> {
+    pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
         self.conn_proxy.queue_message(message).await
     }
 }

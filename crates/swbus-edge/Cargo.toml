@@ -8,7 +8,20 @@ documentation.workspace = true
 keywords.workspace = true
 edition.workspace = true
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+# Async framework
+tokio.workspace = true
+tokio-stream.workspace = true
+
+# gRPC
+tonic.workspace = true
+prost.workspace = true
+
+# Log and error handling
+tracing.workspace = true
+
+# Internal dependencies
+swbus-proto.workspace = true
