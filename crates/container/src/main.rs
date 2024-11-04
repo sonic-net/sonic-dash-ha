@@ -6,6 +6,7 @@ use bollard::Docker;
 use bollard::container::*;
 use futures_util::stream::TryStreamExt;
 use enumset;
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
@@ -144,12 +145,12 @@ fn initialize_connection() -> DbConnections {
     }
 }
 
-fn get_container_id(feature: &String, db_connections: &DbConnections) -> String {
+fn get_container_id<'a>(feature: &'a String, db_connections: &DbConnections) -> Cow<'a, String> {
     let data = db_connections.state_db.hgetall(&format!("FEATURE|{}", feature));
     if data.get(CURRENT_OWNER).map_or("", |value| value.to_str().unwrap()) == "local" {
-        return feature.clone();
+        return Cow::Borrowed(feature);
     } else {
-        return data.get(CONTAINER_ID).map_or(feature.clone(), |value| value.to_str().unwrap().to_string());
+        return data.get(CONTAINER_ID).map_or(Cow::Borrowed(feature), |value| Cow::Owned(value.to_str().unwrap().to_string()));
     }
 }
 
@@ -288,7 +289,7 @@ fn container_wait(feature: &String) {
 
     let docker = Docker::connect_with_local_defaults().unwrap();
 
-    if docker_id == *feature {
+    if *docker_id == *feature {
         let version = container_version(&docker, &feature);
         if !version.is_empty() {
             update_data(&db_connections, &feature, &HashMap::from([(ST_FEAT_CTR_STABLE_VER, version)]));
@@ -310,7 +311,7 @@ fn container_wait(feature: &String) {
         sleep(Duration::from_secs(WAIT_POLL_SECS as u64));
         feature_state = read_state(&db_connections, &feature);
 
-        docker_id = feature_state.get(CONTAINER_ID).unwrap().clone();
+        docker_id = Cow::Borrowed(feature_state.get(CONTAINER_ID).unwrap());
 
         if feature_state.get(REMOTE_STATE).unwrap() == "pending" {
             update_data(&db_connections, &feature, &HashMap::from([(REMOTE_STATE, "ready".to_string())]));
