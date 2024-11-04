@@ -153,9 +153,19 @@ message UpdateConnectionInfoRequest {
 //
 // Registration related messages.
 //
-message RegistrationQueryRequest {}
+enum RouteScope {
+  ROUTE_SCOPE_CLIENT = 0;
+  ROUTE_SCOPE_LOCAL = 1;
+  ROUTE_SCOPE_REGION = 2;
+  ROUTE_SCOPE_CLUSTER = 3;
+  ROUTE_SCOPE_GLOBAL = 4;
+}
 
-message RegistrationQueryResponse {}
+message RegistrationQueryRequest {
+}
+
+message RegistrationQueryResponse {
+}
 
 //
 // Ping request
