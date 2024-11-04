@@ -237,7 +237,7 @@ where
     (arr, k)
 }
 
-pub(crate) fn make_key_op_field_values_array<'a, I>(kfvs: I) -> (SWSSKeyOpFieldValuesArray, KeepAlive)
+pub(crate) fn make_key_op_field_values_array<I>(kfvs: I) -> (SWSSKeyOpFieldValuesArray, KeepAlive)
 where
     I: IntoIterator<Item = KeyOpFieldValues>,
 {

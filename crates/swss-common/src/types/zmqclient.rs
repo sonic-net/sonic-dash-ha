@@ -27,7 +27,7 @@ impl ZmqClient {
         unsafe { SWSSZmqClient_connect(self.obj.ptr) }
     }
 
-    pub fn send_msg<'a, I>(&self, db_name: &str, table_name: &str, kfvs: I)
+    pub fn send_msg<I>(&self, db_name: &str, table_name: &str, kfvs: I)
     where
         I: IntoIterator<Item = KeyOpFieldValues>,
     {

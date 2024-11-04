@@ -12,7 +12,7 @@ use std::{
 
 /// A C++ `std::string` that can be moved around and accessed from Rust.
 #[repr(transparent)]
-#[derive(PartialOrd, Eq)]
+#[derive(Eq)]
 pub struct CxxString {
     ptr: NonNull<SWSSStringOpaque>,
 }
@@ -90,6 +90,12 @@ impl Deref for CxxString {
     }
 }
 
+impl PartialOrd for CxxString {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 impl Ord for CxxString {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.deref().cmp(other)
@@ -142,7 +148,7 @@ impl Borrow<CxxStr> for CxxString {
 ///
 /// `CxxStr` has the same conceptual relationship with `CxxString` as a Rust `&str` does with `String`.
 #[repr(transparent)]
-#[derive(PartialOrd, Eq)]
+#[derive(Eq)]
 pub struct CxxStr {
     ptr: NonNull<SWSSStrRefOpaque>,
 }
@@ -155,6 +161,11 @@ impl CxxStr {
     /// Length of the string, not including a null terminator.
     pub fn len(&self) -> usize {
         unsafe { SWSSStrRef_length(self.as_raw()).try_into().unwrap() }
+    }
+
+    /// Returns `true` if `self` has a length of zero bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// The underlying bytes of the string, not including a null terminator.
@@ -190,6 +201,12 @@ impl ToOwned for CxxStr {
 impl Debug for CxxStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.to_string_lossy())
+    }
+}
+
+impl PartialOrd for CxxStr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
