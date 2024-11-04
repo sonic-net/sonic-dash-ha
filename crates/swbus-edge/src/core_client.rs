@@ -2,6 +2,7 @@ use contracts::requires;
 use dashmap::DashSet;
 use std::io;
 use std::str::FromStr;
+use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_client::SwbusServiceClient;
 use swbus_proto::swbus::*;
@@ -10,34 +11,54 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Channel;
 use tonic::transport::Endpoint;
 use tonic::Request;
+use tonic::Streaming;
 use tracing::error;
 
 pub struct SwbusCoreClient {
     uri: String,
-    local_services: DashSet<ServicePath>,
+    local_services: Arc<DashSet<ServicePath>>,
 
     client: Option<SwbusServiceClient<Channel>>,
-    out_tx: Option<mpsc::Sender<SwbusMessage>>,
-    in_tx: mpsc::Sender<SwbusMessage>,
+    send_queue_tx: Option<mpsc::Sender<SwbusMessage>>,
+    message_processor_tx: mpsc::Sender<SwbusMessage>,
 
-    in_stream_task: Option<tokio::task::JoinHandle<Result<()>>>,
+    recv_stream_task: Option<tokio::task::JoinHandle<Result<()>>>,
 }
 
+// Factory functions
 impl SwbusCoreClient {
-    pub fn new(uri: String, in_tx: mpsc::Sender<SwbusMessage>) -> Result<Self> {
+    pub fn new(uri: String, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Result<Self> {
         Ok(Self {
             uri,
-            local_services: DashSet::new(),
+            local_services: Arc::new(DashSet::new()),
             client: None,
-            out_tx: None,
-            in_tx,
-            in_stream_task: None,
+            send_queue_tx: None,
+            message_processor_tx,
+            recv_stream_task: None,
         })
     }
+}
 
-    #[requires(self.in_stream_task.is_none() && self.client.is_none() && self.out_tx.is_none())]
+// Service registration functions
+impl SwbusCoreClient {
+    pub fn register_svc(&self, svc: ServicePath) {
+        self.local_services.insert(svc);
+    }
+
+    pub async fn unregister_svc(&self, svc: ServicePath) {
+        self.local_services.remove(&svc);
+    }
+
+    pub async fn push_svc(&self) -> Result<()> {
+        Ok(())
+    }
+}
+
+// Message processing functions
+impl SwbusCoreClient {
+    #[requires(self.recv_stream_task.is_none() && self.client.is_none() && self.send_queue_tx.is_none())]
     pub async fn start(&mut self) -> Result<()> {
-        let (out_tx, out_rx) = mpsc::channel::<SwbusMessage>(100);
+        let (send_queue_tx, send_queue_rx) = mpsc::channel::<SwbusMessage>(100);
 
         let endpoint = Endpoint::from_str(&self.uri).map_err(|e| {
             SwbusError::input(
@@ -57,12 +78,12 @@ impl SwbusCoreClient {
             }
         };
 
-        self.client = Some(SwbusServiceClient::new(channel));
+        let mut client = SwbusServiceClient::new(channel);
 
-        let out_stream = ReceiverStream::new(out_rx);
-        let out_stream_request = Request::new(out_stream);
+        let send_stream = ReceiverStream::new(send_queue_rx);
+        let send_stream_request = Request::new(send_stream);
 
-        let in_stream = match self.client.as_mut().unwrap().stream_messages(out_stream_request).await {
+        let recv_stream = match client.stream_messages(send_stream_request).await {
             Ok(response) => response.into_inner(),
             Err(e) => {
                 error!("Failed to establish message streaming: {}.", e);
@@ -73,30 +94,77 @@ impl SwbusCoreClient {
             }
         };
 
-        Ok(())
-    }
+        let send_queue_tx_clone = send_queue_tx.clone();
+        let message_processor_tx_clone = self.message_processor_tx.clone();
+        let recv_stream_task = tokio::spawn(async move {
+            Self::run_recv_stream_task(recv_stream, message_processor_tx_clone, send_queue_tx_clone).await
+        });
 
-    pub fn register_svc(&self, svc: ServicePath) {
-        self.local_services.insert(svc);
-    }
+        self.client = Some(client);
+        self.recv_stream_task = Some(recv_stream_task);
+        self.send_queue_tx = Some(send_queue_tx);
 
-    pub async fn unregister_svc(&self, svc: ServicePath) {
-        self.local_services.remove(&svc);
-    }
-
-    pub async fn push_svc(&self) -> Result<()> {
         Ok(())
     }
 
     pub async fn send(&self, message: SwbusMessage) -> Result<()> {
+        // TODO: Check local registrations
+        match self.send_queue_tx.as_ref().unwrap().send(message).await {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to send message: {}.", e);
+                return Err(SwbusError::connection(
+                    SwbusErrorCode::ConnectionError,
+                    io::Error::new(io::ErrorKind::ConnectionReset, e.to_string()),
+                ));
+            }
+        }
+
         Ok(())
     }
 
-    pub async fn send_ping(&self, dst: ServicePath) -> Result<()> {
+    async fn run_recv_stream_task(
+        mut recv_stream: Streaming<SwbusMessage>,
+        message_processor_tx: mpsc::Sender<SwbusMessage>,
+        send_queue_tx: mpsc::Sender<SwbusMessage>,
+    ) -> Result<()> {
+        loop {
+            let message = match recv_stream.message().await {
+                Ok(Some(message)) => message,
+
+                // The stream was closed by the sender and no more messages will be delivered.
+                Ok(None) => {
+                    break;
+                }
+
+                // gRPC error was sent by the sender instead of a valid response message.
+                Err(e) => {
+                    error!("Failed to receive message: {}.", e);
+                    return Err(SwbusError::connection(
+                        SwbusErrorCode::ConnectionError,
+                        io::Error::new(io::ErrorKind::ConnectionReset, e.to_string()),
+                    ));
+                }
+            };
+
+            Self::process_incoming_message(message, &message_processor_tx, &send_queue_tx).await;
+        }
+
         Ok(())
     }
 
-    pub async fn send_trace(&self, dst: ServicePath) -> Result<()> {
-        Ok(())
+    async fn process_incoming_message(
+        message: SwbusMessage,
+        message_processor_tx: &mpsc::Sender<SwbusMessage>,
+        send_queue_tx: &mpsc::Sender<SwbusMessage>,
+    ) {
+        // TODO: Check local registrations
+        match message_processor_tx.try_send(message) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to send message to processor: {}.", e);
+                todo!("Reply with queue full message using send_queue_tx.");
+            }
+        }
     }
 }
