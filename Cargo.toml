@@ -24,9 +24,6 @@ trivial_numeric_casts = 'warn'
 unstable_features = 'warn'
 unused_import_braces = 'warn'
 
-[workspace.lints.clippy]
-all = 'allow'
-
 [workspace.dependencies]
 # Async framework
 tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
