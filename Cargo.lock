@@ -1336,7 +1336,10 @@ dependencies = [
 name = "swbus-edge"
 version = "0.1.0"
 dependencies = [
+ "contracts",
+ "dashmap",
  "prost",
+ "strum",
  "swbus-proto",
  "tokio",
  "tokio-stream",

@@ -19,8 +19,7 @@ pub enum SwbusError {
 }
 
 impl SwbusError {
-    #[requires(code > SwbusErrorCode::ConnectionErrorMin && code < SwbusErrorCode::ConnectionErrorMax
-    )]
+    #[requires(code > SwbusErrorCode::ConnectionErrorMin && code < SwbusErrorCode::ConnectionErrorMax)]
     pub fn connection(code: SwbusErrorCode, detail: io::Error) -> Self {
         SwbusError::ConnectionError { code, detail }
     }

@@ -1,3 +1,5 @@
+use contracts::requires;
+use dashmap::DashSet;
 use std::io;
 use std::str::FromStr;
 use swbus_proto::result::*;
@@ -12,24 +14,28 @@ use tracing::error;
 
 pub struct SwbusCoreClient {
     uri: String,
+    local_services: DashSet<ServicePath>,
 
-    worker_task: Option<tokio::task::JoinHandle<Result<()>>>,
     client: Option<SwbusServiceClient<Channel>>,
     out_tx: Option<mpsc::Sender<SwbusMessage>>,
     in_tx: mpsc::Sender<SwbusMessage>,
+
+    in_stream_task: Option<tokio::task::JoinHandle<Result<()>>>,
 }
 
 impl SwbusCoreClient {
     pub fn new(uri: String, in_tx: mpsc::Sender<SwbusMessage>) -> Result<Self> {
         Ok(Self {
             uri,
-            worker_task: None,
+            local_services: DashSet::new(),
             client: None,
             out_tx: None,
             in_tx,
+            in_stream_task: None,
         })
     }
 
+    #[requires(self.in_stream_task.is_none() && self.client.is_none() && self.out_tx.is_none())]
     pub async fn start(&mut self) -> Result<()> {
         let (out_tx, out_rx) = mpsc::channel::<SwbusMessage>(100);
 
@@ -70,15 +76,15 @@ impl SwbusCoreClient {
         Ok(())
     }
 
-    pub async fn register_svc(&self, svc: ServicePath) -> Result<()> {
-        Ok(())
+    pub fn register_svc(&self, svc: ServicePath) {
+        self.local_services.insert(svc);
     }
 
-    pub async fn unregister_svc(&self, svc: ServicePath) -> Result<()> {
-        Ok(())
+    pub async fn unregister_svc(&self, svc: ServicePath) {
+        self.local_services.remove(&svc);
     }
 
-    pub async fn push_svc(&self, svc: ServicePath) -> Result<()> {
+    pub async fn push_svc(&self) -> Result<()> {
         Ok(())
     }
 
