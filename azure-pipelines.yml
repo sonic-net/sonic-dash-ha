@@ -1,0 +1,22 @@
+pr:
+- master
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - master
+
+stages:
+- stage: Build
+
+  jobs:
+  - job:
+    displayName: "amd64/ubuntu-20.04"
+    pool:
+      vmImage: 'ubuntu-20.04'
+
+    steps:
+    - script: |
+        sudo apt-get update
+      displayName: 'Install dependencies'
