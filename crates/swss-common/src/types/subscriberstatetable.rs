@@ -1,6 +1,6 @@
 use super::*;
 use crate::*;
-use std::{ptr::null, rc::Rc, time::Duration};
+use std::{os::fd::BorrowedFd, ptr::null, rc::Rc, time::Duration};
 
 obj_wrapper! {
     struct SubscriberStateTableObj { ptr: SWSSSubscriberStateTable } SWSSSubscriberStateTable_free
@@ -31,21 +31,19 @@ impl SubscriberStateTable {
         }
     }
 
-    pub fn read_data(&self, timeout: Duration) -> SelectResult {
+    pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> SelectResult {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
-        let res = unsafe { SWSSSubscriberStateTable_readData(self.obj.ptr, timeout_ms) };
+        let res = unsafe { SWSSSubscriberStateTable_readData(self.obj.ptr, timeout_ms, interrupt_on_signal as u8) };
         SelectResult::from_raw(res)
     }
 
-    pub fn has_data(&self) -> bool {
-        unsafe { SWSSSubscriberStateTable_hasData(self.obj.ptr) == 1 }
-    }
+    pub fn get_fd(&self) -> BorrowedFd {
+        let fd = unsafe { SWSSSubscriberStateTable_getFd(self.obj.ptr) };
 
-    pub fn has_cached_data(&self) -> bool {
-        unsafe { SWSSSubscriberStateTable_hasCachedData(self.obj.ptr) == 1 }
-    }
-
-    pub fn initialized_with_data(&self) -> bool {
-        unsafe { SWSSSubscriberStateTable_initializedWithData(self.obj.ptr) == 1 }
+        // SAFETY: This fd represents the underlying redis connection, which should remain open as
+        // long as the DbConnector is alive
+        unsafe { BorrowedFd::borrow_raw(fd.try_into().unwrap()) }
     }
 }
+
+impl_read_data_async!(SubscriberStateTable);

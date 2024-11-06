@@ -1,6 +1,6 @@
 use super::*;
 use crate::*;
-use std::{ptr::null, rc::Rc};
+use std::{os::fd::BorrowedFd, ptr::null, rc::Rc, time::Duration};
 
 obj_wrapper! {
     struct ConsumerStateTableObj { ptr: SWSSConsumerStateTable } SWSSConsumerStateTable_free
@@ -29,4 +29,20 @@ impl ConsumerStateTable {
             take_key_op_field_values_array(ans)
         }
     }
+
+    pub fn get_fd(&self) -> BorrowedFd {
+        let fd = unsafe { SWSSConsumerStateTable_getFd(self.obj.ptr) };
+
+        // SAFETY: This fd represents the underlying redis connection, which should stay alive
+        // as long as the DbConnector does.
+        unsafe { BorrowedFd::borrow_raw(fd.try_into().unwrap()) }
+    }
+
+    pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> SelectResult {
+        let timeout_ms = timeout.as_millis().try_into().unwrap();
+        let res = unsafe { SWSSConsumerStateTable_readData(self.obj.ptr, timeout_ms, interrupt_on_signal as u8) };
+        SelectResult::from_raw(res)
+    }
 }
+
+impl_read_data_async!(ConsumerStateTable);

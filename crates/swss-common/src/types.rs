@@ -53,6 +53,23 @@ macro_rules! obj_wrapper {
 }
 pub(crate) use obj_wrapper;
 
+macro_rules! impl_read_data_async {
+    ($t:ty) => {
+        #[cfg(feature = "async")]
+        impl $t {
+            pub async fn read_data_async(&self) -> ::std::io::Result<()> {
+                use tokio::io::{unix::AsyncFd, Interest};
+                let _ready_guard = AsyncFd::with_interest(self.get_fd(), Interest::READABLE)?
+                    .readable()
+                    .await?;
+                self.read_data(Duration::from_secs(0), false);
+                Ok(())
+            }
+        }
+    };
+}
+pub(crate) use impl_read_data_async;
+
 pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
     CString::new(s.as_ref()).unwrap()
 }

@@ -28,11 +28,17 @@ mod test {
         iter,
         process::{Child, Command, Stdio},
         sync::Mutex,
-        thread::{self},
         time::Duration,
     };
 
     use rand::{random, Rng};
+
+    #[cfg(feature = "async")]
+    async fn timeout<F: std::future::Future>(timeout_ms: u32, fut: F) -> F::Output {
+        tokio::time::timeout(Duration::from_millis(timeout_ms.into()), fut)
+            .await
+            .expect("timed out")
+    }
 
     use super::*;
 
@@ -171,12 +177,6 @@ mod test {
         (endpoint, Defer::new(|| remove_file(sock).unwrap()))
     }
 
-    // swss::ZmqServer spawns a thread which polls for messages every second. When we want to test
-    // the receipt of a message, we need to wait one second plus a little extra wiggle room.
-    fn sleep_zmq_poll() {
-        thread::sleep(Duration::from_millis(1100));
-    }
-
     #[test]
     fn dbconnector() {
         let redis = Redis::start();
@@ -253,6 +253,7 @@ mod test {
             }
         }
 
+        assert_eq!(cst.read_data(Duration::from_millis(2000), true), SelectResult::Data);
         let mut kfvs_cst = cst.pops();
         assert!(cst.pops().is_empty());
 
@@ -269,13 +270,11 @@ mod test {
         let db = DbConnector::new_unix(0, &redis.sock, 0);
 
         let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
-        assert!(!sst.has_data());
         assert!(sst.pops().is_empty());
 
         db.hset("table_a:key_a", "field_a", &"value_a".into());
         db.hset("table_a:key_a", "field_b", &"value_b".into());
-        assert_eq!(sst.read_data(Duration::from_millis(1000)), SelectResult::Data);
-        assert!(sst.has_data());
+        assert_eq!(sst.read_data(Duration::from_millis(300), true), SelectResult::Data);
         let mut kfvs = sst.pops();
 
         // SubscriberStateTable will pick up duplicate KeyOpFieldValues' after two SETs on the same
@@ -283,7 +282,6 @@ mod test {
         assert_eq!(kfvs.len(), 2);
         assert_eq!(kfvs[0], kfvs[1]);
 
-        assert!(!sst.has_data());
         assert!(sst.pops().is_empty());
 
         let KeyOpFieldValues {
@@ -318,31 +316,25 @@ mod test {
         let kfvs = random_kfvs();
         let zcst_table_a = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
         let zcst_table_b = ZmqConsumerStateTable::new(db.clone(), "table_b", &mut zmqs, None, None);
-        assert!(!zcst_table_a.has_data());
-        assert!(!zcst_table_b.has_data());
 
         zmqc.send_msg("", "table_a", kfvs.clone()); // db name is empty because we are using DbConnector::new_unix
-        assert_eq!(zcst_table_a.read_data(Duration::from_millis(1500)), Data);
-        assert_eq!(zcst_table_b.read_data(Duration::from_millis(1500)), Timeout);
-        assert!(zcst_table_a.has_data());
-        assert!(!zcst_table_b.has_data());
+        assert_eq!(zcst_table_a.read_data(Duration::from_millis(1500), true), Data);
 
         zmqc.send_msg("", "table_b", kfvs.clone());
-        assert_eq!(zcst_table_a.read_data(Duration::from_millis(1500)), Timeout);
-        assert_eq!(zcst_table_b.read_data(Duration::from_millis(1500)), Data);
-        assert!(zcst_table_a.has_data());
-        assert!(zcst_table_b.has_data());
+        assert_eq!(zcst_table_b.read_data(Duration::from_millis(1500), true), Data);
 
         let kfvs_a = zcst_table_a.pops();
         let kvfs_b = zcst_table_b.pops();
         assert_eq!(kfvs_a, kvfs_b);
         assert_eq!(kfvs, kfvs_a);
-        assert!(!zcst_table_a.has_data());
-        assert!(!zcst_table_b.has_data());
     }
 
     #[test]
     fn zmq_consumer_producer_state_tables() {
+        use SelectResult::*;
+
+        sonic_db_config_init_for_test();
+
         let (endpoint, _delete) = random_zmq_endpoint();
         let mut zmqs = ZmqServer::new(&endpoint);
         let zmqc = ZmqClient::new(&endpoint);
@@ -352,7 +344,6 @@ mod test {
 
         let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
         let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
-        assert!(!zcst.has_data());
 
         let kfvs = random_kfvs();
         for kfv in &kfvs {
@@ -362,10 +353,112 @@ mod test {
             }
         }
 
-        sleep_zmq_poll();
-        assert!(zcst.has_data());
-        let kfvs_seen = zcst.pops();
-        assert_eq!(kfvs.len(), kfvs_seen.len());
+        let mut kfvs_seen = Vec::new();
+        while kfvs_seen.len() != kfvs.len() {
+            assert_eq!(zcst.read_data(Duration::from_millis(2000), true), Data);
+            kfvs_seen.extend(zcst.pops());
+        }
+        assert_eq!(kfvs, kfvs_seen);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn consumer_producer_state_tables_async() {
+        sonic_db_config_init_for_test();
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
+
+        let pst = ProducerStateTable::new(db.clone(), "table_a");
+        let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
+
+        assert!(cst.pops().is_empty());
+
+        let mut kfvs = random_kfvs();
+        for (i, kfv) in kfvs.iter().enumerate() {
+            assert_eq!(pst.count(), i as i64);
+            match kfv.operation {
+                KeyOperation::Set => pst.set(&kfv.key, kfv.field_values.clone()),
+                KeyOperation::Del => pst.del(&kfv.key),
+            }
+        }
+
+        timeout(2000, cst.read_data_async()).await.unwrap();
+        let mut kfvs_cst = cst.pops();
+        assert!(cst.pops().is_empty());
+
+        kfvs.sort_unstable();
+        kfvs_cst.sort_unstable();
+        assert_eq!(kfvs_cst.len(), kfvs.len());
+        assert_eq!(kfvs_cst, kfvs);
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn subscriber_state_table_async() {
+        sonic_db_config_init_for_test();
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
+
+        let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
+        assert!(sst.pops().is_empty());
+
+        db.hset("table_a:key_a", "field_a", &"value_a".into());
+        db.hset("table_a:key_a", "field_b", &"value_b".into());
+        timeout(300, sst.read_data_async()).await.unwrap();
+        let mut kfvs = sst.pops();
+
+        // SubscriberStateTable will pick up duplicate KeyOpFieldValues' after two SETs on the same
+        // key. I'm not actually sure if this is intended.
+        assert_eq!(kfvs.len(), 2);
+        assert_eq!(kfvs[0], kfvs[1]);
+
+        assert!(sst.pops().is_empty());
+
+        let KeyOpFieldValues {
+            key,
+            operation,
+            field_values,
+        } = kfvs.pop().unwrap();
+
+        assert_eq!(key, "key_a");
+        assert_eq!(operation, KeyOperation::Set);
+        assert_eq!(
+            field_values,
+            HashMap::from_iter([
+                ("field_a".into(), "value_a".into()),
+                ("field_b".into(), "value_b".into())
+            ])
+        );
+    }
+
+    #[cfg(feature = "async")]
+    #[tokio::test]
+    async fn zmq_consumer_producer_state_table_async() {
+        sonic_db_config_init_for_test();
+
+        let (endpoint, _delete) = random_zmq_endpoint();
+        let mut zmqs = ZmqServer::new(&endpoint);
+        let zmqc = ZmqClient::new(&endpoint);
+
+        let redis = Redis::start();
+        let db = DbConnector::new_unix(0, &redis.sock, 0);
+
+        let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
+        let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
+
+        let kfvs = random_kfvs();
+        for kfv in &kfvs {
+            match kfv.operation {
+                KeyOperation::Set => zpst.set(&kfv.key, kfv.field_values.clone()),
+                KeyOperation::Del => zpst.del(&kfv.key),
+            }
+        }
+
+        let mut kfvs_seen = Vec::new();
+        while kfvs_seen.len() != kfvs.len() {
+            timeout(2000, zcst.read_data_async()).await.unwrap();
+            kfvs_seen.extend(zcst.pops());
+        }
         assert_eq!(kfvs, kfvs_seen);
     }
 }

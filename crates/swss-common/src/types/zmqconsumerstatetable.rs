@@ -1,6 +1,6 @@
 use super::*;
 use crate::*;
-use std::{ptr::null, rc::Rc, time::Duration};
+use std::{os::fd::BorrowedFd, ptr::null, rc::Rc, time::Duration};
 
 obj_wrapper! {
     struct ZmqConsumerStateTableObj { ptr: SWSSZmqConsumerStateTable } SWSSZmqConsumerStateTable_free
@@ -44,21 +44,19 @@ impl ZmqConsumerStateTable {
         }
     }
 
-    pub fn read_data(&self, timeout: Duration) -> SelectResult {
+    pub fn get_fd(&self) -> BorrowedFd {
+        let fd = unsafe { SWSSZmqConsumerStateTable_getFd(self.obj.ptr) };
+
+        // SAFETY: This fd represents the underlying zmq socket, which should remain alive as long as there
+        // is a listener (i.e. a ZmqConsumerStateTable)
+        unsafe { BorrowedFd::borrow_raw(fd.try_into().unwrap()) }
+    }
+
+    pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> SelectResult {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
-        let res = unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr, timeout_ms) };
+        let res = unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr, timeout_ms, interrupt_on_signal as u8) };
         SelectResult::from_raw(res)
     }
-
-    pub fn has_data(&self) -> bool {
-        unsafe { SWSSZmqConsumerStateTable_hasData(self.obj.ptr) == 1 }
-    }
-
-    pub fn has_cached_data(&self) -> bool {
-        unsafe { SWSSZmqConsumerStateTable_hasCachedData(self.obj.ptr) == 1 }
-    }
-
-    pub fn initialized_with_data(&self) -> bool {
-        unsafe { SWSSZmqConsumerStateTable_initializedWithData(self.obj.ptr) == 1 }
-    }
 }
+
+impl_read_data_async!(ZmqConsumerStateTable);
