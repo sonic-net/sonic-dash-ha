@@ -16,6 +16,8 @@ edition.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
+swbus-core.workspace = true
+clap = { version = "4.0", features = ["derive"] }
 
 [lints]
 workspace = true

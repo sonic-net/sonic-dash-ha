@@ -16,6 +16,7 @@ pub(crate) enum SwbusConnControlMessage {
 pub struct SwbusConnWorker {
     info: Arc<SwbusConnInfo>,
     control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
+    // incoming message stream
     message_stream: Streaming<SwbusMessage>,
     mux: Arc<SwbusMultiplexer>,
 }
@@ -38,7 +39,9 @@ impl SwbusConnWorker {
     pub async fn run(&mut self) -> Result<()> {
         self.register_to_mux()?;
         let result = self.run_worker_loop().await;
+        //unregister from mux
         self.unregister_from_mux()?;
+        //todo: if error and connection type is client, ask mux to reconnect
         result
     }
 
@@ -101,10 +104,23 @@ impl SwbusConnWorker {
 
     async fn process_data_message(&mut self, message: SwbusMessage) -> Result<()> {
         self.validate_message_common(&message)?;
-        // TODO: Handle message
+        match message.body {
+            Some(swbus_message::Body::PingRequest(_)) => {
+                //println!("Received ping request: {:?}", message);
+                self.process_ping_request(&message);
+            }
+            _ => {
+                error!("Unknown message type received");
+            }
+        }
         Ok(())
     }
 
+    fn process_ping_request(&self, message: &SwbusMessage) -> Result<()> {
+        println!("Received ping request: {:?}", message);
+
+        Ok(())
+    }
     fn validate_message_common(&mut self, message: &SwbusMessage) -> Result<()> {
         if message.header.is_none() {
             return Err(SwbusError::input(

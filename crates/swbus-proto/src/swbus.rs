@@ -63,6 +63,20 @@ impl ServicePath {
         }
     }
 
+    pub fn from_string(service_path: &str) -> Self {
+        let mut segments: Vec<&str> = service_path.split('/').collect();
+        segments.resize(7, "");
+        ServicePath {
+            region_id: segments[0].to_string(),
+            cluster_id: segments[1].to_string(),
+            node_id: segments[2].to_string(),
+            service_type: segments[3].to_string(),
+            service_id: segments[4].to_string(),
+            resource_type: segments[5].to_string(),
+            resource_id: segments[6].to_string(),
+        }
+    }
+
     pub fn to_regional_prefix(&self) -> String {
         return self.region_id.clone();
     }

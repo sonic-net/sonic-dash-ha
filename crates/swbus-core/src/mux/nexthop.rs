@@ -21,6 +21,6 @@ impl SwbusNextHop {
     }
 
     pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
-        self.conn_proxy.queue_message(message).await
+        self.conn_proxy.queue_message(Ok(message)).await
     }
 }
