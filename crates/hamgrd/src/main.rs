@@ -21,8 +21,9 @@ async fn main() {
         max_tries: 120,
     };
 
-    let runtime = ActorRuntime::new(resend_config);
+    let mut runtime = ActorRuntime::new("???".to_string(), resend_config).await;
     runtime.spawn(bind_addr, TestActor).await;
+    runtime.join().await;
 }
 
 struct TestActor;

@@ -10,7 +10,7 @@ use swbus_proto::swbus::{
 };
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
-    task,
+    task::JoinSet,
 };
 
 pub use resend_queue::ResendQueueConfig;
@@ -60,32 +60,48 @@ macro_rules! impl_actor {
 }
 pub(crate) use impl_actor;
 
-const CHANNEL_SIZE: usize = 1024;
-
 pub struct ActorRuntime {
     swbus_edge: Arc<SwbusEdgeRuntime>,
     resend_config: ResendQueueConfig,
+    tasks: JoinSet<()>,
 }
 
 impl ActorRuntime {
-    pub fn new(resend_config: ResendQueueConfig) -> Self {
-        let swbus_edge = Arc::new(SwbusEdgeRuntime::new("???".to_string()));
+    pub async fn new(swbus_uri: String, resend_config: ResendQueueConfig) -> Self {
+        let mut swbus_edge = SwbusEdgeRuntime::new(swbus_uri);
+        swbus_edge.start().await.expect("Starting swbus edge runtime");
         ActorRuntime {
-            swbus_edge,
+            swbus_edge: Arc::new(swbus_edge),
             resend_config,
+            tasks: JoinSet::new(),
         }
     }
 
-    pub async fn spawn<A: Actor>(&self, service_path: Arc<ServicePath>, actor: A) {
+    /// Spawn an actor that listens for messages on the given service_path
+    pub async fn spawn<A: Actor>(&mut self, service_path: Arc<ServicePath>, actor: A) {
+        const CHANNEL_SIZE: usize = 1024;
         let (inbox_tx, inbox_rx) = channel(CHANNEL_SIZE);
-        let outbox = MessageBridge::spawn(
+        let (outbox_tx, outbox_rx) = channel(CHANNEL_SIZE);
+        let (swbus_tx, swbus_rx) = channel(CHANNEL_SIZE);
+        self.swbus_edge
+            .add_handler((*service_path).clone(), swbus_tx)
+            .await
+            .expect("adding handler to swbus-edge");
+        let message_bridge = MessageBridge::new(
             self.resend_config,
             self.swbus_edge.clone(),
-            service_path.clone(),
             inbox_tx,
-        )
-        .await;
-        task::spawn(actor_main(actor, outbox, inbox_rx));
+            outbox_rx,
+            swbus_rx,
+        );
+        let outbox = Outbox::new(service_path, outbox_tx);
+        self.tasks.spawn(actor_main(actor, outbox, inbox_rx));
+        self.tasks.spawn(message_bridge.run());
+    }
+
+    /// Block on all actors
+    pub async fn join(self) {
+        self.tasks.join_all().await;
     }
 }
 
@@ -114,11 +130,11 @@ pub enum MessageBody {
 struct MessageBridge {
     resend_queue: ResendQueue,
 
-    /// Our interface to Swbus
+    /// Our interface to Swbus.
     swbus_edge: Arc<SwbusEdgeRuntime>,
 
     /// Receiver for MessageBridge to receive incoming messages from Swbus.
-    /// The sender end exists in
+    /// The sender end exists in SwbusEdgeRuntime.
     swbus_rx: Receiver<SwbusMessage>,
 
     /// Sender for MessageBridge to send incoming messages to its actor.
@@ -131,33 +147,24 @@ struct MessageBridge {
 }
 
 impl MessageBridge {
-    async fn spawn(
+    fn new(
         config: ResendQueueConfig,
         swbus_edge: Arc<SwbusEdgeRuntime>,
-        source: Arc<ServicePath>,
         inbox_tx: Sender<IncomingMessage>,
-    ) -> Outbox {
-        let (outbox_tx, outbox_rx) = channel(CHANNEL_SIZE);
-        let (swbus_tx, swbus_rx) = channel(CHANNEL_SIZE);
-        swbus_edge
-            .add_handler((*source).clone(), swbus_tx)
-            .await
-            .expect("adding handler to swbus-edge");
-
-        let mut self_ = Self {
+        outbox_rx: Receiver<SwbusMessage>,
+        swbus_rx: Receiver<SwbusMessage>,
+    ) -> Self {
+        Self {
             resend_queue: ResendQueue::new(config),
+            swbus_edge,
             outbox_rx,
             inbox_tx,
-            swbus_edge,
             swbus_rx,
-        };
-        task::spawn(async move { self_.run().await });
-
-        Outbox { source, tx: outbox_tx }
+        }
     }
 
     /// Message bridge main loop
-    async fn run(&mut self) {
+    async fn run(mut self) {
         loop {
             let resend_timeout = match self.resend_queue.next_resend_instant() {
                 Some(instant) => Either::Left(tokio::time::sleep_until(instant)), // Sleep until next resend time
@@ -246,11 +253,18 @@ impl MessageBridge {
 
 /// An actor's outbox. This is passed to actor methods for it to send messages to its `MessageBridge`.
 pub struct Outbox {
+    /// The id of the actor who is sending messages
     source: Arc<ServicePath>,
+
+    /// The sender that passes messages to the MessageBridge
     tx: Sender<SwbusMessage>,
 }
 
 impl Outbox {
+    fn new(source: Arc<ServicePath>, tx: Sender<SwbusMessage>) -> Self {
+        Self { source, tx }
+    }
+
     async fn send(&self, destination: Arc<ServicePath>, body: MessageBody) {
         // Convert the message data into an SwbusMessage
         let source = (*self.source).clone();
