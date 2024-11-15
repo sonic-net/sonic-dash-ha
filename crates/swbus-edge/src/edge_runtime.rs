@@ -1,9 +1,6 @@
-use crate::core_client::SwbusCoreClient;
-use crate::message_router::SwbusMessageRouter;
-use swbus_proto::result::*;
-use swbus_proto::swbus::*;
-use tokio::sync::mpsc::channel;
-use tokio::sync::mpsc::Sender;
+use crate::{core_client::SwbusCoreClient, message_router::SwbusMessageRouter};
+use swbus_proto::{result::*, swbus::*};
+use tokio::sync::mpsc::{channel, Sender};
 
 pub(crate) const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
