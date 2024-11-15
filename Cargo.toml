@@ -7,7 +7,8 @@ members = [
     "crates/hamgrd",
     "crates/swss-common",
     "crates/swbus-edge",
-    "crates/swbus-proto"
+    "crates/swbus-proto", 
+    "crates/swbus-actor"
 ]
 exclude = []
 
@@ -42,7 +43,7 @@ human-panic = "2"
 better-panic = "0.3"
 signal-hook = "0.3"
 
-# Serializatoin
+# Serialization
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 
