@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, time::SystemTime};
 
 tonic::include_proto!("swbus");
 
@@ -120,9 +120,14 @@ impl fmt::Display for ServicePath {
 
 impl SwbusMessageHeader {
     pub fn new(source: ServicePath, destination: ServicePath) -> Self {
+        let epoch_nanos: u64 = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos() as u64;
+
         SwbusMessageHeader {
             version: 1,
-            epoch: 0,
+            id: epoch_nanos,
             flag: 0,
             ttl: 64,
             source: Some(source),
@@ -133,18 +138,18 @@ impl SwbusMessageHeader {
 
 impl RequestResponse {
     /// Create a new OK response.
-    pub fn ok(request_epoch: u64) -> Self {
+    pub fn ok(request_id: u64) -> Self {
         RequestResponse {
-            request_epoch,
+            request_id,
             error_code: SwbusErrorCode::Ok as i32,
             error_message: "".to_string(),
         }
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(request_epoch: u64, error_code: SwbusErrorCode, error_message: &str) -> Self {
+    pub fn infra_error(request_id: u64, error_code: SwbusErrorCode, error_message: &str) -> Self {
         RequestResponse {
-            request_epoch,
+            request_id,
             error_code: error_code as i32,
             error_message: error_message.to_string(),
         }
@@ -173,9 +178,9 @@ impl TraceRouteResponse {
     }
 }
 
-impl RouteDataRequest {
+impl DataRequest {
     pub fn new(payload: Vec<u8>) -> Self {
-        RouteDataRequest { payload }
+        DataRequest { payload }
     }
 }
 

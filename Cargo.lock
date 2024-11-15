@@ -1347,6 +1347,7 @@ dependencies = [
  "prost",
  "strum",
  "swbus-proto",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic",

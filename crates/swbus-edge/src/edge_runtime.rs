@@ -1,8 +1,7 @@
-use crate::core_client::SwbusCoreClient;
-use crate::message_router::SwbusMessageRouter;
-use swbus_proto::result::*;
-use swbus_proto::swbus::*;
-use tokio::sync::mpsc::Sender;
+use crate::{core_client::SwbusCoreClient, message_router::SwbusMessageRouter, IncomingMessage, OutgoingMessage};
+use swbus_proto::swbus::ServicePath;
+use swbus_proto::{result::*, swbus::SwbusMessage};
+use tokio::sync::mpsc::{channel, Sender};
 
 const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
@@ -13,7 +12,7 @@ pub struct SwbusEdgeRuntime {
 
 impl SwbusEdgeRuntime {
     pub fn new(swbus_uri: String) -> Self {
-        let (recv_queue_tx, recv_queue_rx) = tokio::sync::mpsc::channel::<SwbusMessage>(SWBUS_RECV_QUEUE_SIZE);
+        let (recv_queue_tx, recv_queue_rx) = channel::<SwbusMessage>(SWBUS_RECV_QUEUE_SIZE);
         let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), recv_queue_tx);
         let message_router = SwbusMessageRouter::new(swbus_client, recv_queue_rx);
 
@@ -27,11 +26,12 @@ impl SwbusEdgeRuntime {
         self.message_router.start().await
     }
 
-    pub async fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
+    pub async fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<IncomingMessage>) -> Result<()> {
         todo!()
     }
 
-    pub async fn send(&self, message: SwbusMessage) -> Result<()> {
+    pub async fn send(&self, message: OutgoingMessage) -> Result<()> {
+        let swbus_message: SwbusMessage = message.into();
         todo!()
     }
 }
