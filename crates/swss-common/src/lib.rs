@@ -33,13 +33,6 @@ mod test {
 
     use rand::{random, Rng};
 
-    #[cfg(feature = "async")]
-    async fn timeout<F: std::future::Future>(timeout_ms: u32, fut: F) -> F::Output {
-        tokio::time::timeout(Duration::from_millis(timeout_ms.into()), fut)
-            .await
-            .expect("timed out")
-    }
-
     use super::*;
 
     struct Redis {
@@ -186,7 +179,7 @@ mod test {
 
         let random = random_cxx_string();
 
-        db.set("hello", &"hello, world!".into());
+        db.set("hello", &CxxString::new("hello, world!"));
         db.set("random", &random);
         assert_eq!(db.get("hello").unwrap(), "hello, world!");
         assert_eq!(db.get("random").unwrap(), random);
@@ -200,7 +193,7 @@ mod test {
         assert!(!db.del("random"));
         assert!(!db.del("noexist"));
 
-        db.hset("a", "hello", &"hello, world!".into());
+        db.hset("a", "hello", &CxxString::new("hello, world!"));
         db.hset("a", "random", &random);
         assert_eq!(db.hget("a", "hello").unwrap(), "hello, world!");
         assert_eq!(db.hget("a", "random").unwrap(), random);
@@ -218,9 +211,9 @@ mod test {
         assert!(!db.del("a"));
 
         assert!(db.hgetall("a").is_empty());
-        db.hset("a", "a", &"1".into());
-        db.hset("a", "b", &"2".into());
-        db.hset("a", "c", &"3".into());
+        db.hset("a", "a", &CxxString::new("1"));
+        db.hset("a", "b", &CxxString::new("2"));
+        db.hset("a", "c", &CxxString::new("3"));
         assert_eq!(
             db.hgetall("a"),
             HashMap::from_iter([
@@ -272,8 +265,8 @@ mod test {
         let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
         assert!(sst.pops().is_empty());
 
-        db.hset("table_a:key_a", "field_a", &"value_a".into());
-        db.hset("table_a:key_a", "field_b", &"value_b".into());
+        db.hset("table_a:key_a", "field_a", &CxxString::new("value_a"));
+        db.hset("table_a:key_a", "field_b", &CxxString::new("value_b"));
         assert_eq!(sst.read_data(Duration::from_millis(300), true), SelectResult::Data);
         let mut kfvs = sst.pops();
 
@@ -362,103 +355,112 @@ mod test {
     }
 
     #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn consumer_producer_state_tables_async() {
-        sonic_db_config_init_for_test();
-        let redis = Redis::start();
-        let db = DbConnector::new_unix(0, &redis.sock, 0);
+    mod async_tests {
+        use super::*;
 
-        let pst = ProducerStateTable::new(db.clone(), "table_a");
-        let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
+        #[cfg(feature = "async")]
+        async fn timeout<F: std::future::Future>(timeout_ms: u32, fut: F) -> F::Output {
+            tokio::time::timeout(Duration::from_millis(timeout_ms.into()), fut)
+                .await
+                .expect("timed out")
+        }
 
-        assert!(cst.pops().is_empty());
+        #[tokio::test]
+        async fn consumer_producer_state_tables_async() {
+            sonic_db_config_init_for_test();
+            let redis = Redis::start();
+            let db = DbConnector::new_unix(0, &redis.sock, 0);
 
-        let mut kfvs = random_kfvs();
-        for (i, kfv) in kfvs.iter().enumerate() {
-            assert_eq!(pst.count(), i as i64);
-            match kfv.operation {
-                KeyOperation::Set => pst.set(&kfv.key, kfv.field_values.clone()),
-                KeyOperation::Del => pst.del(&kfv.key),
+            let pst = ProducerStateTable::new(db.clone(), "table_a");
+            let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
+
+            assert!(cst.pops().is_empty());
+
+            let mut kfvs = random_kfvs();
+            for (i, kfv) in kfvs.iter().enumerate() {
+                assert_eq!(pst.count(), i as i64);
+                match kfv.operation {
+                    KeyOperation::Set => pst.set(&kfv.key, kfv.field_values.clone()),
+                    KeyOperation::Del => pst.del(&kfv.key),
+                }
             }
+
+            timeout(2000, cst.read_data_async()).await.unwrap();
+            let mut kfvs_cst = cst.pops();
+            assert!(cst.pops().is_empty());
+
+            kfvs.sort_unstable();
+            kfvs_cst.sort_unstable();
+            assert_eq!(kfvs_cst.len(), kfvs.len());
+            assert_eq!(kfvs_cst, kfvs);
         }
 
-        timeout(2000, cst.read_data_async()).await.unwrap();
-        let mut kfvs_cst = cst.pops();
-        assert!(cst.pops().is_empty());
+        #[tokio::test]
+        async fn subscriber_state_table_async() {
+            sonic_db_config_init_for_test();
+            let redis = Redis::start();
+            let db = DbConnector::new_unix(0, &redis.sock, 0);
 
-        kfvs.sort_unstable();
-        kfvs_cst.sort_unstable();
-        assert_eq!(kfvs_cst.len(), kfvs.len());
-        assert_eq!(kfvs_cst, kfvs);
-    }
+            let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
+            assert!(sst.pops().is_empty());
 
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn subscriber_state_table_async() {
-        sonic_db_config_init_for_test();
-        let redis = Redis::start();
-        let db = DbConnector::new_unix(0, &redis.sock, 0);
+            db.hset("table_a:key_a", "field_a", &CxxString::new("value_a"));
+            db.hset("table_a:key_a", "field_b", &CxxString::new("value_b"));
+            timeout(300, sst.read_data_async()).await.unwrap();
+            let mut kfvs = sst.pops();
 
-        let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
-        assert!(sst.pops().is_empty());
+            // SubscriberStateTable will pick up duplicate KeyOpFieldValues' after two SETs on the same
+            // key. I'm not actually sure if this is intended.
+            assert_eq!(kfvs.len(), 2);
+            assert_eq!(kfvs[0], kfvs[1]);
 
-        db.hset("table_a:key_a", "field_a", &"value_a".into());
-        db.hset("table_a:key_a", "field_b", &"value_b".into());
-        timeout(300, sst.read_data_async()).await.unwrap();
-        let mut kfvs = sst.pops();
+            assert!(sst.pops().is_empty());
 
-        // SubscriberStateTable will pick up duplicate KeyOpFieldValues' after two SETs on the same
-        // key. I'm not actually sure if this is intended.
-        assert_eq!(kfvs.len(), 2);
-        assert_eq!(kfvs[0], kfvs[1]);
+            let KeyOpFieldValues {
+                key,
+                operation,
+                field_values,
+            } = kfvs.pop().unwrap();
 
-        assert!(sst.pops().is_empty());
+            assert_eq!(key, "key_a");
+            assert_eq!(operation, KeyOperation::Set);
+            assert_eq!(
+                field_values,
+                HashMap::from_iter([
+                    ("field_a".into(), "value_a".into()),
+                    ("field_b".into(), "value_b".into())
+                ])
+            );
+        }
 
-        let KeyOpFieldValues {
-            key,
-            operation,
-            field_values,
-        } = kfvs.pop().unwrap();
+        #[tokio::test]
+        async fn zmq_consumer_producer_state_table_async() {
+            sonic_db_config_init_for_test();
 
-        assert_eq!(key, "key_a");
-        assert_eq!(operation, KeyOperation::Set);
-        assert_eq!(
-            field_values,
-            HashMap::from_iter([
-                ("field_a".into(), "value_a".into()),
-                ("field_b".into(), "value_b".into())
-            ])
-        );
-    }
+            let (endpoint, _delete) = random_zmq_endpoint();
+            let mut zmqs = ZmqServer::new(&endpoint);
+            let zmqc = ZmqClient::new(&endpoint);
 
-    #[cfg(feature = "async")]
-    #[tokio::test]
-    async fn zmq_consumer_producer_state_table_async() {
-        sonic_db_config_init_for_test();
+            let redis = Redis::start();
+            let db = DbConnector::new_unix(0, &redis.sock, 0);
 
-        let (endpoint, _delete) = random_zmq_endpoint();
-        let mut zmqs = ZmqServer::new(&endpoint);
-        let zmqc = ZmqClient::new(&endpoint);
+            let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
+            let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
 
-        let redis = Redis::start();
-        let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-        let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
-        let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
-
-        let kfvs = random_kfvs();
-        for kfv in &kfvs {
-            match kfv.operation {
-                KeyOperation::Set => zpst.set(&kfv.key, kfv.field_values.clone()),
-                KeyOperation::Del => zpst.del(&kfv.key),
+            let kfvs = random_kfvs();
+            for kfv in &kfvs {
+                match kfv.operation {
+                    KeyOperation::Set => zpst.set(&kfv.key, kfv.field_values.clone()),
+                    KeyOperation::Del => zpst.del(&kfv.key),
+                }
             }
-        }
 
-        let mut kfvs_seen = Vec::new();
-        while kfvs_seen.len() != kfvs.len() {
-            timeout(2000, zcst.read_data_async()).await.unwrap();
-            kfvs_seen.extend(zcst.pops());
+            let mut kfvs_seen = Vec::new();
+            while kfvs_seen.len() != kfvs.len() {
+                timeout(2000, zcst.read_data_async()).await.unwrap();
+                kfvs_seen.extend(zcst.pops());
+            }
+            assert_eq!(kfvs, kfvs_seen);
         }
-        assert_eq!(kfvs, kfvs_seen);
     }
 }

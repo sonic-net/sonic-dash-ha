@@ -30,9 +30,9 @@ impl DbConnector {
         unsafe { SWSSDBConnector_del(self.obj.ptr, key.as_ptr()) == 1 }
     }
 
-    pub fn set(&self, key: &str, val: &CxxString) {
+    pub fn set(&self, key: &str, val: &CxxStr) {
         let key = cstr(key);
-        unsafe { SWSSDBConnector_set(self.obj.ptr, key.as_ptr(), val.as_raw_ref()) };
+        unsafe { SWSSDBConnector_set(self.obj.ptr, key.as_ptr(), val.as_raw()) };
     }
 
     pub fn get(&self, key: &str) -> Option<CxxString> {
@@ -54,10 +54,10 @@ impl DbConnector {
         unsafe { SWSSDBConnector_hdel(self.obj.ptr, key.as_ptr(), field.as_ptr()) == 1 }
     }
 
-    pub fn hset(&self, key: &str, field: &str, val: &CxxString) {
+    pub fn hset(&self, key: &str, field: &str, val: &CxxStr) {
         let key = cstr(key);
         let field = cstr(field);
-        unsafe { SWSSDBConnector_hset(self.obj.ptr, key.as_ptr(), field.as_ptr(), val.as_raw_ref()) };
+        unsafe { SWSSDBConnector_hset(self.obj.ptr, key.as_ptr(), field.as_ptr(), val.as_raw()) };
     }
 
     pub fn hget(&self, key: &str, field: &str) -> Option<CxxString> {

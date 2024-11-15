@@ -19,6 +19,7 @@ pub use zmqproducerstatetable::ZmqProducerStateTable;
 pub use zmqserver::ZmqServer;
 
 use crate::*;
+use cxxstring::RawMutableSWSSString;
 use std::{
     any::Any,
     collections::HashMap,
@@ -237,12 +238,13 @@ where
 
     for (field, value) in fvs {
         let field = cstr(field);
-        let value = value.into();
+        let value_cxxstring: CxxString = value.into();
+        let value_rawswssstring: RawMutableSWSSString = value_cxxstring.into_raw();
         data.push(SWSSFieldValueTuple {
             field: field.as_ptr(),
-            value: value.as_raw(),
+            value: value_rawswssstring.as_raw(),
         });
-        k.keep((field, value));
+        k.keep((field, value_rawswssstring));
     }
 
     let arr = SWSSFieldValueArray {
