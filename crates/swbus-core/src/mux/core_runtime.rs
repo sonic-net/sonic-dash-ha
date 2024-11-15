@@ -34,6 +34,17 @@ impl SwbusCoreRuntime {
                 format!("Failed to parse server address: {}.", e),
             )
         })?;
+        match routes_config.routes.len() {
+            0 => {
+                return Err(SwbusError::input(
+                    SwbusErrorCode::InvalidArgs,
+                    "No routes found in the configuration.".to_string(),
+                ));
+            }
+            _ => {
+                self.multiplexer.set_my_routes(routes_config.routes);
+            }
+        }
 
         // Start the grpc server
         let server = SwbusServiceServerImpl::new(self.multiplexer.clone());

@@ -13,6 +13,7 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
+use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status, Streaming};
 use tracing::error;
@@ -106,10 +107,19 @@ impl SwbusConn {
         message_queue_rx: mpsc::Receiver<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
     ) -> Result<()> {
-        //let request_stream = ReceiverStream::new(message_queue_rx);
         let request_stream = ReceiverStream::new(message_queue_rx)
             .map(|result| result.expect("Not expecting grpc client adding messages with error status"));
-        let stream_message_request = Request::new(request_stream);
+
+        let mut stream_message_request = Request::new(request_stream);
+
+        let sp_str = conn_info
+            .local_service_path()
+            .expect("missing local service path")
+            .to_string();
+
+        stream_message_request
+            .metadata_mut()
+            .insert(CLIENT_SERVICE_PATH, MetadataValue::from_str(sp_str.as_str()).unwrap());
 
         let incoming_stream = match client.stream_messages(stream_message_request).await {
             Ok(response) => response.into_inner(),
@@ -134,13 +144,14 @@ impl SwbusConn {
     /// - message_queue_tx: The tx end of outgoing message queue
     /// - mux: The SwbusMultiplexer
     pub async fn from_receive(
-        conn_type: RouteScope,
+        conn_type: Scope,
         client_addr: SocketAddr,
+        remote_service_path: ServicePath,
         incoming_stream: Streaming<SwbusMessage>,
         message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
     ) -> SwbusConn {
-        let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr));
+        let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr, remote_service_path));
 
         Self::start_server_worker_task(conn_info, incoming_stream, message_queue_tx, mux).await
     }

@@ -9,7 +9,7 @@ use tempfile::tempdir;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum RouteScopeYaml {
+enum ScopeYaml {
     Client,
     Local,
     Region,
@@ -26,14 +26,14 @@ pub struct RoutesConfigYaml {
 #[derive(Deserialize, Debug)]
 pub struct RouteConfigYaml {
     pub key: String,
-    pub scope: RouteScopeYaml,
+    pub scope: ScopeYaml,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct PeerConfigYaml {
     pub id: String,
     pub endpoint: String,
-    pub scope: RouteScopeYaml,
+    pub scope: ScopeYaml,
 }
 
 #[derive(Debug)]
@@ -42,27 +42,27 @@ pub struct RoutesConfig {
     pub peers: Vec<PeerConfig>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 pub struct RouteConfig {
     pub key: ServicePath,
-    pub scope: RouteScope,
+    pub scope: Scope,
 }
 
 #[derive(Debug)]
 pub struct PeerConfig {
     pub id: ServicePath,
     pub endpoint: SocketAddr,
-    pub scope: RouteScope,
+    pub scope: Scope,
 }
 
-impl RouteScopeYaml {
-    fn to_route_scope(&self) -> RouteScope {
+impl ScopeYaml {
+    fn to_scope(&self) -> Scope {
         match self {
-            RouteScopeYaml::Client => RouteScope::Client,
-            RouteScopeYaml::Local => RouteScope::Local,
-            RouteScopeYaml::Region => RouteScope::Region,
-            RouteScopeYaml::Cluster => RouteScope::Cluster,
-            RouteScopeYaml::Global => RouteScope::Global,
+            ScopeYaml::Client => Scope::Client,
+            ScopeYaml::Local => Scope::Local,
+            ScopeYaml::Region => Scope::Region,
+            ScopeYaml::Cluster => Scope::Cluster,
+            ScopeYaml::Global => Scope::Global,
         }
     }
 }
@@ -83,8 +83,8 @@ impl RoutesConfig {
             .routes
             .iter()
             .map(|route| RouteConfig {
-                key: ServicePath::from_string(&route.key),
-                scope: route.scope.to_route_scope(),
+                key: ServicePath::from_string(&route.key).expect("Failed to parse service path"),
+                scope: route.scope.to_scope(),
             })
             .collect();
 
@@ -92,12 +92,12 @@ impl RoutesConfig {
             .peers
             .iter()
             .map(|peer| PeerConfig {
-                id: ServicePath::from_string(&peer.id),
+                id: ServicePath::from_string(&peer.id).expect("Failed to parse service path"),
                 endpoint: peer
                     .endpoint
                     .parse()
                     .expect(&format!("Failed to parse endpoint:{}", peer.endpoint)),
-                scope: peer.scope.to_route_scope(),
+                scope: peer.scope.to_scope(),
             })
             .collect();
 
@@ -113,13 +113,13 @@ mod tests {
     fn test_load_from_yaml() {
         let yaml_content = r#"
         routes:
-          - key: "region-a/cluster-a/10.0.0.1-dpu0"
+          - key: "region-a.cluster-a.10.0.0.1-dpu0"
             scope: "cluster"
         peers:
-          - id: "region-a/cluster-a/10.0.0.2-dpu0"
+          - id: "region-a.cluster-a.10.0.0.2-dpu0"
             endpoint: "10.0.0.2:8000"
             scope: "cluster"
-          - id: "region-a/cluster-a/10.0.0.3-dpu0"
+          - id: "region-a.cluster-a.10.0.0.3-dpu0"
             endpoint: "10.0.0.3:8000"
             scope: "cluster"
         "#;
@@ -138,27 +138,27 @@ mod tests {
 
         assert_eq!(
             config.routes[0].key,
-            ServicePath::from_string("region-a/cluster-a/10.0.0.1-dpu0")
+            ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap()
         );
-        assert_eq!(config.routes[0].scope, RouteScope::Cluster);
+        assert_eq!(config.routes[0].scope, Scope::Cluster);
 
         assert_eq!(
             config.peers[0].id,
-            ServicePath::from_string("region-a/cluster-a/10.0.0.2-dpu0")
+            ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap()
         );
         assert_eq!(
             config.peers[0].endpoint,
             "10.0.0.2:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[0].scope, RouteScope::Cluster);
+        assert_eq!(config.peers[0].scope, Scope::Cluster);
         assert_eq!(
             config.peers[1].id,
-            ServicePath::from_string("region-a/cluster-a/10.0.0.3-dpu0")
+            ServicePath::from_string("region-a.cluster-a.10.0.0.3-dpu0").unwrap()
         );
         assert_eq!(
             config.peers[1].endpoint,
             "10.0.0.3:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[1].scope, RouteScope::Cluster);
+        assert_eq!(config.peers[1].scope, Scope::Cluster);
     }
 }

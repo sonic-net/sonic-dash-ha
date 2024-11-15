@@ -46,12 +46,12 @@ impl SwbusConnWorker {
     }
 
     pub fn register_to_mux(&self) -> Result<()> {
-        // self.multiplexer.register(&self.info);
+        //self.mux.register(&self.info);
         Ok(())
     }
 
     pub fn unregister_from_mux(&self) -> Result<()> {
-        // self.multiplexer.unregister(&self.info);
+        //self.mux.unregister(&self.info);
         Ok(())
     }
 
@@ -105,22 +105,17 @@ impl SwbusConnWorker {
     async fn process_data_message(&mut self, message: SwbusMessage) -> Result<()> {
         self.validate_message_common(&message)?;
         match message.body {
-            Some(swbus_message::Body::PingRequest(_)) => {
-                //println!("Received ping request: {:?}", message);
-                self.process_ping_request(&message);
+            Some(swbus_message::Body::TraceRouteRequest(_)) => {
+                println!("Received traceroute request: {:?}", message);
+                //self.process_ping_request(&message);
             }
             _ => {
-                error!("Unknown message type received");
+                self.mux.route_message(message).await?;
             }
         }
         Ok(())
     }
 
-    fn process_ping_request(&self, message: &SwbusMessage) -> Result<()> {
-        println!("Received ping request: {:?}", message);
-
-        Ok(())
-    }
     fn validate_message_common(&mut self, message: &SwbusMessage) -> Result<()> {
         if message.header.is_none() {
             return Err(SwbusError::input(

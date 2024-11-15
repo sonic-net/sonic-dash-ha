@@ -1,6 +1,9 @@
+use super::result::*;
 use std::fmt;
-
 tonic::include_proto!("swbus");
+
+/// Service path attribute in gRPC request meta data
+pub const CLIENT_SERVICE_PATH: &str = "x-swbs-client-service-path";
 
 impl ServicePath {
     /// Create a new region level service path.
@@ -62,19 +65,24 @@ impl ServicePath {
             resource_id: resource_id.to_string(),
         }
     }
-
-    pub fn from_string(service_path: &str) -> Self {
-        let mut segments: Vec<&str> = service_path.split('/').collect();
-        segments.resize(7, "");
-        ServicePath {
-            region_id: segments[0].to_string(),
-            cluster_id: segments[1].to_string(),
-            node_id: segments[2].to_string(),
-            service_type: segments[3].to_string(),
-            service_id: segments[4].to_string(),
-            resource_type: segments[5].to_string(),
-            resource_id: segments[6].to_string(),
-        }
+    /// Create a new service path from a string. Service path must be in below format
+    ///   [region_id[.cluster_id[.node_id]][/service_type/service_id[/resource_type/resource_id]]
+    pub fn from_string(service_path: &str) -> Result<Self> {
+        let mut parts: Vec<&str> = service_path.split('/').collect();
+        //fill up service and resource with empty string
+        parts.resize(5, "");
+        //parts[0] is locator region.cluster.node
+        let mut loc_parts: Vec<&str> = parts[0].splitn(3, '.').collect();
+        loc_parts.resize(3, "");
+        Ok(ServicePath {
+            region_id: loc_parts[0].to_string(),
+            cluster_id: loc_parts[1].to_string(),
+            node_id: loc_parts[2].to_string(),
+            service_type: parts[1].to_string(),
+            service_id: parts[2].to_string(),
+            resource_type: parts[3].to_string(),
+            resource_id: parts[4].to_string(),
+        })
     }
 
     pub fn to_regional_prefix(&self) -> String {
@@ -94,6 +102,40 @@ impl ServicePath {
             "{}.{}.{}/{}/{}",
             self.region_id, self.cluster_id, self.node_id, self.service_type, self.service_id
         )
+    }
+
+    pub fn clone_for_local_mgmt(&self) -> Self {
+        ServicePath {
+            region_id: self.region_id.clone(),
+            cluster_id: self.cluster_id.clone(),
+            node_id: self.node_id.clone(),
+            service_type: "local-mgmt".to_string(),
+            service_id: "0".to_string(),
+            resource_type: "".to_string(),
+            resource_id: "".to_string(),
+        }
+    }
+
+    pub fn to_longest_path(&self) -> String {
+        let loc_str = vec![self.region_id.as_str(), self.cluster_id.as_str(), self.node_id.as_str()]
+            .into_iter()
+            .take_while(|x| !x.is_empty())
+            .collect::<Vec<&str>>()
+            .join(".");
+        let rsc_str = vec![
+            self.service_type.as_str(),
+            self.service_id.as_str(),
+            self.resource_type.as_str(),
+            self.resource_id.as_str(),
+        ]
+        .into_iter()
+        .take_while(|x| !x.is_empty())
+        .collect::<Vec<&str>>()
+        .join("/");
+        match rsc_str.is_empty() {
+            true => format!("{}", loc_str),
+            false => format!("{}/{}", loc_str, rsc_str),
+        }
     }
 }
 
@@ -318,5 +360,33 @@ mod tests {
         };
 
         assert!(swbus_message.body.is_some());
+    }
+    #[test]
+    fn test_service_path_to_and_from_string() {
+        let service_path = ServicePath {
+            region_id: "region-a".to_string(),
+            cluster_id: "cluster-a".to_string(),
+            node_id: "1.1.1.1-dpu0".to_string(),
+            service_type: "".to_string(),
+            service_id: "".to_string(),
+            resource_type: "".to_string(),
+            resource_id: "".to_string(),
+        };
+        let sp_str = service_path.to_longest_path();
+        assert_eq!(sp_str, "region-a.cluster-a.1.1.1.1-dpu0");
+        assert_eq!(ServicePath::from_string(sp_str.as_str()).unwrap(), service_path);
+
+        let service_path = ServicePath {
+            region_id: "".to_string(),
+            cluster_id: "".to_string(),
+            node_id: "".to_string(),
+            service_type: "hamgrd".to_string(),
+            service_id: "0".to_string(),
+            resource_type: "".to_string(),
+            resource_id: "".to_string(),
+        };
+        let sp_str = service_path.to_longest_path();
+        assert_eq!(sp_str, "/hamgrd/0");
+        assert_eq!(ServicePath::from_string(sp_str.as_str()).unwrap(), service_path);
     }
 }
