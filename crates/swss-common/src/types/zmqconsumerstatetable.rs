@@ -1,20 +1,15 @@
 use super::*;
 use crate::*;
-use std::{os::fd::BorrowedFd, ptr::null, rc::Rc, time::Duration};
-
-obj_wrapper! {
-    struct ZmqConsumerStateTableObj { ptr: SWSSZmqConsumerStateTable } SWSSZmqConsumerStateTable_free
-}
+use std::{os::fd::BorrowedFd, ptr::null, sync::Arc, time::Duration};
 
 /// Rust wrapper around `swss::ZmqConsumerStateTable`.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ZmqConsumerStateTable {
-    obj: Rc<ZmqConsumerStateTableObj>,
+    ptr: SWSSZmqConsumerStateTable,
     _db: DbConnector,
-    // ZmqConsumerStateTable does not own a copy of the ZmqServer because the ZmqServer must be
-    // destroyed first (otherwise its worker thread might call a destroyed ZmqMessageHandler).
-    // Instead, the ZmqServer owns a copy of all handlers registered to it, so they can be kept
-    // alive until the ZmqServer is destroyed.
+
+    /// See [`DropGuard`] and [`ZmqServer`].
+    _drop_guard: Arc<DropGuard>,
 }
 
 impl ZmqConsumerStateTable {
@@ -26,26 +21,27 @@ impl ZmqConsumerStateTable {
         pri: Option<i32>,
     ) -> Self {
         let table_name = cstr(table_name);
-        let pop_batch_size = pop_batch_size.map(|n| &n as *const i32).unwrap_or(null());
-        let pri = pri.map(|n| &n as *const i32).unwrap_or(null());
-        let obj = unsafe {
-            let p = SWSSZmqConsumerStateTable_new(db.obj.ptr, table_name.as_ptr(), zmqs.obj.ptr, pop_batch_size, pri);
-            Rc::new(p.into())
-        };
-        let self_ = Self { obj, _db: db };
-        zmqs.register_consumer_state_table(self_.clone());
-        self_
+        let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
+        let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
+        let ptr = unsafe { SWSSZmqConsumerStateTable_new(db.ptr, table_name.as_ptr(), zmqs.ptr, pop_batch_size, pri) };
+        let drop_guard = Arc::new(DropGuard(ptr));
+        zmqs.register_consumer_state_table(drop_guard.clone());
+        Self {
+            ptr,
+            _db: db,
+            _drop_guard: drop_guard,
+        }
     }
 
     pub fn pops(&self) -> Vec<KeyOpFieldValues> {
         unsafe {
-            let ans = SWSSZmqConsumerStateTable_pops(self.obj.ptr);
+            let ans = SWSSZmqConsumerStateTable_pops(self.ptr);
             take_key_op_field_values_array(ans)
         }
     }
 
     pub fn get_fd(&self) -> BorrowedFd {
-        let fd = unsafe { SWSSZmqConsumerStateTable_getFd(self.obj.ptr) };
+        let fd = unsafe { SWSSZmqConsumerStateTable_getFd(self.ptr) };
 
         // SAFETY: This fd represents the underlying zmq socket, which should remain alive as long as there
         // is a listener (i.e. a ZmqConsumerStateTable)
@@ -54,9 +50,24 @@ impl ZmqConsumerStateTable {
 
     pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> SelectResult {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
-        let res = unsafe { SWSSZmqConsumerStateTable_readData(self.obj.ptr, timeout_ms, interrupt_on_signal as u8) };
+        let res = unsafe { SWSSZmqConsumerStateTable_readData(self.ptr, timeout_ms, interrupt_on_signal as u8) };
         SelectResult::from_raw(res)
     }
 }
 
 impl_read_data_async!(ZmqConsumerStateTable);
+
+unsafe impl Send for ZmqConsumerStateTable {}
+
+/// A type that will free the underlying `ZmqConsumerStateTable` when it is dropped.
+/// This is shared with `ZmqServer`
+#[derive(Debug)]
+pub(crate) struct DropGuard(SWSSZmqConsumerStateTable);
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        unsafe { SWSSZmqConsumerStateTable_free(self.0) };
+    }
+}
+
+unsafe impl Send for DropGuard {}

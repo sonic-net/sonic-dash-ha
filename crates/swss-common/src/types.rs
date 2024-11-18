@@ -30,36 +30,18 @@ use std::{
     str::FromStr,
 };
 
-macro_rules! obj_wrapper {
-    (struct $obj:ident { ptr: $ptr:ty } $freefn:expr) => {
-        #[derive(Debug)]
-        pub(crate) struct $obj {
-            pub(crate) ptr: $ptr,
-        }
-
-        impl Drop for $obj {
-            fn drop(&mut self) {
-                unsafe {
-                    $freefn(self.ptr);
-                }
-            }
-        }
-
-        impl From<$ptr> for $obj {
-            fn from(ptr: $ptr) -> Self {
-                Self { ptr }
-            }
-        }
-    };
-}
-pub(crate) use obj_wrapper;
-
 macro_rules! impl_read_data_async {
     ($t:ty) => {
         #[cfg(feature = "async")]
         impl $t {
-            pub async fn read_data_async(&self) -> ::std::io::Result<()> {
-                use tokio::io::{unix::AsyncFd, Interest};
+            /// [`read_data`] but tokio-safe async.
+            ///
+            /// This must take `&mut self` because this future must have exclusive access to `self`
+            /// for the future to be `Send`. Otherwise, it would be sending around `&self`, and that
+            /// would require `Self` to be `Sync`, which it is not.
+            pub async fn read_data_async(&mut self) -> ::std::io::Result<()> {
+                use ::tokio::io::{unix::AsyncFd, Interest};
+
                 let _ready_guard = AsyncFd::with_interest(self.get_fd(), Interest::READABLE)?
                     .readable()
                     .await?;

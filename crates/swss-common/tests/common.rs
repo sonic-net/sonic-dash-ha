@@ -20,22 +20,24 @@ pub struct Redis {
 
 impl Redis {
     pub fn start() -> Self {
+        sonic_db_config_init_for_test();
+
         let sock = random_unix_sock();
         #[rustfmt::skip]
-            let mut child = Command::new("timeout")
-                .args([
-                    "--signal=KILL",
-                    "15s",
-                    "redis-server",
-                    "--appendonly", "no",
-                    "--save", "",
-                    "--notify-keyspace-events", "AKE",
-                    "--port", "0",
-                    "--unixsocket", &sock,
-                ])
-                .stdout(Stdio::piped())
-                .spawn()
-                .unwrap();
+        let mut child = Command::new("timeout")
+            .args([
+                "--signal=KILL",
+                "15s",
+                "redis-server",
+                "--appendonly", "no",
+                "--save", "",
+                "--notify-keyspace-events", "AKE",
+                "--port", "0",
+                "--unixsocket", &sock,
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let mut stdout = BufReader::new(child.stdout.take().unwrap());
         let mut buf = String::new();
         loop {
@@ -47,6 +49,10 @@ impl Redis {
                 break Self { proc: child, sock };
             }
         }
+    }
+
+    pub fn db_connector(&self) -> DbConnector {
+        DbConnector::new_unix(0, &self.sock, 0)
     }
 }
 

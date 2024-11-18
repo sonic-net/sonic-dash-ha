@@ -12,9 +12,10 @@ async fn timeout<F: std::future::Future>(timeout_ms: u32, fut: F) -> F::Output {
         .expect("timed out")
 }
 
-// This macro verifies that test function futures are Send. tokio::test is a bit misleading
-// because a tokio runtime's root future can be !Send. This takes a test function and defines
-// two tests from it - one that is the root future, one that is a separately spawned future.
+// This macro verifies that async test functions are Send. tokio::test is a bit misleading because
+// a tokio runtime's root future can be !Send. This takes a test function and defines two tests
+// from it - one that is the root future (Send not required),  and one that is a separately spawned
+// future (Send required).
 macro_rules! define_tokio_test_fns {
     ($f:ident) => {
         paste! {
@@ -25,7 +26,7 @@ macro_rules! define_tokio_test_fns {
 
             #[tokio::test]
             async fn [< $f _spawned_future >]() {
-                tokio::task::spawn($f()).await;
+                tokio::task::spawn($f()).await.unwrap();
             }
         }
     };
@@ -33,12 +34,9 @@ macro_rules! define_tokio_test_fns {
 
 define_tokio_test_fns!(consumer_producer_state_tables_async);
 async fn consumer_producer_state_tables_async() {
-    sonic_db_config_init_for_test();
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-    let pst = ProducerStateTable::new(db.clone(), "table_a");
-    let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
+    let pst = ProducerStateTable::new(redis.db_connector(), "table_a");
+    let mut cst = ConsumerStateTable::new(redis.db_connector(), "table_a", None, None);
 
     assert!(cst.pops().is_empty());
 
@@ -63,11 +61,9 @@ async fn consumer_producer_state_tables_async() {
 
 define_tokio_test_fns!(subscriber_state_table_async);
 async fn subscriber_state_table_async() {
-    sonic_db_config_init_for_test();
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-    let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
+    let db = redis.db_connector();
+    let mut sst = SubscriberStateTable::new(redis.db_connector(), "table_a", None, None);
     assert!(sst.pops().is_empty());
 
     db.hset("table_a:key_a", "field_a", &CxxString::new("value_a"));
@@ -101,17 +97,13 @@ async fn subscriber_state_table_async() {
 
 define_tokio_test_fns!(zmq_consumer_producer_state_table_async);
 async fn zmq_consumer_producer_state_table_async() {
-    sonic_db_config_init_for_test();
-
     let (endpoint, _delete) = random_zmq_endpoint();
     let mut zmqs = ZmqServer::new(&endpoint);
     let zmqc = ZmqClient::new(&endpoint);
 
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-    let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
-    let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
+    let zpst = ZmqProducerStateTable::new(redis.db_connector(), "table_a", zmqc, false);
+    let mut zcst = ZmqConsumerStateTable::new(redis.db_connector(), "table_a", &mut zmqs, None, None);
 
     let kfvs = random_kfvs();
     for kfv in &kfvs {

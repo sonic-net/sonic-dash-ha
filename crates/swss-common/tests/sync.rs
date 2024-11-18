@@ -1,4 +1,5 @@
 mod common;
+
 use common::*;
 use std::{collections::HashMap, time::Duration};
 use swss_common::*;
@@ -6,7 +7,7 @@ use swss_common::*;
 #[test]
 fn dbconnector() {
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
+    let db = redis.db_connector();
 
     assert!(db.flush_db());
 
@@ -63,10 +64,8 @@ fn dbconnector() {
 fn consumer_producer_state_tables() {
     sonic_db_config_init_for_test();
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-    let pst = ProducerStateTable::new(db.clone(), "table_a");
-    let cst = ConsumerStateTable::new(db.clone(), "table_a", None, None);
+    let pst = ProducerStateTable::new(redis.db_connector(), "table_a");
+    let cst = ConsumerStateTable::new(redis.db_connector(), "table_a", None, None);
 
     assert!(cst.pops().is_empty());
 
@@ -93,9 +92,8 @@ fn consumer_producer_state_tables() {
 fn subscriber_state_table() {
     sonic_db_config_init_for_test();
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-    let sst = SubscriberStateTable::new(db.clone(), "table_a", None, None);
+    let db = redis.db_connector();
+    let sst = SubscriberStateTable::new(redis.db_connector(), "table_a", None, None);
     assert!(sst.pops().is_empty());
 
     db.hset("table_a:key_a", "field_a", &CxxString::new("value_a"));
@@ -137,11 +135,10 @@ fn zmq_consumer_state_table() {
     assert!(zmqc.is_connected());
 
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
+    let zcst_table_a = ZmqConsumerStateTable::new(redis.db_connector(), "table_a", &mut zmqs, None, None);
+    let zcst_table_b = ZmqConsumerStateTable::new(redis.db_connector(), "table_b", &mut zmqs, None, None);
 
     let kfvs = random_kfvs();
-    let zcst_table_a = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
-    let zcst_table_b = ZmqConsumerStateTable::new(db.clone(), "table_b", &mut zmqs, None, None);
 
     zmqc.send_msg("", "table_a", kfvs.clone()); // db name is empty because we are using DbConnector::new_unix
     assert_eq!(zcst_table_a.read_data(Duration::from_millis(1500), true), Data);
@@ -166,10 +163,8 @@ fn zmq_consumer_producer_state_tables() {
     let zmqc = ZmqClient::new(&endpoint);
 
     let redis = Redis::start();
-    let db = DbConnector::new_unix(0, &redis.sock, 0);
-
-    let zpst = ZmqProducerStateTable::new(db.clone(), "table_a", zmqc.clone(), false);
-    let zcst = ZmqConsumerStateTable::new(db.clone(), "table_a", &mut zmqs, None, None);
+    let zpst = ZmqProducerStateTable::new(redis.db_connector(), "table_a", zmqc, false);
+    let zcst = ZmqConsumerStateTable::new(redis.db_connector(), "table_a", &mut zmqs, None, None);
 
     let kfvs = random_kfvs();
     for kfv in &kfvs {

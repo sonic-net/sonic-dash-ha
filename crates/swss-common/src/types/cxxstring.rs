@@ -48,6 +48,7 @@ impl CxxString {
         self
     }
 }
+
 /// Wrapper type around `CxxString` which disables access to methods that borrow the underlying
 /// data, like `.deref()`. This prevents code from creating an `SWSSString` and `SWSSStrRef` at the
 /// same time, which would cause a data race in multi-threaded contexts.
@@ -55,6 +56,9 @@ impl CxxString {
 /// A similar struct could be made which would allow access via just an `&mut CxxString`, but any
 /// function taking `SWSSString` will destroy the underlying data anyway, so we might as well just
 /// drop it when we're done.
+///
+/// This newtype needs to exist (as opposed to into_raw returning the raw pointer) so that the
+/// string is not dropped immediately.
 pub(crate) struct RawMutableSWSSString(CxxString);
 
 impl RawMutableSWSSString {
