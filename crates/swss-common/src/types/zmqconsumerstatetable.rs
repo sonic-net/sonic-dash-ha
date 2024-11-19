@@ -55,8 +55,6 @@ impl ZmqConsumerStateTable {
     }
 }
 
-impl_read_data_async!(ZmqConsumerStateTable);
-
 unsafe impl Send for ZmqConsumerStateTable {}
 
 /// A type that will free the underlying `ZmqConsumerStateTable` when it is dropped.
@@ -71,3 +69,9 @@ impl Drop for DropGuard {
 }
 
 unsafe impl Send for DropGuard {}
+
+/// Async versions of methods
+#[cfg(feature = "async")]
+impl ZmqConsumerStateTable {
+    async_util::impl_read_data_async!();
+}

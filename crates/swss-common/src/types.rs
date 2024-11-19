@@ -1,3 +1,6 @@
+#[cfg(feature = "async")]
+mod async_util;
+
 mod consumerstatetable;
 mod cxxstring;
 mod dbconnector;
@@ -29,29 +32,6 @@ use std::{
     slice,
     str::FromStr,
 };
-
-macro_rules! impl_read_data_async {
-    ($t:ty) => {
-        #[cfg(feature = "async")]
-        impl $t {
-            /// [`read_data`] but tokio-safe async.
-            ///
-            /// This must take `&mut self` because this future must have exclusive access to `self`
-            /// for the future to be `Send`. Otherwise, it would be sending around `&self`, and that
-            /// would require `Self` to be `Sync`, which it is not.
-            pub async fn read_data_async(&mut self) -> ::std::io::Result<()> {
-                use ::tokio::io::{unix::AsyncFd, Interest};
-
-                let _ready_guard = AsyncFd::with_interest(self.get_fd(), Interest::READABLE)?
-                    .readable()
-                    .await?;
-                self.read_data(Duration::from_secs(0), false);
-                Ok(())
-            }
-        }
-    };
-}
-pub(crate) use impl_read_data_async;
 
 pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
     CString::new(s.as_ref()).unwrap()

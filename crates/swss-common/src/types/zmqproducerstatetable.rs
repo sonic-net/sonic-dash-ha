@@ -49,3 +49,15 @@ impl Drop for ZmqProducerStateTable {
 }
 
 unsafe impl Send for ZmqProducerStateTable {}
+
+#[cfg(feature = "async")]
+impl ZmqProducerStateTable {
+    async_util::impl_basic_async_method!(
+        set_async <= set<I, F, V>(&self, key: &str, fvs: I)
+                     where
+                         I: IntoIterator<Item = (F, V)> + Send,
+                         F: AsRef<[u8]>,
+                         V: Into<CxxString>,
+    );
+    async_util::impl_basic_async_method!(del_async <= del(&self, key: &str));
+}

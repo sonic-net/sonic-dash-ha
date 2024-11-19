@@ -40,3 +40,14 @@ impl Drop for ZmqClient {
 }
 
 unsafe impl Send for ZmqClient {}
+
+#[cfg(feature = "async")]
+impl ZmqClient {
+    async_util::impl_basic_async_method!(new_async <= new(endpoint: &str) -> Self);
+    async_util::impl_basic_async_method!(connect_async <= connect(&self));
+    async_util::impl_basic_async_method!(
+        send_msg_async <= send_msg<I>(&self, db_name: &str, table_name: &str, kfvs: I)
+                          where
+                              I: IntoIterator<Item = KeyOpFieldValues> + Send,
+    );
+}

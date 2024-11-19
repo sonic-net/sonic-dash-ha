@@ -40,8 +40,6 @@ impl SubscriberStateTable {
     }
 }
 
-impl_read_data_async!(SubscriberStateTable);
-
 impl Drop for SubscriberStateTable {
     fn drop(&mut self) {
         unsafe { SWSSSubscriberStateTable_free(self.ptr) };
@@ -49,3 +47,9 @@ impl Drop for SubscriberStateTable {
 }
 
 unsafe impl Send for SubscriberStateTable {}
+
+/// Async versions of methods
+#[cfg(feature = "async")]
+impl SubscriberStateTable {
+    async_util::impl_read_data_async!();
+}

@@ -40,8 +40,6 @@ impl ConsumerStateTable {
     }
 }
 
-impl_read_data_async!(ConsumerStateTable);
-
 impl Drop for ConsumerStateTable {
     fn drop(&mut self) {
         unsafe { SWSSConsumerStateTable_free(self.ptr) };
@@ -49,3 +47,9 @@ impl Drop for ConsumerStateTable {
 }
 
 unsafe impl Send for ConsumerStateTable {}
+
+/// Async versions of methods
+#[cfg(feature = "async")]
+impl ConsumerStateTable {
+    async_util::impl_read_data_async!();
+}

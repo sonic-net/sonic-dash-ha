@@ -1,3 +1,4 @@
+use super::*;
 use crate::*;
 
 /// Rust wrapper around `swss::ProducerStateTable`.
@@ -62,3 +63,16 @@ impl Drop for ProducerStateTable {
 }
 
 unsafe impl Send for ProducerStateTable {}
+
+#[cfg(feature = "async")]
+impl ProducerStateTable {
+    async_util::impl_basic_async_method!(
+        set_async <= set<I, F, V>(&self, key: &str, fvs: I)
+                     where
+                         I: IntoIterator<Item = (F, V)> + Send,
+                         F: AsRef<[u8]>,
+                         V: Into<CxxString>,
+    );
+    async_util::impl_basic_async_method!(del_async <= del(&self, key: &str));
+    async_util::impl_basic_async_method!(flush_async <= flush(&self));
+}

@@ -91,3 +91,19 @@ impl Drop for DbConnector {
 }
 
 unsafe impl Send for DbConnector {}
+
+#[cfg(feature = "async")]
+impl DbConnector {
+    async_util::impl_basic_async_method!(new_tcp_async <= new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector);
+    async_util::impl_basic_async_method!(new_unix_async <= new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector);
+    async_util::impl_basic_async_method!(del_async <= del(&self, key: &str) -> bool);
+    async_util::impl_basic_async_method!(set_async <= set(&self, key: &str, value: &CxxStr));
+    async_util::impl_basic_async_method!(get_async <= get(&self, key: &str) -> Option<CxxString>);
+    async_util::impl_basic_async_method!(exists_async <= exists(&self, key: &str) -> bool);
+    async_util::impl_basic_async_method!(hdel_async <= hdel(&self, key: &str, field: &str) -> bool);
+    async_util::impl_basic_async_method!(hset_async <= hset(&self, key: &str, field: &str, value: &CxxStr));
+    async_util::impl_basic_async_method!(hget_async <= hget(&self, key: &str, field: &str) -> Option<CxxString>);
+    async_util::impl_basic_async_method!(hgetall_async <= hgetall(&self, key: &str) -> HashMap<String, CxxString>);
+    async_util::impl_basic_async_method!(hexists_async <= hexists(&self, key: &str, field: &str) -> bool);
+    async_util::impl_basic_async_method!(flush_db_async <= flush_db(&self) -> bool);
+}

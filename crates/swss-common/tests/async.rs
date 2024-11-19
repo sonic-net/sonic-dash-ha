@@ -32,10 +32,66 @@ macro_rules! define_tokio_test_fns {
     };
 }
 
-define_tokio_test_fns!(consumer_producer_state_tables_async);
-async fn consumer_producer_state_tables_async() {
+define_tokio_test_fns!(dbconnector);
+async fn dbconnector() {
     let redis = Redis::start();
-    let pst = ProducerStateTable::new(redis.db_connector(), "table_a");
+    let mut db = redis.db_connector();
+
+    assert!(db.flush_db_async().await);
+
+    let random = random_cxx_string();
+
+    db.set_async("hello", &CxxString::new("hello, world!")).await;
+    db.set_async("random", &random).await;
+    assert_eq!(db.get_async("hello").await.unwrap(), "hello, world!");
+    assert_eq!(db.get_async("random").await.unwrap(), random);
+    assert_eq!(db.get_async("noexist").await, None);
+
+    assert!(db.exists_async("hello").await);
+    assert!(!db.exists_async("noexist").await);
+    assert!(db.del_async("hello").await);
+    assert!(!db.del_async("hello").await);
+    assert!(db.del_async("random").await);
+    assert!(!db.del_async("random").await);
+    assert!(!db.del_async("noexist").await);
+
+    db.hset_async("a", "hello", &CxxString::new("hello, world!")).await;
+    db.hset_async("a", "random", &random).await;
+    assert_eq!(db.hget_async("a", "hello").await.unwrap(), "hello, world!");
+    assert_eq!(db.hget_async("a", "random").await.unwrap(), random);
+    assert_eq!(db.hget_async("a", "noexist").await, None);
+    assert_eq!(db.hget_async("noexist", "noexist").await, None);
+    assert!(db.hexists_async("a", "hello").await);
+    assert!(!db.hexists_async("a", "noexist").await);
+    assert!(!db.hexists_async("noexist", "hello").await);
+    assert!(db.hdel_async("a", "hello").await);
+    assert!(!db.hdel_async("a", "hello").await);
+    assert!(db.hdel_async("a", "random").await);
+    assert!(!db.hdel_async("a", "random").await);
+    assert!(!db.hdel_async("a", "noexist").await);
+    assert!(!db.hdel_async("noexist", "noexist").await);
+    assert!(!db.del_async("a").await);
+
+    assert!(db.hgetall_async("a").await.is_empty());
+    db.hset_async("a", "a", &CxxString::new("1")).await;
+    db.hset_async("a", "b", &CxxString::new("2")).await;
+    db.hset_async("a", "c", &CxxString::new("3")).await;
+    assert_eq!(
+        db.hgetall_async("a").await,
+        HashMap::from_iter([
+            ("a".into(), "1".into()),
+            ("b".into(), "2".into()),
+            ("c".into(), "3".into())
+        ])
+    );
+
+    assert!(db.flush_db_async().await);
+}
+
+define_tokio_test_fns!(consumer_producer_state_tables);
+async fn consumer_producer_state_tables() {
+    let redis = Redis::start();
+    let mut pst = ProducerStateTable::new(redis.db_connector(), "table_a");
     let mut cst = ConsumerStateTable::new(redis.db_connector(), "table_a", None, None);
 
     assert!(cst.pops().is_empty());
@@ -44,8 +100,8 @@ async fn consumer_producer_state_tables_async() {
     for (i, kfv) in kfvs.iter().enumerate() {
         assert_eq!(pst.count(), i as i64);
         match kfv.operation {
-            KeyOperation::Set => pst.set(&kfv.key, kfv.field_values.clone()),
-            KeyOperation::Del => pst.del(&kfv.key),
+            KeyOperation::Set => pst.set_async(&kfv.key, kfv.field_values.clone()).await,
+            KeyOperation::Del => pst.del_async(&kfv.key).await,
         }
     }
 
@@ -59,15 +115,17 @@ async fn consumer_producer_state_tables_async() {
     assert_eq!(kfvs_cst, kfvs);
 }
 
-define_tokio_test_fns!(subscriber_state_table_async);
-async fn subscriber_state_table_async() {
+define_tokio_test_fns!(subscriber_state_table);
+async fn subscriber_state_table() {
     let redis = Redis::start();
-    let db = redis.db_connector();
+    let mut db = redis.db_connector();
     let mut sst = SubscriberStateTable::new(redis.db_connector(), "table_a", None, None);
     assert!(sst.pops().is_empty());
 
-    db.hset("table_a:key_a", "field_a", &CxxString::new("value_a"));
-    db.hset("table_a:key_a", "field_b", &CxxString::new("value_b"));
+    db.hset_async("table_a:key_a", "field_a", &CxxString::new("value_a"))
+        .await;
+    db.hset_async("table_a:key_a", "field_b", &CxxString::new("value_b"))
+        .await;
     timeout(300, sst.read_data_async()).await.unwrap();
     let mut kfvs = sst.pops();
 
@@ -95,21 +153,21 @@ async fn subscriber_state_table_async() {
     );
 }
 
-define_tokio_test_fns!(zmq_consumer_producer_state_table_async);
-async fn zmq_consumer_producer_state_table_async() {
+define_tokio_test_fns!(zmq_consumer_producer_state_table);
+async fn zmq_consumer_producer_state_table() {
     let (endpoint, _delete) = random_zmq_endpoint();
     let mut zmqs = ZmqServer::new(&endpoint);
     let zmqc = ZmqClient::new(&endpoint);
 
     let redis = Redis::start();
-    let zpst = ZmqProducerStateTable::new(redis.db_connector(), "table_a", zmqc, false);
+    let mut zpst = ZmqProducerStateTable::new(redis.db_connector(), "table_a", zmqc, false);
     let mut zcst = ZmqConsumerStateTable::new(redis.db_connector(), "table_a", &mut zmqs, None, None);
 
     let kfvs = random_kfvs();
     for kfv in &kfvs {
         match kfv.operation {
-            KeyOperation::Set => zpst.set(&kfv.key, kfv.field_values.clone()),
-            KeyOperation::Del => zpst.del(&kfv.key),
+            KeyOperation::Set => zpst.set_async(&kfv.key, kfv.field_values.clone()).await,
+            KeyOperation::Del => zpst.del_async(&kfv.key).await,
         }
     }
 
