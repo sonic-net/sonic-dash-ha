@@ -13,20 +13,21 @@ async fn timeout<F: std::future::Future>(timeout_ms: u32, fut: F) -> F::Output {
 }
 
 // This macro verifies that async test functions are Send. tokio::test is a bit misleading because
-// a tokio runtime's root future can be !Send. This takes a test function and defines two tests
-// from it - one that is the root future (Send not required),  and one that is a separately spawned
-// future (Send required).
+// a tokio runtime's root future can be !Send. This takes a test function and defines two tests from
+// it - one that is the root future (Send not required), and one that uses a type assertion to check
+// that the tested future is Send.
 macro_rules! define_tokio_test_fns {
     ($f:ident) => {
         paste! {
             #[tokio::test]
-            async fn [< $f _root_future >]() {
+            async fn [< $f _async >]() {
                 $f().await;
             }
 
-            #[tokio::test]
-            async fn [< $f _spawned_future >]() {
-                tokio::task::spawn($f()).await.unwrap();
+            #[allow(dead_code)]
+            fn [< $f _is_send >]() {
+                fn assert_is_send<T: Send>(_: T) {}
+                assert_is_send($f());
             }
         }
     };
