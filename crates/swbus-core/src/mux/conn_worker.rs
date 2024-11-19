@@ -41,17 +41,15 @@ impl SwbusConnWorker {
         let result = self.run_worker_loop().await;
         //unregister from mux
         self.unregister_from_mux()?;
-        //todo: if error and connection type is client, ask mux to reconnect
         result
     }
 
     pub fn register_to_mux(&self) -> Result<()> {
-        //self.mux.register(&self.info);
         Ok(())
     }
 
     pub fn unregister_from_mux(&self) -> Result<()> {
-        //self.mux.unregister(&self.info);
+        self.mux.unregister(self.info.clone());
         Ok(())
     }
 

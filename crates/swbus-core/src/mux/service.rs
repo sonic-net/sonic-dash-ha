@@ -46,12 +46,29 @@ impl SwbusService for SwbusServiceServerImpl {
                 return Err(Status::invalid_argument("Client service path not found"));
             }
         };
+
+        let scope = match request.metadata().get(SERVICE_PATH_SCOPE) {
+            Some(scope_name) => match Scope::from_str_name(scope_name.to_str().unwrap()) {
+                Some(scope) => scope,
+                None => {
+                    return Err(Status::invalid_argument(format!(
+                        "Invalid service path scope: {}",
+                        scope_name.to_str().unwrap()
+                    )));
+                }
+            },
+            None => {
+                println!("SwbusServiceServer::service path scope not set");
+                return Err(Status::invalid_argument("service path scope not set"));
+            }
+        };
+
         let in_stream = request.into_inner();
         // outgoing message queue
         let (tx, rx) = mpsc::channel(16);
 
         let conn = SwbusConn::from_receive(
-            Scope::Cluster,
+            scope,
             client_addr,
             service_path,
             in_stream,

@@ -3,7 +3,9 @@ use std::fmt;
 tonic::include_proto!("swbus");
 
 /// Service path attribute in gRPC request meta data
-pub const CLIENT_SERVICE_PATH: &str = "x-swbs-client-service-path";
+pub const CLIENT_SERVICE_PATH: &str = "x-swbus-service-path";
+/// Service path scope of the connection
+pub const SERVICE_PATH_SCOPE: &str = "x-swbus-scope";
 
 impl ServicePath {
     /// Create a new region level service path.

@@ -8,6 +8,7 @@ use swbus_proto::swbus::swbus_service_client::SwbusServiceClient;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 use tonic::transport::Endpoint;
 use tonic::Request;
@@ -16,6 +17,7 @@ use tracing::error;
 
 pub struct SwbusCoreClient {
     uri: String,
+    sp: ServicePath,
     local_services: Arc<DashSet<ServicePath>>,
 
     client: Option<SwbusServiceClient<Channel>>,
@@ -27,9 +29,10 @@ pub struct SwbusCoreClient {
 
 // Factory functions
 impl SwbusCoreClient {
-    pub fn new(uri: String, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Self {
+    pub fn new(uri: String, sp: ServicePath, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Self {
         Self {
             uri,
+            sp,
             local_services: Arc::new(DashSet::new()),
             client: None,
             send_queue_tx: None,
@@ -77,11 +80,23 @@ impl SwbusCoreClient {
                 ));
             }
         };
-
+        println!("Connected to the server");
         let mut client = SwbusServiceClient::new(channel);
 
         let send_stream = ReceiverStream::new(send_queue_rx);
-        let send_stream_request = Request::new(send_stream);
+        let mut send_stream_request = Request::new(send_stream);
+
+        let mut meta = send_stream_request.metadata_mut();
+
+        meta.insert(
+            CLIENT_SERVICE_PATH,
+            MetadataValue::from_str(&self.sp.to_service_prefix()).unwrap(),
+        );
+
+        meta.insert(
+            SERVICE_PATH_SCOPE,
+            MetadataValue::from_str(Scope::Local.as_str_name()).unwrap(),
+        );
 
         let recv_stream = match client.stream_messages(send_stream_request).await {
             Ok(response) => response.into_inner(),

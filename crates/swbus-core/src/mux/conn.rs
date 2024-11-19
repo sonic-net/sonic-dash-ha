@@ -117,9 +117,13 @@ impl SwbusConn {
             .expect("missing local service path")
             .to_string();
 
-        stream_message_request
-            .metadata_mut()
-            .insert(CLIENT_SERVICE_PATH, MetadataValue::from_str(sp_str.as_str()).unwrap());
+        let mut meta = stream_message_request.metadata_mut();
+
+        meta.insert(CLIENT_SERVICE_PATH, MetadataValue::from_str(sp_str.as_str()).unwrap());
+        meta.insert(
+            SERVICE_PATH_SCOPE,
+            MetadataValue::from_str(conn_info.connection_type().as_str_name()).unwrap(),
+        );
 
         let incoming_stream = match client.stream_messages(stream_message_request).await {
             Ok(response) => response.into_inner(),

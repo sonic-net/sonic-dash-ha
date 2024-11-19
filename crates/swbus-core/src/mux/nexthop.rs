@@ -60,13 +60,14 @@ impl SwbusNextHop {
     }
 
     async fn process_local_message(&self, message: SwbusMessage) -> Result<()> {
+        //@todo: move to trace
         // process message locally
         match message.body {
             Some(swbus_message::Body::PingRequest(ref ping_request)) => {
                 self.process_ping_request(message).await?;
             }
             Some(swbus_message::Body::Response(ref response)) => {
-                println!("Received response: {:?}", message);
+                //println!("Received response: {:?}", message);
             }
             _ => {
                 return Err(SwbusError::input(
@@ -79,7 +80,8 @@ impl SwbusNextHop {
     }
 
     async fn process_ping_request(&self, message: SwbusMessage) -> Result<()> {
-        println!("Received ping request: {:?}", message);
+        //@todo: move to trace
+        //println!("Received ping request: {:?}", message);
         match message.header {
             Some(ref header) => {
                 let response = SwbusMessage {

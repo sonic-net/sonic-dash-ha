@@ -1,5 +1,5 @@
 mod core_client;
-mod edge_runtime;
+pub mod edge_runtime;
 mod message_handler_proxy;
 mod message_router;
 

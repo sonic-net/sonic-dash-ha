@@ -1,5 +1,5 @@
 use super::route_config::{PeerConfig, RouteConfig};
-use super::{SwbusConn, SwbusConnInfo, SwbusNextHop};
+use super::{SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::{Arc, OnceLock};
@@ -144,6 +144,26 @@ impl SwbusMultiplexer {
         self.update_route(route_key, nexthop);
     }
 
+    pub fn unregister(&self, conn_info: Arc<SwbusConnInfo>) {
+        // First, we remove the connection from the connection table.
+        self.connections.remove(&conn_info);
+
+        // Next, we remove the route entry from the route table.
+        let path = conn_info.remote_service_path();
+        let route_key = match conn_info.connection_type() {
+            Scope::Global => path.to_regional_prefix(),
+            Scope::Region => path.to_cluster_prefix(),
+            Scope::Cluster => path.to_node_prefix(),
+            Scope::Local => path.to_service_prefix(),
+            Scope::Client => path.to_string(),
+        };
+        self.routes.remove(&route_key);
+        // If connection is client mode, we start a new connection task.
+        if conn_info.mode() == SwbusConnMode::Client {
+            SwbusMultiplexer::start_connect_task(conn_info);
+        }
+    }
+
     fn update_route(&self, route_key: String, nexthop: SwbusNextHop) {
         // If route entry doesn't exist, we insert the next hop as a new one.
         match self.routes.entry(route_key) {
@@ -206,6 +226,6 @@ impl SwbusMultiplexer {
 
         //todo: shall we reply with  route not found message?
         println!("Route not found for {}", destination);
-        return Ok(());
+        Ok(())
     }
 }

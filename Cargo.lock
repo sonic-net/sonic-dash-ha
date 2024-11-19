@@ -1429,6 +1429,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "swbuscli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "swbus-edge",
+ "swbus-proto",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+]
+
+[[package]]
 name = "swbusd"
 version = "0.1.0"
 dependencies = [

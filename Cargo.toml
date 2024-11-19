@@ -5,8 +5,11 @@ members = [
     "crates/swbus-core",
     "crates/swbusd",
     "crates/hamgrd",
-    "crates/swss-common"
-, "crates/swbus-edge", "crates/swbus-proto"]
+    "crates/swss-common", 
+    "crates/swbus-edge", 
+    "crates/swbus-proto",
+    "crates/swbuscli",
+]
 exclude = []
 
 [workspace.package]
@@ -71,6 +74,7 @@ tempfile = "3.3"
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
 swbus-proto = { version = "0.1.0", path = "crates/swbus-proto" }
 swbus-core = { version = "0.1.0", path = "crates/swbus-core" }
+swbus-edge = { version = "0.1.0", path = "crates/swbus-edge" }
 # Dev dependencies
 criterion = "0.5"
 fakeit = "1.1"

@@ -6,6 +6,7 @@ use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc::Receiver;
 use tokio::task;
+use tracing::error;
 
 pub struct SwbusMessageRouter {
     routes: Arc<DashMap<ServicePath, SwbusMessageHandlerProxy>>,
@@ -39,7 +40,7 @@ impl SwbusMessageRouter {
             let mut swbus_client = swbus_client;
             let mut recv_rx = recv_rx;
             while let Some(message) = recv_rx.recv().await {
-                // Route the message to the appropriate handler.
+                // Route the received message from core_client to the appropriate handler.
                 Self::route_message(&mut swbus_client, &routes, message).await;
             }
         });
@@ -48,12 +49,38 @@ impl SwbusMessageRouter {
         Ok(())
     }
 
+    pub fn add_route(&self, svc_path: ServicePath, handler: SwbusMessageHandlerProxy) {
+        self.routes.insert(svc_path, handler);
+    }
+
     async fn route_message(
         swbus_client: &mut SwbusCoreClient,
         routes: &Arc<DashMap<ServicePath, SwbusMessageHandlerProxy>>,
         message: SwbusMessage,
     ) {
         // Route the message via routes, then default to the core client.
-        todo!()
+        let header = match message.header {
+            Some(ref header) => header,
+            None => {
+                println!("Missing message header");
+                return;
+            }
+        };
+        let destination = match header.destination {
+            Some(ref destination) => destination,
+            None => {
+                println!("Missing message destination");
+                return;
+            }
+        };
+        // If the route entry doesn't exist, send to swbus_client.
+        match routes.get(&destination) {
+            Some(handler) => {
+                handler.send(message).await;
+            }
+            None => {
+                swbus_client.send(message).await;
+            }
+        };
     }
 }
