@@ -119,15 +119,12 @@ impl fmt::Display for ServicePath {
 }
 
 impl SwbusMessageHeader {
-    pub fn new(source: ServicePath, destination: ServicePath) -> Self {
-        let epoch_nanos: u64 = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos() as u64;
-
+    /// To generate sane `id`s, use [`crate::util::SwbusMessageIdGenerator`].
+    /// See [`SwbusMessageId`] for notes on id uniqueness.
+    pub fn new(source: ServicePath, destination: ServicePath, id: SwbusMessageId) -> Self {
         SwbusMessageHeader {
             version: 1,
-            id: epoch_nanos,
+            id: Some(id),
             flag: 0,
             ttl: 64,
             source: Some(source),
@@ -138,18 +135,18 @@ impl SwbusMessageHeader {
 
 impl RequestResponse {
     /// Create a new OK response.
-    pub fn ok(request_id: u64) -> Self {
+    pub fn ok(request_id: SwbusMessageId) -> Self {
         RequestResponse {
-            request_id,
+            request_id: Some(request_id),
             error_code: SwbusErrorCode::Ok as i32,
             error_message: "".to_string(),
         }
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(request_id: u64, error_code: SwbusErrorCode, error_message: &str) -> Self {
+    pub fn infra_error(request_id: SwbusMessageId, error_code: SwbusErrorCode, error_message: &str) -> Self {
         RequestResponse {
-            request_id,
+            request_id: Some(request_id),
             error_code: error_code as i32,
             error_message: error_message.to_string(),
         }
@@ -186,6 +183,8 @@ impl DataRequest {
 
 #[cfg(test)]
 mod tests {
+    use crate::util::SwbusMessageIdGenerator;
+
     use super::*;
     use pretty_assertions::assert_eq;
 
@@ -236,10 +235,11 @@ mod tests {
 
     #[test]
     fn request_response_can_be_created() {
-        let response = RequestResponse::ok(123);
+        let response = RequestResponse::ok(create_mock_message_id());
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
 
-        let response = RequestResponse::infra_error(123, SwbusErrorCode::NoRoute, "No route is found.");
+        let response =
+            RequestResponse::infra_error(create_mock_message_id(), SwbusErrorCode::NoRoute, "No route is found.");
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
     }
 
@@ -275,8 +275,8 @@ mod tests {
 
     #[test]
     fn route_data_request_can_be_created() {
-        let request = RouteDataRequest::new("mock-payload".as_bytes().to_vec());
-        test_packing_with_swbus_message(swbus_message::Body::RouteDataRequest(request));
+        let request = DataRequest::new("mock-payload".as_bytes().to_vec());
+        test_packing_with_swbus_message(swbus_message::Body::DataRequest(request));
     }
 
     fn create_mock_service_path() -> ServicePath {
@@ -298,7 +298,11 @@ mod tests {
         let mut destination = create_mock_service_path();
         destination.resource_id = "destination_resource_id".to_string();
 
-        SwbusMessageHeader::new(source, destination)
+        SwbusMessageHeader::new(source, destination, create_mock_message_id())
+    }
+
+    fn create_mock_message_id() -> SwbusMessageId {
+        SwbusMessageIdGenerator::new().generate()
     }
 
     fn test_packing_with_swbus_message(body: swbus_message::Body) {
