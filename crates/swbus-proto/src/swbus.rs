@@ -119,9 +119,9 @@ impl fmt::Display for ServicePath {
 }
 
 impl SwbusMessageHeader {
-    /// To generate sane `id`s, use [`crate::util::SwbusMessageIdGenerator`].
-    /// See [`SwbusMessageId`] for notes on id uniqueness.
-    pub fn new(source: ServicePath, destination: ServicePath, id: SwbusMessageId) -> Self {
+    /// To generate sane `id`s, use [`crate::util::MessageIdGenerator`].
+    /// See [`MessageId`] for notes on id uniqueness.
+    pub fn new(source: ServicePath, destination: ServicePath, id: MessageId) -> Self {
         SwbusMessageHeader {
             version: 1,
             id: Some(id),
@@ -135,7 +135,7 @@ impl SwbusMessageHeader {
 
 impl RequestResponse {
     /// Create a new OK response.
-    pub fn ok(request_id: SwbusMessageId) -> Self {
+    pub fn ok(request_id: MessageId) -> Self {
         RequestResponse {
             request_id: Some(request_id),
             error_code: SwbusErrorCode::Ok as i32,
@@ -144,7 +144,7 @@ impl RequestResponse {
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(request_id: SwbusMessageId, error_code: SwbusErrorCode, error_message: &str) -> Self {
+    pub fn infra_error(request_id: MessageId, error_code: SwbusErrorCode, error_message: &str) -> Self {
         RequestResponse {
             request_id: Some(request_id),
             error_code: error_code as i32,
@@ -183,7 +183,7 @@ impl DataRequest {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::SwbusMessageIdGenerator;
+    use crate::util::MessageIdGenerator;
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -301,8 +301,8 @@ mod tests {
         SwbusMessageHeader::new(source, destination, create_mock_message_id())
     }
 
-    fn create_mock_message_id() -> SwbusMessageId {
-        SwbusMessageIdGenerator::new().generate()
+    fn create_mock_message_id() -> MessageId {
+        MessageIdGenerator::new().generate()
     }
 
     fn test_packing_with_swbus_message(body: swbus_message::Body) {

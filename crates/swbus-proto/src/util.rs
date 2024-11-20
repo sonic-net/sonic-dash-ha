@@ -1,15 +1,15 @@
-use crate::swbus::SwbusMessageId;
+use crate::swbus::MessageId;
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::SystemTime,
 };
 
-pub struct SwbusMessageIdGenerator {
+pub struct MessageIdGenerator {
     startup_epoch_nanos: u64,
     count: AtomicU64,
 }
 
-impl SwbusMessageIdGenerator {
+impl MessageIdGenerator {
     pub fn new() -> Self {
         let startup_epoch_nanos: u64 = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -22,8 +22,8 @@ impl SwbusMessageIdGenerator {
         }
     }
 
-    pub fn generate(&self) -> SwbusMessageId {
-        SwbusMessageId {
+    pub fn generate(&self) -> MessageId {
+        MessageId {
             startup_epoch_nanos: self.startup_epoch_nanos,
             count: self.count.fetch_add(1, Ordering::SeqCst),
         }

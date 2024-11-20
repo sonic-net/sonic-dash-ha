@@ -45,7 +45,7 @@ message SwbusMessageHeader {
 
   // Message info
 
-  SwbusMessageId id = 10;
+  MessageId id = 10;
   uint32 flag = 20;
   uint32 ttl = 30;
 
@@ -58,7 +58,7 @@ message SwbusMessageHeader {
 // Two messages from different endpoints may have the same id, but two messages
 // from the same endpoint should never share the same id (even if the program
 // is restarted).
-message SwbusMessageId {
+message MessageId {
   // The time (in epoch nanoseconds) at which the client who send this message
   // connected to Swbus.
   uint64 startup_epoch_nanos = 1;
@@ -144,7 +144,7 @@ enum SwbusErrorCode {
 }
 
 message RequestResponse {
-  SwbusMessageId request_id = 10;
+  MessageId request_id = 10;
   SwbusErrorCode error_code = 110;
   string error_message = 120;
 }

@@ -6,17 +6,17 @@ use std::sync::Arc;
 use swbus_proto::{
     result::Result,
     swbus::{swbus_message::Body, SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse},
-    util::SwbusMessageIdGenerator,
+    util::MessageIdGenerator,
 };
 use tokio::sync::mpsc::{channel, Receiver};
 
-pub use swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage, SwbusMessageId};
+pub use swbus_proto::swbus::{DataRequest, MessageId, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage};
 
 pub struct SimpleSwbusClient {
     rt: Arc<SwbusEdgeRuntime>,
     handler_rx: Receiver<SwbusMessage>,
     source: ServicePath,
-    id_generator: SwbusMessageIdGenerator,
+    id_generator: MessageIdGenerator,
 }
 
 impl SimpleSwbusClient {
@@ -29,7 +29,7 @@ impl SimpleSwbusClient {
             rt,
             handler_rx,
             source,
-            id_generator: SwbusMessageIdGenerator::new(),
+            id_generator: MessageIdGenerator::new(),
         }
     }
 
@@ -100,7 +100,7 @@ impl SimpleSwbusClient {
     /// Send an [`OutgoingMessage`].
     ///
     /// Shortcut for [`outgoing_message_to_swbus_message`] followed by [`send_raw`].
-    pub async fn send(&self, msg: OutgoingMessage) -> Result<SwbusMessageId> {
+    pub async fn send(&self, msg: OutgoingMessage) -> Result<MessageId> {
         let msg = self.outgoing_message_to_swbus_message(msg);
         let id = msg.header.as_ref().unwrap().id.unwrap();
         self.rt.send(msg).await?;
@@ -134,7 +134,7 @@ pub enum MessageBody {
 }
 
 pub struct IncomingMessage {
-    pub id: SwbusMessageId,
+    pub id: MessageId,
     pub source: ServicePath,
     pub body: MessageBody,
 }
