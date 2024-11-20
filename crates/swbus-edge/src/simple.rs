@@ -5,12 +5,12 @@ use crate::SwbusEdgeRuntime;
 use std::sync::Arc;
 use swbus_proto::{
     result::Result,
-    swbus::{swbus_message::Body, SwbusMessage, SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse},
+    swbus::{swbus_message::Body, SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse},
     util::SwbusMessageIdGenerator,
 };
 use tokio::sync::mpsc::{channel, Receiver};
 
-pub use swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessageId};
+pub use swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage, SwbusMessageId};
 
 pub struct SimpleSwbusClient {
     rt: Arc<SwbusEdgeRuntime>,
@@ -33,6 +33,8 @@ impl SimpleSwbusClient {
         }
     }
 
+    /// Receive the next incoming message from Swbus.
+    ///
     /// Returns None when no more messages will ever be received.
     pub async fn recv(&mut self) -> Option<IncomingMessage> {
         loop {
@@ -95,17 +97,33 @@ impl SimpleSwbusClient {
         }
     }
 
-    pub async fn send(&self, destination: ServicePath, body: MessageBody) -> Result<SwbusMessageId> {
+    /// Send an [`OutgoingMessage`].
+    ///
+    /// Shortcut for [`outgoing_message_to_swbus_message`] followed by [`send_raw`].
+    pub async fn send(&self, msg: OutgoingMessage) -> Result<SwbusMessageId> {
+        let msg = self.outgoing_message_to_swbus_message(msg);
+        let id = msg.header.as_ref().unwrap().id.unwrap();
+        self.rt.send(msg).await?;
+        Ok(id)
+    }
+
+    /// Send a raw [`SwbusMessage`] created with [`outgoing_message_to_swbus_message`].
+    ///
+    /// This is used to implement message resending - repeating a message with the same id as the last time it was sent.
+    pub async fn send_raw(&self, msg: SwbusMessage) -> Result<()> {
+        self.rt.send(msg).await
+    }
+
+    /// Compile an [`OutgoingMessage`] into an [`SwbusMessage`] for use with [`send_raw`].
+    pub fn outgoing_message_to_swbus_message(&self, msg: OutgoingMessage) -> SwbusMessage {
         let id = self.id_generator.generate();
-        let msg = SwbusMessage {
-            header: Some(SwbusMessageHeader::new(self.source.clone(), destination, id)),
-            body: Some(match body {
+        SwbusMessage {
+            header: Some(SwbusMessageHeader::new(self.source.clone(), msg.destination, id)),
+            body: Some(match msg.body {
                 MessageBody::Request(req) => Body::DataRequest(req),
                 MessageBody::Response(resp) => Body::Response(resp),
             }),
-        };
-        self.rt.send(msg).await?;
-        Ok(id)
+        }
     }
 }
 
@@ -118,5 +136,10 @@ pub enum MessageBody {
 pub struct IncomingMessage {
     pub id: SwbusMessageId,
     pub source: ServicePath,
+    pub body: MessageBody,
+}
+
+pub struct OutgoingMessage {
+    pub destination: ServicePath,
     pub body: MessageBody,
 }
