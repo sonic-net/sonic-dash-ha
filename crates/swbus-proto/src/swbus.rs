@@ -1,4 +1,4 @@
-use std::{fmt, time::SystemTime};
+use std::fmt;
 
 tonic::include_proto!("swbus");
 
