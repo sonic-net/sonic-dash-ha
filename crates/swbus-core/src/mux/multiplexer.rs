@@ -1,13 +1,12 @@
 use super::route_config::{PeerConfig, RouteConfig};
-use super::{SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
+use super::{NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop, SwbusNextHopDisplay};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::{Arc, OnceLock};
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
-use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 
 // pub struct SwbusConnTracker {
 //     conn: Option<SwbusConn>,
@@ -58,7 +57,7 @@ impl SwbusMultiplexer {
 
     pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
         for route in routes {
-            let mut sr = route.key.clone_for_local_mgmt();
+            let sr = route.key.clone_for_local_mgmt();
 
             self.my_routes.insert(route);
 
@@ -69,40 +68,24 @@ impl SwbusMultiplexer {
         }
     }
 
-    pub fn start_connect_task(conn_info: Arc<SwbusConnInfo>) {
+    fn start_connect_task(conn_info: Arc<SwbusConnInfo>, reconnect: bool) {
         let conn_info_clone = conn_info.clone();
+
+        let retry_interval = match reconnect {
+            true => Duration::from_millis(1),
+            false => Duration::from_secs(1),
+        };
         let retry_task: JoinHandle<()> = tokio::spawn(async move {
             loop {
                 match SwbusConn::from_connect(conn_info.clone(), SwbusMultiplexer::get().clone()).await {
                     Ok(conn) => {
                         println!("Successfully connect to peer {}", conn_info.id());
-                        let proxy = conn.new_proxy();
+                        // register the new connection and update the route table
                         SwbusMultiplexer::get().register(conn);
-
-                        //make a ping message
-                        let ping = SwbusMessage {
-                            header: Some(SwbusMessageHeader::new(
-                                conn_info
-                                    .local_service_path()
-                                    .expect("local_service_path in client mode conn_info should not be None")
-                                    .clone_for_local_mgmt(),
-                                conn_info.remote_service_path().clone_for_local_mgmt(),
-                            )),
-                            body: Some(swbus_message::Body::PingRequest(PingRequest::new())),
-                        };
-                        let result = SwbusMultiplexer::get().route_message(ping).await;
-                        match result {
-                            Ok(_) => {
-                                println!("Ping message sent successfully");
-                            }
-                            Err(e) => {
-                                println!("Failed to send ping message: {:?}", e);
-                            }
-                        }
                         break;
                     }
-                    Err(e) => {
-                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    Err(_) => {
+                        tokio::time::sleep(retry_interval).await;
                     }
                 }
             }
@@ -121,7 +104,7 @@ impl SwbusMultiplexer {
             peer.id.clone(),
             my_route.key.clone(),
         ));
-        SwbusMultiplexer::start_connect_task(conn_info);
+        SwbusMultiplexer::start_connect_task(conn_info, false);
     }
 
     pub fn register(&self, conn: SwbusConn) {
@@ -160,7 +143,7 @@ impl SwbusMultiplexer {
         self.routes.remove(&route_key);
         // If connection is client mode, we start a new connection task.
         if conn_info.mode() == SwbusConnMode::Client {
-            SwbusMultiplexer::start_connect_task(conn_info);
+            SwbusMultiplexer::start_connect_task(conn_info, true /*reconnect from connection loss*/);
         }
     }
 
@@ -173,7 +156,7 @@ impl SwbusMultiplexer {
                     existing.insert(nexthop);
                 }
             }
-            Entry::Vacant(mut entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(nexthop);
             }
         }
@@ -185,7 +168,7 @@ impl SwbusMultiplexer {
         // }
     }
 
-    pub async fn route_message(&self, mut message: SwbusMessage) -> Result<()> {
+    pub async fn route_message(&self, message: SwbusMessage) -> Result<()> {
         let header = match message.header {
             Some(ref header) => header,
             None => {
@@ -220,12 +203,24 @@ impl SwbusMultiplexer {
             };
 
             // If the route entry is resolved, we forward the message to the next hop.
-            nexthop.queue_message(message).await;
+            nexthop.queue_message(message).await.unwrap();
             return Ok(());
         }
 
         //todo: shall we reply with  route not found message?
         println!("Route not found for {}", destination);
         Ok(())
+    }
+
+    pub fn dump_routes(&self) -> String {
+        // Convert DashMap to HashMap for serialization
+        let serializable_map: std::collections::HashMap<String, SwbusNextHopDisplay> = self
+            .routes
+            .iter()
+            .filter(|entry| matches!(entry.value().nh_type, NextHopType::Remote))
+            .map(|entry| (entry.key().clone(), SwbusNextHopDisplay::from_nexthop(entry.value())))
+            .collect();
+
+        serde_json::to_string(&serializable_map).unwrap()
     }
 }

@@ -69,6 +69,7 @@ dashmap = "6"
 itertools = "0.13"
 atomic_enum = "0.3"
 tempfile = "3.3"
+tabled = "0.16.0"
 
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }

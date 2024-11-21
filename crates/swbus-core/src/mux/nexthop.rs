@@ -1,20 +1,29 @@
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
 use super::SwbusMultiplexer;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 
-#[derive(Debug)]
-enum NextHopType {
+#[derive(Debug, Clone)]
+pub(crate) enum NextHopType {
     Local,
     Remote,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct SwbusNextHop {
-    nh_type: NextHopType,
+    pub nh_type: NextHopType,
     conn_info: Option<Arc<SwbusConnInfo>>,
+
     conn_proxy: Option<SwbusConnProxy>,
+    pub hop_count: u32,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SwbusNextHopDisplay {
+    pub nh_id: String,
+    pub nh_scope: String,
+    pub nh_service_path: String,
     pub hop_count: u32,
 }
 
@@ -62,29 +71,28 @@ impl SwbusNextHop {
     async fn process_local_message(&self, message: SwbusMessage) -> Result<()> {
         //@todo: move to trace
         // process message locally
-        match message.body {
-            Some(swbus_message::Body::PingRequest(ref ping_request)) => {
-                self.process_ping_request(message).await?;
-            }
-            Some(swbus_message::Body::Response(ref response)) => {
-                //println!("Received response: {:?}", message);
-            }
+        let response = match message.body {
+            Some(swbus_message::Body::PingRequest(_)) => self.process_ping_request(message).unwrap(),
+            Some(swbus_message::Body::ManagementRequest(mgmt_request)) => self
+                .process_mgmt_request(&message.header.unwrap(), &mgmt_request)
+                .unwrap(),
             _ => {
                 return Err(SwbusError::input(
                     SwbusErrorCode::ServiceNotFound,
                     format!("Invalid message type to a local endpoint: {:?}", message),
                 ));
             }
-        }
+        };
+        Box::pin(SwbusMultiplexer::get().route_message(response)).await?;
         Ok(())
     }
 
-    async fn process_ping_request(&self, message: SwbusMessage) -> Result<()> {
+    fn process_ping_request(&self, message: SwbusMessage) -> Result<SwbusMessage> {
         //@todo: move to trace
         //println!("Received ping request: {:?}", message);
         match message.header {
             Some(ref header) => {
-                let response = SwbusMessage {
+                Ok(SwbusMessage {
                     header: Some(SwbusMessageHeader::new(
                         header.destination.clone().expect("missing destination"), //should not happen otherwise it won't reach here
                         header.source.clone().ok_or(SwbusError::input(
@@ -93,8 +101,7 @@ impl SwbusNextHop {
                         ))?,
                     )),
                     body: Some(swbus_message::Body::Response(RequestResponse::ok(header.epoch))),
-                };
-                Box::pin(SwbusMultiplexer::get().route_message(response)).await
+                })
             }
             None => {
                 return Err(SwbusError::input(
@@ -102,6 +109,59 @@ impl SwbusNextHop {
                     "Message missing header".to_string(),
                 ));
             }
+        }
+    }
+
+    fn process_mgmt_request(
+        &self,
+        header: &SwbusMessageHeader,
+        mgmt_request: &ManagementRequest,
+    ) -> Result<SwbusMessage> {
+        match mgmt_request.request.as_str() {
+            "show_route" => {
+                let routes = SwbusMultiplexer::get().dump_routes();
+
+                Ok(SwbusMessage {
+                    header: Some(SwbusMessageHeader::new(
+                        header.destination.clone().expect("missing destination"), //should not happen otherwise it won't reach here
+                        header.source.clone().ok_or(SwbusError::input(
+                            SwbusErrorCode::InvalidSource,
+                            format!("missing message source in show_route request"),
+                        ))?,
+                    )),
+                    body: Some(swbus_message::Body::ManagementResponse(ManagementResponse::new(
+                        header.epoch,
+                        &routes,
+                    ))),
+                })
+            }
+            _ => Err(SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                format!("Invalid management request: {:?}", mgmt_request),
+            )),
+        }
+    }
+}
+
+impl SwbusNextHopDisplay {
+    pub fn from_nexthop(nexthop: &SwbusNextHop) -> Self {
+        let (nh_id, nh_scope, nh_service_path) = match &nexthop.conn_info {
+            Some(conn_info) => (
+                conn_info.id().to_string(),
+                conn_info
+                    .connection_type()
+                    .as_str_name()
+                    .trim_start_matches('_')
+                    .to_string(),
+                conn_info.remote_service_path().to_longest_path(),
+            ),
+            None => ("".to_string(), "".to_string(), "".to_string()),
+        };
+        SwbusNextHopDisplay {
+            nh_id,
+            nh_scope,
+            nh_service_path,
+            hop_count: nexthop.hop_count,
         }
     }
 }

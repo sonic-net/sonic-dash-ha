@@ -5,7 +5,7 @@ mod conn_worker;
 pub mod core_runtime;
 mod message_handler;
 mod multiplexer;
-mod nexthop;
+pub mod nexthop;
 pub mod route_config;
 mod service;
 

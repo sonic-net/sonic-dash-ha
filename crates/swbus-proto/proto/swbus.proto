@@ -10,10 +10,10 @@ service SwbusService {
 //
 // Service path is used to identify a service uniquely.
 //
-// To demosntrate the usage of service path, we can use the following example with "|" and "/" as the delimiter:
-// - region-a|switch-cluster-a|10.0.0.1/hamgrd/dpu3/hascope/dpu
-// - region-b|switch-cluster-b|10.0.0.2/hamgrd/dpu4/hascope/eni-0a1b2c3d4e5f6
-// - region-c|switch-cluster-c|10.0.0.3/redis/dpu5/APPL.SOME_TABLE/some_key:some_subkey
+// To demosntrate the usage of service path, we can use the following example with "." and "/" as the delimiter:
+// - region-a.switch-cluster-a.10.0.0.1/hamgrd/dpu3/hascope/dpu
+// - region-b.switch-cluster-b.10.0.0.2/hamgrd/dpu4/hascope/eni-0a1b2c3d4e5f6
+// - region-c.switch-cluster-c.10.0.0.3/redis/dpu5/APPL.SOME_TABLE/some_key:some_subkey
 //
 // When message is routed, it will:
 // - First, use the full path to find the exact match. If there is a match, route the message there.
@@ -168,6 +168,28 @@ message TraceRouteResponse {
   string trace_id = 10;
 }
 
+message ManagementRequestArg {
+  string name = 10;
+  string value = 20;
+}
+
+//
+// Management requests for debugging purpose
+//
+message ManagementRequest {
+  string request = 10;
+  repeated ManagementRequestArg arguments = 20;
+}
+
+//
+// Response to management request
+// response is in JSON format
+//
+message ManagementResponse {
+  uint64 request_epoch = 10;
+  string response = 20;
+}
+
 //
 // Route data request
 //
@@ -195,7 +217,13 @@ message SwbusMessage {
     TraceRouteRequest trace_route_request = 410;
     TraceRouteResponse trace_route_response = 420;
 
+    // Management request and response
+    ManagementRequest management_request = 510;
+    ManagementResponse management_response = 520;
+
     // Route data
     RouteDataRequest route_data_request = 10000;
+
+
   }
 }

@@ -1,11 +1,11 @@
 mod ping;
+mod show;
 use clap::Parser;
 use std::sync::Arc;
 use swbus_edge::edge_runtime::SwbusEdgeRuntime;
 use swbus_proto::swbus::*;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio::time::{self, Duration};
 
 #[derive(Parser, Debug)]
 #[command(name = "swbuscli")]
@@ -28,6 +28,7 @@ struct Command {
 #[derive(Parser, Debug)]
 enum CliSub {
     Ping(ping::PingCmd),
+    Show(show::ShowCmd),
 }
 
 trait CmdHandler {
@@ -60,7 +61,6 @@ async fn main() {
     };
     match args.subcommand {
         CliSub::Ping(ping_args) => ping_args.handle(&ctx).await,
+        CliSub::Show(show_args) => show_args.handle(&ctx).await,
     };
-
-    runtime_task.await.unwrap();
 }

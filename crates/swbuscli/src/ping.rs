@@ -48,7 +48,7 @@ impl super::CmdHandler for PingCmd {
             let start = Instant::now();
             ctx.runtime.lock().await.send(ping_msg).await.unwrap();
             //wait on the channel to receive response
-            match time::timeout(Duration::from_secs(2), recv_queue_rx.recv()).await {
+            match time::timeout(Duration::from_secs(self.timeout as u64), recv_queue_rx.recv()).await {
                 Ok(Some(msg)) => {
                     let elapsed = start.elapsed();
                     println!(

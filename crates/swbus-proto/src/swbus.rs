@@ -1,4 +1,6 @@
 use super::result::*;
+use serde::{Serialize, Serializer};
+use serde_json;
 use std::fmt;
 tonic::include_proto!("swbus");
 
@@ -176,6 +178,24 @@ impl fmt::Display for ServicePath {
     }
 }
 
+impl Serialize for ServicePath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_longest_path())
+    }
+}
+
+impl Serialize for Scope {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.as_str_name().trim_start_matches('_'))
+    }
+}
+
 impl SwbusMessageHeader {
     pub fn new(source: ServicePath, destination: ServicePath) -> Self {
         SwbusMessageHeader {
@@ -231,6 +251,23 @@ impl TraceRouteResponse {
     }
 }
 
+impl ManagementRequest {
+    pub fn new(request: &str) -> Self {
+        ManagementRequest {
+            request: request.to_string(),
+            arguments: Vec::<ManagementRequestArg>::new(),
+        }
+    }
+}
+
+impl ManagementResponse {
+    pub fn new(request_epoch: u64, response: &str) -> Self {
+        ManagementResponse {
+            request_epoch,
+            response: response.to_string(),
+        }
+    }
+}
 impl RouteDataRequest {
     pub fn new(payload: Vec<u8>) -> Self {
         RouteDataRequest { payload }
