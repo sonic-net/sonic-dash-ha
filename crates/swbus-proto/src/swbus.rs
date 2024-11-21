@@ -128,7 +128,7 @@ impl SwbusMessage {
 }
 
 impl SwbusMessageHeader {
-    /// To generate sane `id`s, use [`crate::util::MessageIdGenerator`].
+    /// To generate sane `id`s, use [`crate::message_id_generator::MessageIdGenerator`].
     /// See [`MessageId`] for notes on id uniqueness.
     pub fn new(source: ServicePath, destination: ServicePath, id: MessageId) -> Self {
         SwbusMessageHeader {
@@ -192,7 +192,7 @@ impl DataRequest {
 
 #[cfg(test)]
 mod tests {
-    use crate::util::MessageIdGenerator;
+    use crate::message_id_generator::MessageIdGenerator;
 
     use super::*;
     use pretty_assertions::assert_eq;
