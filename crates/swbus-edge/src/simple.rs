@@ -131,17 +131,20 @@ impl SimpleSwbusClient {
 }
 
 /// A simplified version of [`swbus_message::Body`], only representing a `DataRequest` or `Response`.
+#[derive(Debug, Clone)]
 pub enum MessageBody {
     Request(DataRequest),
     Response(RequestResponse),
 }
 
+#[derive(Debug, Clone)]
 pub struct IncomingMessage {
     pub id: MessageId,
     pub source: ServicePath,
     pub body: MessageBody,
 }
 
+#[derive(Debug, Clone)]
 pub struct OutgoingMessage {
     pub destination: ServicePath,
     pub body: MessageBody,
