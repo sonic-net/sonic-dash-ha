@@ -8,13 +8,16 @@ use swbus_proto::{
     swbus::{swbus_message::Body, SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse},
     util::MessageIdGenerator,
 };
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::{
+    mpsc::{channel, Receiver},
+    Mutex,
+};
 
 pub use swbus_proto::swbus::{DataRequest, MessageId, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage};
 
 pub struct SimpleSwbusClient {
     rt: Arc<SwbusEdgeRuntime>,
-    handler_rx: Receiver<SwbusMessage>,
+    handler_rx: Mutex<Receiver<SwbusMessage>>,
     source: ServicePath,
     id_generator: MessageIdGenerator,
 }
@@ -27,7 +30,7 @@ impl SimpleSwbusClient {
             .expect("failed to add handler to SwbusEdgeRuntime");
         Self {
             rt,
-            handler_rx,
+            handler_rx: Mutex::new(handler_rx),
             source,
             id_generator: MessageIdGenerator::new(),
         }
@@ -36,9 +39,9 @@ impl SimpleSwbusClient {
     /// Receive the next incoming message from Swbus.
     ///
     /// Returns None when no more messages will ever be received.
-    pub async fn recv(&mut self) -> Option<IncomingMessage> {
+    pub async fn recv(&self) -> Option<IncomingMessage> {
         loop {
-            let msg = self.handler_rx.recv().await?;
+            let msg = self.handler_rx.lock().await.recv().await?;
             let header = msg.header.unwrap();
             let id = header.id.unwrap();
             let source = header.source.unwrap();
@@ -101,8 +104,7 @@ impl SimpleSwbusClient {
     ///
     /// Shortcut for [`outgoing_message_to_swbus_message`] followed by [`send_raw`].
     pub async fn send(&self, msg: OutgoingMessage) -> Result<MessageId> {
-        let msg = self.outgoing_message_to_swbus_message(msg);
-        let id = msg.header.as_ref().unwrap().id.unwrap();
+        let (id, msg) = self.outgoing_message_to_swbus_message(msg);
         self.rt.send(msg).await?;
         Ok(id)
     }
@@ -115,15 +117,16 @@ impl SimpleSwbusClient {
     }
 
     /// Compile an [`OutgoingMessage`] into an [`SwbusMessage`] for use with [`send_raw`].
-    pub fn outgoing_message_to_swbus_message(&self, msg: OutgoingMessage) -> SwbusMessage {
+    pub fn outgoing_message_to_swbus_message(&self, msg: OutgoingMessage) -> (MessageId, SwbusMessage) {
         let id = self.id_generator.generate();
-        SwbusMessage {
+        let msg = SwbusMessage {
             header: Some(SwbusMessageHeader::new(self.source.clone(), msg.destination, id)),
             body: Some(match msg.body {
                 MessageBody::Request(req) => Body::DataRequest(req),
                 MessageBody::Response(resp) => Body::Response(resp),
             }),
-        }
+        };
+        (id, msg)
     }
 }
 
