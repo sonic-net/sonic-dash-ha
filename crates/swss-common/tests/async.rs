@@ -20,12 +20,11 @@ macro_rules! define_tokio_test_fns {
     ($f:ident) => {
         paste! {
             #[tokio::test]
-            async fn [< $f _async >]() {
+            async fn [< $f _ >]() {
                 $f().await;
             }
 
-            #[allow(dead_code)]
-            fn [< $f _is_send >]() {
+            fn [< _assert_ $f _is_send >]() {
                 fn assert_is_send<T: Send>(_: T) {}
                 assert_is_send($f());
             }
@@ -33,8 +32,8 @@ macro_rules! define_tokio_test_fns {
     };
 }
 
-define_tokio_test_fns!(dbconnector);
-async fn dbconnector() {
+define_tokio_test_fns!(dbconnector_async_api_basic_test);
+async fn dbconnector_async_api_basic_test() {
     let redis = Redis::start();
     let mut db = redis.db_connector();
 
@@ -89,8 +88,8 @@ async fn dbconnector() {
     assert!(db.flush_db_async().await);
 }
 
-define_tokio_test_fns!(consumer_producer_state_tables);
-async fn consumer_producer_state_tables() {
+define_tokio_test_fns!(consumer_producer_state_tables_async_api_basic_test);
+async fn consumer_producer_state_tables_async_api_basic_test() {
     let redis = Redis::start();
     let mut pst = ProducerStateTable::new(redis.db_connector(), "table_a");
     let mut cst = ConsumerStateTable::new(redis.db_connector(), "table_a", None, None);
@@ -116,8 +115,8 @@ async fn consumer_producer_state_tables() {
     assert_eq!(kfvs_cst, kfvs);
 }
 
-define_tokio_test_fns!(subscriber_state_table);
-async fn subscriber_state_table() {
+define_tokio_test_fns!(subscriber_state_table_async_api_basic_test);
+async fn subscriber_state_table_async_api_basic_test() {
     let redis = Redis::start();
     let mut db = redis.db_connector();
     let mut sst = SubscriberStateTable::new(redis.db_connector(), "table_a", None, None);
@@ -154,8 +153,8 @@ async fn subscriber_state_table() {
     );
 }
 
-define_tokio_test_fns!(zmq_consumer_producer_state_table);
-async fn zmq_consumer_producer_state_table() {
+define_tokio_test_fns!(zmq_consumer_producer_state_table_async_api_basic_test);
+async fn zmq_consumer_producer_state_table_async_api_basic_test() {
     let (endpoint, _delete) = random_zmq_endpoint();
     let mut zmqs = ZmqServer::new(&endpoint);
     let zmqc = ZmqClient::new(&endpoint);

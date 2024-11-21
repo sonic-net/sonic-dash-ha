@@ -5,7 +5,7 @@ use std::{collections::HashMap, time::Duration};
 use swss_common::*;
 
 #[test]
-fn dbconnector() {
+fn dbconnector_sync_api_basic_test() {
     let redis = Redis::start();
     let db = redis.db_connector();
 
@@ -61,7 +61,7 @@ fn dbconnector() {
 }
 
 #[test]
-fn consumer_producer_state_tables() {
+fn consumer_producer_state_tables_sync_api_basic_test() {
     sonic_db_config_init_for_test();
     let redis = Redis::start();
     let pst = ProducerStateTable::new(redis.db_connector(), "table_a");
@@ -89,7 +89,7 @@ fn consumer_producer_state_tables() {
 }
 
 #[test]
-fn subscriber_state_table() {
+fn subscriber_state_table_sync_api_basic_test() {
     sonic_db_config_init_for_test();
     let redis = Redis::start();
     let db = redis.db_connector();
@@ -126,7 +126,7 @@ fn subscriber_state_table() {
 }
 
 #[test]
-fn zmq_consumer_state_table() {
+fn zmq_consumer_state_table_sync_api_basic_test() {
     use SelectResult::*;
 
     let (endpoint, _delete) = random_zmq_endpoint();
@@ -153,10 +153,8 @@ fn zmq_consumer_state_table() {
 }
 
 #[test]
-fn zmq_consumer_producer_state_tables() {
+fn zmq_consumer_producer_state_tables_sync_api_basic_test() {
     use SelectResult::*;
-
-    sonic_db_config_init_for_test();
 
     let (endpoint, _delete) = random_zmq_endpoint();
     let mut zmqs = ZmqServer::new(&endpoint);
