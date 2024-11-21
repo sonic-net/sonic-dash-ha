@@ -118,6 +118,15 @@ impl fmt::Display for ServicePath {
     }
 }
 
+impl SwbusMessage {
+    pub fn new(header: SwbusMessageHeader, body: swbus_message::Body) -> Self {
+        Self {
+            header: Some(header),
+            body: Some(body),
+        }
+    }
+}
+
 impl SwbusMessageHeader {
     /// To generate sane `id`s, use [`crate::util::MessageIdGenerator`].
     /// See [`MessageId`] for notes on id uniqueness.

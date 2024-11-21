@@ -4,9 +4,9 @@
 use crate::SwbusEdgeRuntime;
 use std::sync::Arc;
 use swbus_proto::{
+    message_id_generator::MessageIdGenerator,
     result::Result,
     swbus::{swbus_message::Body, SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse},
-    util::MessageIdGenerator,
 };
 use tokio::sync::{
     mpsc::{channel, Receiver},
@@ -15,14 +15,14 @@ use tokio::sync::{
 
 pub use swbus_proto::swbus::{DataRequest, MessageId, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage};
 
-pub struct SimpleSwbusClient {
+pub struct SimpleSwbusEdgeClient {
     rt: Arc<SwbusEdgeRuntime>,
     handler_rx: Mutex<Receiver<SwbusMessage>>,
     source: ServicePath,
     id_generator: MessageIdGenerator,
 }
 
-impl SimpleSwbusClient {
+impl SimpleSwbusEdgeClient {
     pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         rt.add_handler(source.clone(), handler_tx)
@@ -42,61 +42,47 @@ impl SimpleSwbusClient {
     pub async fn recv(&self) -> Option<IncomingMessage> {
         loop {
             let msg = self.handler_rx.lock().await.recv().await?;
-            let header = msg.header.unwrap();
-            let id = header.id.unwrap();
-            let source = header.source.unwrap();
-            let destination = header.destination.unwrap();
-            let body = msg.body.unwrap();
-
-            match body {
-                Body::DataRequest(req) => {
-                    return Some(IncomingMessage {
-                        id,
-                        source,
-                        body: MessageBody::Request(req),
-                    });
-                }
-                Body::Response(resp) => {
-                    return Some(IncomingMessage {
-                        id,
-                        source,
-                        body: MessageBody::Response(resp),
-                    });
-                }
-                Body::PingRequest(_) => {
-                    _ = self
-                        .rt
-                        .send(SwbusMessage {
-                            header: Some(SwbusMessageHeader::new(
-                                destination,
-                                source,
-                                self.id_generator.generate(),
-                            )),
-                            body: Some(Body::Response(RequestResponse {
-                                request_id: Some(id),
-                                error_code: SwbusErrorCode::Ok as i32,
-                                error_message: "".into(),
-                            })),
-                        })
-                        .await;
-                }
-                Body::TraceRouteRequest(TraceRouteRequest { trace_id }) => {
-                    _ = self
-                        .rt
-                        .send(SwbusMessage {
-                            header: Some(SwbusMessageHeader::new(
-                                destination,
-                                source,
-                                self.id_generator.generate(),
-                            )),
-                            body: Some(Body::TraceRouteResponse(TraceRouteResponse { trace_id })),
-                        })
-                        .await;
-                }
-                Body::TraceRouteResponse(_) => { /* We should never receive this message */ }
-                Body::RegistrationQueryRequest(_) => { /* What does this message mean */ }
-                Body::RegistrationQueryResponse(_) => { /* We should never receive this message */ }
+            match self.handle_received_message(msg) {
+                HandleReceivedMessage::PassToActor(msg) => break Some(msg),
+                HandleReceivedMessage::Respond(msg) => self.rt.send(msg).await.unwrap(),
+                HandleReceivedMessage::Ignore => {}
             }
+        }
+    }
+
+    fn handle_received_message(&self, msg: SwbusMessage) -> HandleReceivedMessage {
+        let header = msg.header.unwrap();
+        let id = header.id.unwrap();
+        let source = header.source.unwrap();
+        let destination = header.destination.unwrap();
+        let body = msg.body.unwrap();
+
+        match body {
+            Body::DataRequest(req) => HandleReceivedMessage::PassToActor(IncomingMessage {
+                id,
+                source,
+                body: MessageBody::Request(req),
+            }),
+            Body::Response(resp) => HandleReceivedMessage::PassToActor(IncomingMessage {
+                id,
+                source,
+                body: MessageBody::Response(resp),
+            }),
+            Body::PingRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
+                SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
+                Body::Response(RequestResponse {
+                    request_id: Some(id),
+                    error_code: SwbusErrorCode::Ok as i32,
+                    error_message: "".into(),
+                }),
+            )),
+            Body::TraceRouteRequest(TraceRouteRequest { trace_id }) => {
+                HandleReceivedMessage::Respond(SwbusMessage::new(
+                    SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
+                    Body::TraceRouteResponse(TraceRouteResponse { trace_id }),
+                ))
+            }
+            _ => HandleReceivedMessage::Ignore,
         }
     }
 
@@ -128,6 +114,12 @@ impl SimpleSwbusClient {
         };
         (id, msg)
     }
+}
+
+enum HandleReceivedMessage {
+    PassToActor(IncomingMessage),
+    Respond(SwbusMessage),
+    Ignore,
 }
 
 /// A simplified version of [`swbus_message::Body`], only representing a `DataRequest` or `Response`.
