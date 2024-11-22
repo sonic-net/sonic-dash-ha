@@ -1,3 +1,6 @@
+#[cfg(feature = "async")]
+mod async_util;
+
 mod consumerstatetable;
 mod cxxstring;
 mod dbconnector;
@@ -19,6 +22,7 @@ pub use zmqproducerstatetable::ZmqProducerStateTable;
 pub use zmqserver::ZmqServer;
 
 use crate::*;
+use cxxstring::RawMutableSWSSString;
 use std::{
     any::Any,
     collections::HashMap,
@@ -28,30 +32,6 @@ use std::{
     slice,
     str::FromStr,
 };
-
-macro_rules! obj_wrapper {
-    (struct $obj:ident { ptr: $ptr:ty } $freefn:expr) => {
-        #[derive(Debug)]
-        pub(crate) struct $obj {
-            pub(crate) ptr: $ptr,
-        }
-
-        impl Drop for $obj {
-            fn drop(&mut self) {
-                unsafe {
-                    $freefn(self.ptr);
-                }
-            }
-        }
-
-        impl From<$ptr> for $obj {
-            fn from(ptr: $ptr) -> Self {
-                Self { ptr }
-            }
-        }
-    };
-}
-pub(crate) use obj_wrapper;
 
 pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
     CString::new(s.as_ref()).unwrap()
@@ -220,12 +200,13 @@ where
 
     for (field, value) in fvs {
         let field = cstr(field);
-        let value = value.into();
+        let value_cxxstring: CxxString = value.into();
+        let value_rawswssstring: RawMutableSWSSString = value_cxxstring.into_raw();
         data.push(SWSSFieldValueTuple {
             field: field.as_ptr(),
-            value: value.as_raw(),
+            value: value_rawswssstring.as_raw(),
         });
-        k.keep((field, value));
+        k.keep((field, value_rawswssstring));
     }
 
     let arr = SWSSFieldValueArray {

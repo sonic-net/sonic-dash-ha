@@ -5,8 +5,10 @@ members = [
     "crates/swbus-core",
     "crates/swbusd",
     "crates/hamgrd",
-    "crates/swss-common"
-, "crates/swbus-edge", "crates/swbus-proto"]
+    "crates/swss-common",
+    "crates/swbus-edge",
+    "crates/swbus-proto"
+]
 exclude = []
 
 [workspace.package]
