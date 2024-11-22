@@ -1,3 +1,4 @@
+use crate::wait_for_response;
 use clap::Parser;
 use std::time::Instant;
 use swbus_proto::swbus::*;
@@ -41,26 +42,40 @@ impl super::CmdHandler for PingCmd {
         //Send ping messages
         println!("PING {}", self.dest.to_longest_path());
         for i in 0..self.count {
+            let mut header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone());
+            let header_epoch = header.epoch;
             let ping_msg = SwbusMessage {
-                header: Some(SwbusMessageHeader::new(src_sp.clone(), self.dest.clone())),
+                header: Some(header),
                 body: Some(swbus_message::Body::PingRequest(PingRequest::new())),
             };
             let start = Instant::now();
             ctx.runtime.lock().await.send(ping_msg).await.unwrap();
-            //wait on the channel to receive response
-            match time::timeout(Duration::from_secs(self.timeout as u64), recv_queue_rx.recv()).await {
-                Ok(Some(msg)) => {
+
+            //wait on the channel to receive response or timeout
+            let result = wait_for_response(&mut recv_queue_rx, header_epoch, self.timeout).await;
+            match result.error_code {
+                SwbusErrorCode::Ok => {
                     let elapsed = start.elapsed();
                     println!(
                         "Response received: ping_seq={}, ttl={}, time={:.3}ms",
                         i,
-                        msg.header.unwrap().ttl,
+                        result
+                            .msg
+                            .expect("SwbusMessage shouldn't be None in success case")
+                            .header
+                            .unwrap()
+                            .ttl,
                         elapsed.as_secs_f64() * 1000.0
                     );
                 }
-                Ok(None) => println!("Channel closed"),
-                Err(_) => println!("Request timeout for ping_seq {}", i),
+                SwbusErrorCode::Timeout => {
+                    println!("Request timeout: ping_seq {}", i);
+                }
+                _ => {
+                    println!("{}:{}", result.error_code.as_str_name(), result.error_message);
+                }
             }
+
             tokio::time::sleep(tokio::time::Duration::from_secs(self.interval as u64)).await;
         }
     }

@@ -1,5 +1,5 @@
 use super::route_config::{PeerConfig, RouteConfig};
-use super::{NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop, SwbusNextHopDisplay};
+use super::{NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::{Arc, OnceLock};
@@ -204,23 +204,64 @@ impl SwbusMultiplexer {
 
             // If the route entry is resolved, we forward the message to the next hop.
             nexthop.queue_message(message).await.unwrap();
+            // check nexthop type, decrement ttl and send unreachable response if needed
+            //     Ok(_) => {
+            //         return Ok(());
+            //     }
+            //     Err(SwbusError::InputError { code, .. }) => {
+            //         match code {
+            //             SwbusErrorCode::Unreachable => {
+            //                 let response = SwbusMessage::new_response(&message, SwbusErrorCode::NoRoute, "Route not found");
+            //                 self.route_message(response).await.unwrap();
+            //             }
+            //             _ => {
+            //                 return Err(SwbusError::input(
+            //                     SwbusErrorCode::Fail,
+            //                     format!("Failed to queue message to next hop"),
+            //                 ));
+            //             }
+            //         }
+            //     }
+            //     Err(e) => {
+            //         return Err(e);
+            //     }
+            // }
             return Ok(());
         }
 
-        //todo: shall we reply with  route not found message?
-        println!("Route not found for {}", destination);
+        let response = SwbusMessage::new_response(&message, SwbusErrorCode::NoRoute, "Route not found");
+        //todo: add Box::pin to route_message
+        //self.route_message(response).await.unwrap();
+
         Ok(())
     }
 
-    pub fn dump_routes(&self) -> String {
-        // Convert DashMap to HashMap for serialization
-        let serializable_map: std::collections::HashMap<String, SwbusNextHopDisplay> = self
+    pub fn export_routes(&self, scope: Option<Scope>) -> RouteQueryResult {
+        let entries: Vec<RouteQueryResultEntry> = self
             .routes
             .iter()
-            .filter(|entry| matches!(entry.value().nh_type, NextHopType::Remote))
-            .map(|entry| (entry.key().clone(), SwbusNextHopDisplay::from_nexthop(entry.value())))
+            .filter(|entry| {
+                if matches!(entry.value().nh_type, NextHopType::Local) {
+                    return false;
+                }
+                let connection_type = entry.value().conn_info.as_ref().unwrap().connection_type();
+                match scope {
+                    Some(s) => connection_type <= s && connection_type >= Scope::Cluster,
+                    None => true,
+                }
+            })
+            .map(|entry| RouteQueryResultEntry {
+                service_path: Some(
+                    ServicePath::from_string(&entry.key())
+                        .expect("Not expecting service_path in route table to be invalid"),
+                ),
+                hop_count: entry.value().hop_count,
+                nh_id: entry.value().conn_info.as_ref().unwrap().id().to_string(),
+                nh_service_path: Some(entry.value().conn_info.as_ref().unwrap().remote_service_path().clone()),
+                nh_scope: entry.value().conn_info.as_ref().unwrap().connection_type() as i32,
+            })
             .collect();
 
-        serde_json::to_string(&serializable_map).unwrap()
+        RouteQueryResult { entries }
     }
 }

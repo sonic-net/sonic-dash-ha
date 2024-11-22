@@ -131,8 +131,11 @@ enum SwbusErrorCode {
 
 message RequestResponse {
   uint64 request_epoch = 10;
-  SwbusErrorCode error_code = 110;
-  string error_message = 120;
+  SwbusErrorCode error_code = 20;
+  string error_message = 30;
+  oneof ResponseBody {
+    RouteQueryResult route_query_result = 100;
+  }
 }
 
 //
@@ -150,6 +153,18 @@ message RegistrationQueryRequest {
 }
 
 message RegistrationQueryResponse {
+}
+
+message RouteQueryResult {
+  repeated RouteQueryResultEntry entries = 10;
+}
+
+message RouteQueryResultEntry {
+  ServicePath service_path = 10;
+  string nh_id = 20;
+  ServicePath nh_service_path = 30;
+  Scope nh_scope = 40;
+  uint32 hop_count = 50;
 }
 
 //
@@ -182,15 +197,6 @@ message ManagementRequest {
 }
 
 //
-// Response to management request
-// response is in JSON format
-//
-message ManagementResponse {
-  uint64 request_epoch = 10;
-  string response = 20;
-}
-
-//
 // Route data request
 //
 message RouteDataRequest {
@@ -217,9 +223,8 @@ message SwbusMessage {
     TraceRouteRequest trace_route_request = 410;
     TraceRouteResponse trace_route_response = 420;
 
-    // Management request and response
+    // Management request
     ManagementRequest management_request = 510;
-    ManagementResponse management_response = 520;
 
     // Route data
     RouteDataRequest route_data_request = 10000;

@@ -1,17 +1,15 @@
 use getset::{CopyGetters, Getters};
-use serde::Serialize;
-use serde_json;
 use std::net::SocketAddr;
 use swbus_proto::swbus::Scope;
 use swbus_proto::swbus::ServicePath;
 
-#[derive(Debug, Copy, Clone, strum::Display, Eq, PartialEq, Hash, Serialize)]
+#[derive(Debug, Copy, Clone, strum::Display, Eq, PartialEq, Hash)]
 pub enum SwbusConnMode {
     Client,
     Server,
 }
 
-#[derive(Debug, Clone, Getters, CopyGetters, Eq, PartialEq, Hash, Serialize)]
+#[derive(Debug, Clone, Getters, CopyGetters, Eq, PartialEq, Hash)]
 pub struct SwbusConnInfo {
     #[getset(get = "pub")]
     id: String,

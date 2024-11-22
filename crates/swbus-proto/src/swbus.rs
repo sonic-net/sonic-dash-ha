@@ -1,6 +1,5 @@
 use super::result::*;
-use serde::{Serialize, Serializer};
-use serde_json;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 tonic::include_proto!("swbus");
 
@@ -178,24 +177,6 @@ impl fmt::Display for ServicePath {
     }
 }
 
-impl Serialize for ServicePath {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.to_longest_path())
-    }
-}
-
-impl Serialize for Scope {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&self.as_str_name().trim_start_matches('_'))
-    }
-}
-
 impl SwbusMessageHeader {
     pub fn new(source: ServicePath, destination: ServicePath) -> Self {
         SwbusMessageHeader {
@@ -216,6 +197,7 @@ impl RequestResponse {
             request_epoch,
             error_code: SwbusErrorCode::Ok as i32,
             error_message: "".to_string(),
+            response_body: None,
         }
     }
 
@@ -225,10 +207,38 @@ impl RequestResponse {
             request_epoch,
             error_code: error_code as i32,
             error_message: error_message.to_string(),
+            response_body: None,
         }
     }
 }
 
+impl SwbusMessage {
+    pub fn new_response(request: &SwbusMessage, error_code: SwbusErrorCode, error_message: &str) -> Self {
+        let request_response = match error_code {
+            SwbusErrorCode::Ok => RequestResponse::ok(request.header.as_ref().unwrap().epoch),
+            _ => RequestResponse::infra_error(request.header.as_ref().unwrap().epoch, error_code, error_message),
+        };
+        SwbusMessage {
+            header: Some(SwbusMessageHeader::new(
+                request
+                    .header
+                    .as_ref()
+                    .unwrap()
+                    .destination
+                    .clone()
+                    .expect("missing destination service_path"), //should not happen otherwise it won't reach here
+                request
+                    .header
+                    .as_ref()
+                    .unwrap()
+                    .source
+                    .clone()
+                    .expect("missing source service_path"),
+            )),
+            body: Some(swbus_message::Body::Response(request_response)),
+        }
+    }
+}
 impl PingRequest {
     pub fn new() -> Self {
         PingRequest {}
@@ -260,14 +270,6 @@ impl ManagementRequest {
     }
 }
 
-impl ManagementResponse {
-    pub fn new(request_epoch: u64, response: &str) -> Self {
-        ManagementResponse {
-            request_epoch,
-            response: response.to_string(),
-        }
-    }
-}
 impl RouteDataRequest {
     pub fn new(payload: Vec<u8>) -> Self {
         RouteDataRequest { payload }

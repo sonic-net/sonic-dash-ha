@@ -3,9 +3,12 @@ mod show;
 use clap::Parser;
 use std::sync::Arc;
 use swbus_edge::edge_runtime::SwbusEdgeRuntime;
+use swbus_proto::result::SwbusError;
 use swbus_proto::swbus::*;
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio::time::{self, Duration, Instant};
 
 #[derive(Parser, Debug)]
 #[command(name = "swbuscli")]
@@ -39,6 +42,50 @@ struct CommandContext {
     debug: bool,
     sp: ServicePath,
     runtime: Arc<Mutex<SwbusEdgeRuntime>>,
+}
+
+pub struct ResponseResult {
+    pub error_code: SwbusErrorCode,
+    pub error_message: String,
+    pub msg: Option<SwbusMessage>,
+}
+
+impl ResponseResult {
+    pub fn from_code(error_code: i32, error_message: String, msg: Option<SwbusMessage>) -> Self {
+        ResponseResult {
+            error_code: SwbusErrorCode::try_from(error_code).unwrap_or(SwbusErrorCode::Fail),
+            error_message,
+            msg,
+        }
+    }
+}
+pub(crate) async fn wait_for_response(
+    recv_queue_rx: &mut mpsc::Receiver<SwbusMessage>,
+    request_epoch: u64,
+    timeout: u32,
+) -> ResponseResult {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(timeout as u64) {
+        match time::timeout(Duration::from_secs(timeout as u64), recv_queue_rx.recv()).await {
+            Ok(Some(msg)) => match msg.body {
+                Some(swbus_message::Body::Response(ref response)) => {
+                    if response.request_epoch != request_epoch {
+                        // Not my response
+                        continue;
+                    }
+                    return ResponseResult::from_code(response.error_code, response.error_message.clone(), Some(msg));
+                }
+                _ => continue,
+            },
+            Ok(None) => {
+                return ResponseResult::from_code(SwbusErrorCode::Fail as i32, "channel broken".to_string(), None);
+            }
+            Err(_) => {
+                return ResponseResult::from_code(SwbusErrorCode::Timeout as i32, "request timeout".to_string(), None);
+            }
+        }
+    }
+    ResponseResult::from_code(SwbusErrorCode::Timeout as i32, "request timeout".to_string(), None)
 }
 
 #[tokio::main]

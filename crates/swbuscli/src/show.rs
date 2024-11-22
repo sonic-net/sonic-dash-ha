@@ -1,13 +1,10 @@
+use crate::wait_for_response;
 use clap::Parser;
-use serde_json;
-use std::collections::HashMap;
-use swbus_core::mux::nexthop::SwbusNextHopDisplay;
 use swbus_proto::swbus::*;
 use tabled::{Table, Tabled};
 use tokio::sync::mpsc;
-use tokio::time::{self, Duration};
 
-const CMD_TIMEOUT: u64 = 10;
+const CMD_TIMEOUT: u32 = 10;
 
 #[derive(Parser, Debug)]
 pub struct ShowCmd {
@@ -25,7 +22,7 @@ pub struct ShowRouteCmd {}
 
 trait ShowCmdHandler {
     fn create_request(&self) -> ManagementRequest;
-    fn process_response(&self, response: &ManagementResponse);
+    fn process_response(&self, response: &RequestResponse);
 }
 
 #[derive(Tabled)]
@@ -43,7 +40,7 @@ impl super::CmdHandler for ShowCmd {
         let mut src_sp = ctx.sp.clone();
         src_sp.resource_type = "show".to_string();
         src_sp.resource_id = "0".to_string();
-        let mut dst_sp = ctx.sp.clone_for_local_mgmt();
+        let dst_sp = ctx.sp.clone_for_local_mgmt();
 
         //Register the channel to the runtime to receive response
         ctx.runtime
@@ -58,9 +55,10 @@ impl super::CmdHandler for ShowCmd {
         };
 
         let mgmt_request = sub_cmd.create_request();
-
+        let header = SwbusMessageHeader::new(src_sp.clone(), dst_sp.clone());
+        let request_epoch = header.epoch;
         let request_msg = SwbusMessage {
-            header: Some(SwbusMessageHeader::new(src_sp.clone(), dst_sp.clone())),
+            header: Some(header),
             body: Some(swbus_message::Body::ManagementRequest(mgmt_request)),
         };
 
@@ -68,15 +66,25 @@ impl super::CmdHandler for ShowCmd {
         ctx.runtime.lock().await.send(request_msg).await.unwrap();
 
         //wait on the channel to receive response
-        match time::timeout(Duration::from_secs(CMD_TIMEOUT), recv_queue_rx.recv()).await {
-            Ok(Some(msg)) => match msg.body {
-                Some(swbus_message::Body::ManagementResponse(response)) => {
-                    sub_cmd.process_response(&response);
+        let result = wait_for_response(&mut recv_queue_rx, request_epoch, CMD_TIMEOUT).await;
+        match result.error_code {
+            SwbusErrorCode::Ok => {
+                let body = result.msg.unwrap().body.unwrap();
+                match body {
+                    swbus_message::Body::Response(response) => {
+                        sub_cmd.process_response(&response);
+                    }
+                    _ => {
+                        println!("Invalid response");
+                    }
                 }
-                _ => println!("Invalid response"),
-            },
-            Ok(None) => println!("Channel closed"),
-            Err(_) => println!("Request timeout"),
+            }
+            SwbusErrorCode::Timeout => {
+                println!("Request timeout");
+            }
+            _ => {
+                println!("{}:{}", result.error_code.as_str_name(), result.error_message);
+            }
         }
     }
 }
@@ -86,17 +94,32 @@ impl ShowCmdHandler for ShowRouteCmd {
         ManagementRequest::new(&"show_route")
     }
 
-    fn process_response(&self, response: &ManagementResponse) {
-        let routes_json: HashMap<String, SwbusNextHopDisplay> = serde_json::from_str(&response.response).unwrap();
+    fn process_response(&self, response: &RequestResponse) {
+        let routes = match &response.response_body {
+            Some(request_response::ResponseBody::RouteQueryResult(route_result)) => route_result,
+            _ => {
+                println!("Expecting RouteQueryResult but got something else: {:?}", response);
+                return;
+            }
+        };
 
-        let routes: Vec<RouteDisplay> = routes_json
+        let routes: Vec<RouteDisplay> = routes
+            .entries
             .iter()
-            .map(|(key, value)| RouteDisplay {
-                service_path: key.clone(),
-                hop_count: value.hop_count,
-                nh_id: value.nh_id.clone(),
-                nh_scope: value.nh_scope.clone(),
-                nh_service_path: value.nh_service_path.clone(),
+            .map(|entry| RouteDisplay {
+                service_path: entry
+                    .service_path
+                    .as_ref()
+                    .expect("service_path in RouteQueryResult cannot be None")
+                    .to_longest_path(),
+                hop_count: entry.hop_count,
+                nh_id: entry.nh_id.clone(),
+                nh_scope: Scope::try_from(entry.nh_scope).unwrap().as_str_name().to_string(),
+                nh_service_path: entry
+                    .nh_service_path
+                    .as_ref()
+                    .expect("nh_service_path in RouteQueryResult cannot be None")
+                    .to_longest_path(),
             })
             .collect();
         let table = Table::new(routes);
