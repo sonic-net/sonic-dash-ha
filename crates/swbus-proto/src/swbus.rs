@@ -213,20 +213,20 @@ impl RequestResponse {
 }
 
 impl SwbusMessage {
-    pub fn new_response(request: &SwbusMessage, error_code: SwbusErrorCode, error_message: &str) -> Self {
+    /// send response to the sender of the request
+    pub fn new_response(
+        request: &SwbusMessage,
+        my_sp: &ServicePath,
+        error_code: SwbusErrorCode,
+        error_message: &str,
+    ) -> Self {
         let request_response = match error_code {
             SwbusErrorCode::Ok => RequestResponse::ok(request.header.as_ref().unwrap().epoch),
             _ => RequestResponse::infra_error(request.header.as_ref().unwrap().epoch, error_code, error_message),
         };
         SwbusMessage {
             header: Some(SwbusMessageHeader::new(
-                request
-                    .header
-                    .as_ref()
-                    .unwrap()
-                    .destination
-                    .clone()
-                    .expect("missing destination service_path"), //should not happen otherwise it won't reach here
+                my_sp.clone(), //should not happen otherwise it won't reach here
                 request
                     .header
                     .as_ref()

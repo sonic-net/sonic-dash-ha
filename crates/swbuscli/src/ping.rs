@@ -1,7 +1,7 @@
 use crate::wait_for_response;
 use clap::Parser;
 use std::time::Instant;
-use swbus_proto::swbus::*;
+use swbus_proto::{result, swbus::*};
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 
@@ -69,10 +69,24 @@ impl super::CmdHandler for PingCmd {
                     );
                 }
                 SwbusErrorCode::Timeout => {
-                    println!("Request timeout: ping_seq {}", i);
+                    println!("ping_seq {}: request timeout", i);
                 }
                 _ => {
-                    println!("{}:{}", result.error_code.as_str_name(), result.error_message);
+                    let src_sp = match result.msg {
+                        Some(msg) => format!("{} => ", msg.header.unwrap().source.unwrap().to_longest_path()),
+                        None => "".to_string(),
+                    };
+                    println!(
+                        "ping_seq {}: {}{}:{}",
+                        i,
+                        src_sp,
+                        result
+                            .error_code
+                            .as_str_name()
+                            .strip_prefix("SWBUS_ERROR_CODE_")
+                            .unwrap_or(result.error_code.as_str_name()),
+                        result.error_message
+                    );
                 }
             }
 

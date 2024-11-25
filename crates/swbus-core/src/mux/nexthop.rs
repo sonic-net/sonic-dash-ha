@@ -38,19 +38,10 @@ impl SwbusNextHop {
         }
     }
 
-    pub async fn queue_message(&self, mut message: SwbusMessage) -> Result<()> {
+    pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
         match self.nh_type {
             NextHopType::Local => self.process_local_message(message).await,
             NextHopType::Remote => {
-                let header: &mut SwbusMessageHeader = message.header.as_mut().expect("missing header"); //should not happen otherwise it won't reach here
-                header.ttl -= 1;
-                if header.ttl == 0 {
-                    //todo: send response back
-                    return Err(SwbusError::input(
-                        SwbusErrorCode::Unreachable,
-                        "Hop count exceeded".to_string(),
-                    ));
-                }
                 self.conn_proxy
                     .as_ref()
                     .expect("conn_proxy shouldn't be None in remote nexthop")
@@ -82,7 +73,12 @@ impl SwbusNextHop {
     fn process_ping_request(&self, message: SwbusMessage) -> Result<SwbusMessage> {
         //@todo: move to trace
         //println!("Received ping request: {:?}", message);
-        Ok(SwbusMessage::new_response(&message, SwbusErrorCode::Ok, ""))
+        Ok(SwbusMessage::new_response(
+            &message,
+            message.header.as_ref().unwrap().destination.as_ref().unwrap(),
+            SwbusErrorCode::Ok,
+            "",
+        ))
     }
 
     fn process_mgmt_request(

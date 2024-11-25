@@ -1,5 +1,5 @@
 use super::route_config::{PeerConfig, RouteConfig};
-use super::{NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
+use super::{nexthop, NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::{Arc, OnceLock};
@@ -7,12 +7,6 @@ use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
-
-// pub struct SwbusConnTracker {
-//     conn: Option<SwbusConn>,
-//     conn_task: Option<tokio::task::JoinHandle<Result<()>>>,
-//     task_cancel_watcher: Option<watch::Sender<bool>>,
-// }
 
 #[derive(Debug)]
 enum ConnTracker {
@@ -167,8 +161,16 @@ impl SwbusMultiplexer {
         //     *route_entry.value_mut() = nexthop;
         // }
     }
-
-    pub async fn route_message(&self, message: SwbusMessage) -> Result<()> {
+    fn get_my_service_path(&self) -> ServicePath {
+        self.my_routes
+            .iter()
+            .by_ref()
+            .next()
+            .expect("My route is not set")
+            .key
+            .clone()
+    }
+    pub async fn route_message(&self, mut message: SwbusMessage) -> Result<()> {
         let header = match message.header {
             Some(ref header) => header,
             None => {
@@ -201,37 +203,32 @@ impl SwbusMultiplexer {
                     continue;
                 }
             };
-
+            if matches!(nexthop.value().nh_type, NextHopType::Remote) {
+                let header: &mut SwbusMessageHeader = message.header.as_mut().expect("missing header"); //should not happen otherwise it won't reach here
+                header.ttl -= 1;
+                if header.ttl == 0 {
+                    let response = SwbusMessage::new_response(
+                        &message,
+                        &self.get_my_service_path(),
+                        SwbusErrorCode::Unreachable,
+                        "TTL expired",
+                    );
+                    Box::pin(self.route_message(response)).await.unwrap()
+                }
+            }
             // If the route entry is resolved, we forward the message to the next hop.
             nexthop.queue_message(message).await.unwrap();
-            // check nexthop type, decrement ttl and send unreachable response if needed
-            //     Ok(_) => {
-            //         return Ok(());
-            //     }
-            //     Err(SwbusError::InputError { code, .. }) => {
-            //         match code {
-            //             SwbusErrorCode::Unreachable => {
-            //                 let response = SwbusMessage::new_response(&message, SwbusErrorCode::NoRoute, "Route not found");
-            //                 self.route_message(response).await.unwrap();
-            //             }
-            //             _ => {
-            //                 return Err(SwbusError::input(
-            //                     SwbusErrorCode::Fail,
-            //                     format!("Failed to queue message to next hop"),
-            //                 ));
-            //             }
-            //         }
-            //     }
-            //     Err(e) => {
-            //         return Err(e);
-            //     }
-            // }
             return Ok(());
         }
 
-        let response = SwbusMessage::new_response(&message, SwbusErrorCode::NoRoute, "Route not found");
+        let response = SwbusMessage::new_response(
+            &message,
+            &self.get_my_service_path(),
+            SwbusErrorCode::NoRoute,
+            "Route not found",
+        );
         //todo: add Box::pin to route_message
-        //self.route_message(response).await.unwrap();
+        Box::pin(self.route_message(response)).await.unwrap();
 
         Ok(())
     }
