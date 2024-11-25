@@ -13,7 +13,9 @@ use tokio::sync::{
     Mutex,
 };
 
-pub use swbus_proto::swbus::{DataRequest, MessageId, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage};
+pub use swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage};
+
+pub type MessageId = u64;
 
 pub struct SimpleSwbusEdgeClient {
     rt: Arc<SwbusEdgeRuntime>,
@@ -52,7 +54,7 @@ impl SimpleSwbusEdgeClient {
 
     fn handle_received_message(&self, msg: SwbusMessage) -> HandleReceivedMessage {
         let header = msg.header.unwrap();
-        let id = header.id.unwrap();
+        let id = header.id;
         let source = header.source.unwrap();
         let destination = header.destination.unwrap();
         let body = msg.body.unwrap();
@@ -70,11 +72,7 @@ impl SimpleSwbusEdgeClient {
             }),
             Body::PingRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
                 SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
-                Body::Response(RequestResponse {
-                    request_id: Some(id),
-                    error_code: SwbusErrorCode::Ok as i32,
-                    error_message: "".into(),
-                }),
+                Body::Response(RequestResponse::ok(id)),
             )),
             Body::TraceRouteRequest(TraceRouteRequest { trace_id }) => {
                 HandleReceivedMessage::Respond(SwbusMessage::new(

@@ -1,12 +1,13 @@
-use crate::swbus::MessageId;
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::SystemTime,
 };
 
+/// Swbus message IDs are defined as the startup time of the service
+/// in Epoch nanoseconds plus the number of messages sent since it started.
+/// This generator struct generates IDs following that scheme.
 pub struct MessageIdGenerator {
-    startup_epoch_nanos: u64,
-    count: AtomicU64,
+    next_id: AtomicU64,
 }
 
 impl MessageIdGenerator {
@@ -17,15 +18,11 @@ impl MessageIdGenerator {
             .as_nanos() as u64;
 
         Self {
-            startup_epoch_nanos,
-            count: AtomicU64::new(0),
+            next_id: AtomicU64::new(startup_epoch_nanos),
         }
     }
 
-    pub fn generate(&self) -> MessageId {
-        MessageId {
-            startup_epoch_nanos: self.startup_epoch_nanos,
-            count: self.count.fetch_add(1, Ordering::SeqCst),
-        }
+    pub fn generate(&self) -> u64 {
+        self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 }

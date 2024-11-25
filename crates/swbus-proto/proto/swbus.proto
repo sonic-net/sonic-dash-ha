@@ -45,26 +45,18 @@ message SwbusMessageHeader {
 
   // Message info
 
-  MessageId id = 10;
+  // A unique message id among messages from a specific `ServicePath`/endpoint.
+  // Two messages from different endpoints may have the same id, but two messages
+  // from the same endpoint should never share the same id (even if the program
+  // is restarted).
+  // The id is defined as (client startup time in epoch nanos) + (number of messages sent).
+  uint64 id = 10;
   uint32 flag = 20;
   uint32 ttl = 30;
 
   // Source and destination info
   ServicePath source = 110;
   ServicePath destination = 120;
-}
-
-// A unique message id among messages from a specific `ServicePath`/endpoint.
-// Two messages from different endpoints may have the same id, but two messages
-// from the same endpoint should never share the same id (even if the program
-// is restarted).
-message MessageId {
-  // The time (in epoch nanoseconds) at which the client who send this message
-  // connected to Swbus.
-  uint64 startup_epoch_nanos = 1;
-
-  // The number of messages the client has sent since connecting to Swbus.
-  uint64 count = 2;
 }
 
 //
@@ -144,7 +136,7 @@ enum SwbusErrorCode {
 }
 
 message RequestResponse {
-  MessageId request_id = 10;
+  uint64 request_id = 10;
   SwbusErrorCode error_code = 110;
   string error_message = 120;
 }
