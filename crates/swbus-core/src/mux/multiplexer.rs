@@ -170,6 +170,7 @@ impl SwbusMultiplexer {
             .key
             .clone()
     }
+
     pub async fn route_message(&self, mut message: SwbusMessage) -> Result<()> {
         let header = match message.header {
             Some(ref header) => header,
@@ -260,5 +261,93 @@ impl SwbusMultiplexer {
             .collect();
 
         RouteQueryResult { entries }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::time;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_set_my_routes() {
+        let mux = SwbusMultiplexer::new();
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: Scope::Cluster,
+        };
+        mux.set_my_routes(vec![route_config.clone()]);
+
+        assert!(mux.my_routes.contains(&route_config));
+        assert!(mux
+            .routes
+            .contains_key(&route_config.key.clone_for_local_mgmt().to_longest_path()));
+    }
+
+    #[tokio::test]
+    async fn test_add_peer() {
+        let mux = SwbusMultiplexer::get();
+        let peer_config = PeerConfig {
+            scope: Scope::Local,
+            endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
+            id: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
+        };
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: Scope::Cluster,
+        };
+        mux.set_my_routes(vec![route_config]);
+
+        mux.add_peer(peer_config);
+        assert!(mux
+            .connections
+            .iter()
+            .any(|entry| entry.key().id() == "swbs-to://127.0.0.1:8080"));
+    }
+
+    // #[tokio::test]
+    // async fn test_register_and_unregister() {
+    //     let mux = SwbusMultiplexer::new();
+    //     let conn_info = Arc::new(SwbusConnInfo::new_client(
+    //         Scope::Local,
+    //         "127.0.0.1:8080".to_string(),
+    //         "conn1".to_string(),
+    //         ServicePath::from_string("test/service").unwrap(),
+    //     ));
+    //     let conn = SwbusConn::from_connect(conn_info.clone(), Arc::new(mux.clone())).await.unwrap();
+
+    //     mux.register(conn.clone());
+    //     assert!(mux.connections.contains_key(&conn_info));
+    //     assert!(mux.routes.contains_key(&conn_info.remote_service_path().to_service_prefix()));
+
+    //     mux.unregister(conn_info.clone());
+    //     assert!(!mux.connections.contains_key(&conn_info));
+    //     assert!(!mux.routes.contains_key(&conn_info.remote_service_path().to_service_prefix()));
+    // }
+
+    async fn test_route_message() {
+        let mux = SwbusMultiplexer::get();
+        let peer_config = PeerConfig {
+            scope: Scope::Local,
+            endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
+            id: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
+        };
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: Scope::Cluster,
+        };
+
+        let message = SwbusMessage {
+            header: Some(SwbusMessageHeader {
+                destination: Some(ServicePath::from_string("test/service").unwrap()),
+                ttl: 10,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let result = mux.route_message(message).await;
+        assert!(result.is_ok());
     }
 }

@@ -36,19 +36,19 @@ pub struct PeerConfigYaml {
     pub scope: ScopeYaml,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RoutesConfig {
     pub routes: Vec<RouteConfig>,
     pub peers: Vec<PeerConfig>,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub struct RouteConfig {
     pub key: ServicePath,
     pub scope: Scope,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PeerConfig {
     pub id: ServicePath,
     pub endpoint: SocketAddr,
