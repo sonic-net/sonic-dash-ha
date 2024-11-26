@@ -63,10 +63,16 @@ message SwbusMessageHeader {
 // Common request response message.
 //
 enum SwbusErrorCode {
-  // OK
-  SWBUS_ERROR_CODE_OK = 0;
+  // Unknown error.
+  //
+  // This must be the first variant defined in the `.proto` file, as that's how `prost` decides the default value.
+  // The default value is returned by methods such as `RequestResponse::error_code` if the `error_code` field has an unknown value.
+  SWBUS_ERROR_CODE_UNKNOWN_ERROR = 0;
 
-  // Connection error starts
+  // OK - no error
+  SWBUS_ERROR_CODE_OK = 1;
+
+  // Connection error starts.
   // This section captures all error code that related to connection or network.
   SWBUS_ERROR_CODE_CONNECTION_ERROR_MIN = 100;
 
