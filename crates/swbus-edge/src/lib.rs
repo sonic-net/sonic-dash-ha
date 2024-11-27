@@ -5,3 +5,5 @@ mod message_router;
 pub mod simple_client;
 
 pub use edge_runtime::SwbusEdgeRuntime;
+
+pub use swbus_proto;

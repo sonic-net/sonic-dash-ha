@@ -29,7 +29,7 @@ pub(crate) use impl_basic_async_method;
 
 macro_rules! impl_read_data_async {
     () => {
-        /// [`read_data`] but tokio-safe async.
+        /// Async version of [`read_data`](Self::read_data). Does not time out or interrupt on signal.
         pub async fn read_data_async(&mut self) -> ::std::io::Result<()> {
             use ::tokio::io::{unix::AsyncFd, Interest};
 
