@@ -1,22 +1,23 @@
-//! This module contains a simplified wrapper around [`SwbusEdgeRuntime`] that does not expose
-//! infra messages, message id generation, and other internal details to clients.
-
 use crate::SwbusEdgeRuntime;
 use std::sync::Arc;
 use swbus_proto::{
     message_id_generator::MessageIdGenerator,
     result::Result,
-    swbus::{swbus_message::Body, SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse},
+    swbus::{
+        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusMessage, SwbusMessageHeader,
+        TraceRouteRequest, TraceRouteResponse,
+    },
 };
 use tokio::sync::{
     mpsc::{channel, Receiver},
     Mutex,
 };
 
-pub use swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage};
-
+/// The type used by Swbus for message ids. Alias for `u64`.
 pub type MessageId = u64;
 
+/// Simplified interface to [`SwbusEdgeRuntime`] that does not expose infra messages, message id
+/// generation, raw message construction, and other internal details to Swbus clients.
 pub struct SimpleSwbusEdgeClient {
     rt: Arc<SwbusEdgeRuntime>,
     handler_rx: Mutex<Receiver<SwbusMessage>>,
@@ -25,6 +26,7 @@ pub struct SimpleSwbusEdgeClient {
 }
 
 impl SimpleSwbusEdgeClient {
+    /// Create and connect a new client.
     pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         rt.add_handler(source.clone(), handler_tx)
@@ -38,9 +40,9 @@ impl SimpleSwbusEdgeClient {
         }
     }
 
-    /// Receive the next incoming message from Swbus.
+    /// Receive a message.
     ///
-    /// Returns None when no more messages will ever be received.
+    /// Returns `None` when no more messages will ever be received.
     pub async fn recv(&self) -> Option<IncomingMessage> {
         loop {
             let msg = self.handler_rx.lock().await.recv().await?;
@@ -84,23 +86,24 @@ impl SimpleSwbusEdgeClient {
         }
     }
 
-    /// Send an [`OutgoingMessage`].
-    ///
-    /// Shortcut for [`outgoing_message_to_swbus_message`] followed by [`send_raw`].
+    /// Send a message.
     pub async fn send(&self, msg: OutgoingMessage) -> Result<MessageId> {
         let (id, msg) = self.outgoing_message_to_swbus_message(msg);
         self.rt.send(msg).await?;
         Ok(id)
     }
 
-    /// Send a raw [`SwbusMessage`] created with [`outgoing_message_to_swbus_message`].
+    /// Send a raw [`SwbusMessage`].
     ///
-    /// This is used to implement message resending - repeating a message with the same id as the last time it was sent.
+    /// The message should be created with [`outgoing_message_to_swbus_message`](Self::outgoing_message_to_swbus_message).
+    /// Otherwise, message ids will be inconsistent and may collide.
+    ///
+    /// This method is intended to be used to implement message resending - repeating a message with the same id.
     pub async fn send_raw(&self, msg: SwbusMessage) -> Result<()> {
         self.rt.send(msg).await
     }
 
-    /// Compile an [`OutgoingMessage`] into an [`SwbusMessage`] for use with [`send_raw`].
+    /// Compile an [`OutgoingMessage`] into an [`SwbusMessage`] for use with [`send_raw`](Self::send_raw).
     pub fn outgoing_message_to_swbus_message(&self, msg: OutgoingMessage) -> (MessageId, SwbusMessage) {
         let id = self.id_generator.generate();
         let msg = SwbusMessage {
@@ -120,13 +123,14 @@ enum HandleReceivedMessage {
     Ignore,
 }
 
-/// A simplified version of [`swbus_message::Body`], only representing a `DataRequest` or `Response`.
+/// A simplified version of [`Body`], that excludes infra messages.
 #[derive(Debug, Clone)]
 pub enum MessageBody {
     Request(DataRequest),
     Response(RequestResponse),
 }
 
+/// A message received from another Swbus client.
 #[derive(Debug, Clone)]
 pub struct IncomingMessage {
     pub id: MessageId,
@@ -134,6 +138,7 @@ pub struct IncomingMessage {
     pub body: MessageBody,
 }
 
+/// A message to send to another Swbus client.
 #[derive(Debug, Clone)]
 pub struct OutgoingMessage {
     pub destination: ServicePath,
