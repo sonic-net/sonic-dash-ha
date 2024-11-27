@@ -6,19 +6,66 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct DbConnector {
     pub(crate) ptr: SWSSDBConnector,
+
+    db_id: i32,
+    connection: DbConnectionInfo,
+}
+
+/// Details about how a DbConnector is connected to Redis
+#[derive(Debug, Clone)]
+pub enum DbConnectionInfo {
+    Tcp { hostname: String, port: u16 },
+    Unix { sock_path: String },
 }
 
 impl DbConnector {
-    pub fn new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector {
-        let hostname = cstr(hostname);
-        let obj = unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), port, timeout_ms).into() };
-        Self { ptr: obj }
+    /// Create a new DbConnector from [`DbConnectionInfo`].
+    ///
+    /// Timeout of 0 means infinite.
+    fn new(db_id: i32, connection: DbConnectionInfo, timeout_ms: u32) -> DbConnector {
+        let ptr = match &connection {
+            DbConnectionInfo::Tcp { hostname, port } => {
+                let hostname = cstr(hostname);
+                unsafe { SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), *port, timeout_ms) }
+            }
+            DbConnectionInfo::Unix { sock_path } => {
+                let sock_path = cstr(sock_path);
+                unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout_ms) }
+            }
+        };
+
+        Self { ptr, db_id, connection }
     }
 
-    pub fn new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector {
-        let sock_path = cstr(sock_path);
-        let obj = unsafe { SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout_ms).into() };
-        Self { ptr: obj }
+    /// Create a DbConnector over a tcp socket.
+    ///
+    /// Timeout of 0 means infinite.
+    pub fn new_tcp(db_id: i32, hostname: impl Into<String>, port: u16, timeout_ms: u32) -> DbConnector {
+        let hostname = hostname.into();
+        Self::new(db_id, DbConnectionInfo::Tcp { hostname, port }, timeout_ms)
+    }
+
+    /// Create a DbConnector over a unix socket.
+    ///
+    /// Timeout of 0 means infinite.
+    pub fn new_unix(db_id: i32, sock_path: impl Into<String>, timeout_ms: u32) -> DbConnector {
+        let sock_path = sock_path.into();
+        Self::new(db_id, DbConnectionInfo::Unix { sock_path }, timeout_ms)
+    }
+
+    /// Clone a DbConnector with a timeout.
+    ///
+    /// Timeout of 0 means infinite.
+    pub fn clone_timeout(&self, timeout_ms: u32) -> Self {
+        Self::new(self.db_id, self.connection.clone(), timeout_ms)
+    }
+
+    pub fn db_id(&self) -> i32 {
+        self.db_id
+    }
+
+    pub fn connection(&self) -> &DbConnectionInfo {
+        &self.connection
     }
 
     pub fn del(&self, key: &str) -> bool {
@@ -92,10 +139,19 @@ impl Drop for DbConnector {
 
 unsafe impl Send for DbConnector {}
 
+impl Clone for DbConnector {
+    /// Clone the `DbConnector` with no timeout.
+    fn clone(&self) -> Self {
+        self.clone_timeout(0)
+    }
+}
+
 #[cfg(feature = "async")]
 impl DbConnector {
     async_util::impl_basic_async_method!(new_tcp_async <= new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector);
     async_util::impl_basic_async_method!(new_unix_async <= new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector);
+    async_util::impl_basic_async_method!(clone_timeout_async <= clone_timeout(&self, timeout_ms: u32) -> DbConnector);
+    async_util::impl_basic_async_method!(clone_async <= clone(&self) -> DbConnector);
     async_util::impl_basic_async_method!(del_async <= del(&self, key: &str) -> bool);
     async_util::impl_basic_async_method!(set_async <= set(&self, key: &str, value: &CxxStr));
     async_util::impl_basic_async_method!(get_async <= get(&self, key: &str) -> Option<CxxString>);
