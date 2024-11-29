@@ -14,27 +14,34 @@ pub(crate) enum NextHopType {
 pub(crate) struct SwbusNextHop {
     pub nh_type: NextHopType,
     pub conn_info: Option<Arc<SwbusConnInfo>>,
-
     conn_proxy: Option<SwbusConnProxy>,
     pub hop_count: u32,
+    mux: Arc<SwbusMultiplexer>,
 }
 
 impl SwbusNextHop {
-    pub fn new_remote(conn_info: Arc<SwbusConnInfo>, conn_proxy: SwbusConnProxy, hop_count: u32) -> Self {
+    pub fn new_remote(
+        mux: &Arc<SwbusMultiplexer>,
+        conn_info: Arc<SwbusConnInfo>,
+        conn_proxy: SwbusConnProxy,
+        hop_count: u32,
+    ) -> Self {
         SwbusNextHop {
             nh_type: NextHopType::Remote,
             conn_info: Some(conn_info),
             conn_proxy: Some(conn_proxy),
             hop_count,
+            mux: mux.clone(),
         }
     }
 
-    pub fn new_local() -> Self {
+    pub fn new_local(mux: &Arc<SwbusMultiplexer>) -> Self {
         SwbusNextHop {
             nh_type: NextHopType::Local,
             conn_info: None,
             conn_proxy: None,
             hop_count: 0,
+            mux: mux.clone(),
         }
     }
 
@@ -66,7 +73,7 @@ impl SwbusNextHop {
                 ));
             }
         };
-        Box::pin(SwbusMultiplexer::get().route_message(response)).await?;
+        Box::pin(self.mux.route_message(response)).await?;
         Ok(())
     }
 
@@ -88,7 +95,7 @@ impl SwbusNextHop {
     ) -> Result<SwbusMessage> {
         match mgmt_request.request.as_str() {
             "show_route" => {
-                let routes = SwbusMultiplexer::get().export_routes(None);
+                let routes = self.mux.export_routes(None);
                 let mut response = RequestResponse::ok(header.epoch);
                 response.response_body = Some(request_response::ResponseBody::RouteQueryResult(routes));
                 Ok(SwbusMessage {

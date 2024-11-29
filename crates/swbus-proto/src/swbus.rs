@@ -1,5 +1,6 @@
 use super::result::*;
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeSeq;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 tonic::include_proto!("swbus");
 
@@ -175,6 +176,110 @@ impl fmt::Display for ServicePath {
             )
         }
     }
+}
+// impl Serialize for ServicePath {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         let s = self.to_longest_path();
+//         serializer.serialize_str(&s)
+//     }
+// }
+
+// impl<'de> Deserialize<'de> for ServicePath {
+//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+//     where
+//         D: Deserializer<'de>,
+//     {
+//         // Deserialize the input as a string
+//         let s: &str = Deserialize::deserialize(deserializer)?;
+
+//         // Parse the string into fields
+//         match ServicePath::from_string(s) {
+//             Ok(sp) => Ok(sp),
+//             Err(_) => {
+//                 return Err(serde::de::Error::custom(format!(
+//                     "Failed to parse service path from string: {}",
+//                     s
+//                 )))
+//             }
+//         }
+//     }
+// }
+// Custom serializer
+pub fn serialize_service_path_opt<S>(sp_option: &Option<ServicePath>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let Some(sp) = sp_option {
+        let sp_str = sp.to_longest_path();
+        serializer.serialize_str(&sp_str)
+    } else {
+        serializer.serialize_none()
+    }
+}
+
+// Custom deserializer
+pub fn deserialize_service_path_opt<'de, D>(deserializer: D) -> Result<Option<ServicePath>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+
+    match ServicePath::from_string(&s) {
+        Ok(sp) => Ok(Some(sp)),
+        Err(_) => {
+            return Err(serde::de::Error::custom(format!(
+                "Failed to parse service path from string: {}",
+                s
+            )))
+        }
+    }
+}
+
+// Custom deserializer
+pub fn deserialize_service_path<'de, D>(deserializer: D) -> Result<ServicePath, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+
+    match ServicePath::from_string(&s) {
+        Ok(sp) => Ok(sp),
+        Err(_) => {
+            return Err(serde::de::Error::custom(format!(
+                "Failed to parse service path from string: {}",
+                s
+            )))
+        }
+    }
+}
+
+impl PartialOrd for RouteQueryResultEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.service_path.partial_cmp(&other.service_path) {
+            Some(std::cmp::Ordering::Equal) => self.hop_count.partial_cmp(&other.hop_count),
+            x => x,
+        }
+    }
+}
+
+/// sort vec then serialize
+fn sorted_vec_serializer<S, T>(vec: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    T: PartialOrd + Serialize + Clone,
+{
+    // Clone and sort the vector
+    let mut sorted_vec = vec.clone();
+    sorted_vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    // Serialize the sorted vector
+    let mut seq = serializer.serialize_seq(Some(sorted_vec.len()))?;
+    for element in sorted_vec {
+        seq.serialize_element(&element)?;
+    }
+    seq.end()
 }
 
 impl SwbusMessageHeader {

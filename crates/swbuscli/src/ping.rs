@@ -42,7 +42,7 @@ impl super::CmdHandler for PingCmd {
         //Send ping messages
         println!("PING {}", self.dest.to_longest_path());
         for i in 0..self.count {
-            let mut header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone());
+            let header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone());
             let header_epoch = header.epoch;
             let ping_msg = SwbusMessage {
                 header: Some(header),

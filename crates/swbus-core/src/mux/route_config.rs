@@ -1,70 +1,29 @@
-use serde::{Deserialize, Deserializer};
-use serde_yaml::Error;
+use serde::Deserialize;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Write;
 use std::net::SocketAddr;
 use swbus_proto::swbus::*;
-use tempfile::tempdir;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ScopeYaml {
-    Client,
-    Local,
-    Region,
-    Cluster,
-    Global,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct RoutesConfigYaml {
-    routes: Vec<RouteConfigYaml>,
-    peers: Vec<PeerConfigYaml>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct RouteConfigYaml {
-    pub key: String,
-    pub scope: ScopeYaml,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct PeerConfigYaml {
-    pub id: String,
-    pub endpoint: String,
-    pub scope: ScopeYaml,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RoutesConfig {
     pub routes: Vec<RouteConfig>,
     pub peers: Vec<PeerConfig>,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+#[derive(Debug, Eq, PartialEq, Hash, Clone, Deserialize)]
 pub struct RouteConfig {
+    #[serde(deserialize_with = "deserialize_service_path")]
     pub key: ServicePath,
     pub scope: Scope,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PeerConfig {
+    #[serde(deserialize_with = "deserialize_service_path")]
     pub id: ServicePath,
     pub endpoint: SocketAddr,
     pub scope: Scope,
-}
-
-impl ScopeYaml {
-    fn to_scope(&self) -> Scope {
-        match self {
-            ScopeYaml::Client => Scope::Client,
-            ScopeYaml::Local => Scope::Local,
-            ScopeYaml::Region => Scope::Region,
-            ScopeYaml::Cluster => Scope::Cluster,
-            ScopeYaml::Global => Scope::Global,
-        }
-    }
 }
 
 impl RoutesConfig {
@@ -73,40 +32,16 @@ impl RoutesConfig {
         let reader = BufReader::new(file);
 
         // Parse the YAML data
-        let route_config_yaml = serde_yaml::from_reader(reader)?;
-        let routes_config = RoutesConfig::from_routes_config_yaml(route_config_yaml);
+        let routes_config: RoutesConfig = serde_yaml::from_reader(reader)?;
+        //let routes_config = RoutesConfig::from_routes_config_serde(&route_config_serde);
         Ok(routes_config)
-    }
-
-    fn from_routes_config_yaml(config: RoutesConfigYaml) -> RoutesConfig {
-        let routes = config
-            .routes
-            .iter()
-            .map(|route| RouteConfig {
-                key: ServicePath::from_string(&route.key).expect("Failed to parse service path"),
-                scope: route.scope.to_scope(),
-            })
-            .collect();
-
-        let peers = config
-            .peers
-            .iter()
-            .map(|peer| PeerConfig {
-                id: ServicePath::from_string(&peer.id).expect("Failed to parse service path"),
-                endpoint: peer
-                    .endpoint
-                    .parse()
-                    .expect(&format!("Failed to parse endpoint:{}", peer.endpoint)),
-                scope: peer.scope.to_scope(),
-            })
-            .collect();
-
-        RoutesConfig { routes, peers }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use tempfile::tempdir;
+
     use super::*;
 
     #[test]
@@ -114,14 +49,14 @@ mod tests {
         let yaml_content = r#"
         routes:
           - key: "region-a.cluster-a.10.0.0.1-dpu0"
-            scope: "cluster"
+            scope: "Cluster"
         peers:
           - id: "region-a.cluster-a.10.0.0.2-dpu0"
             endpoint: "10.0.0.2:8000"
-            scope: "cluster"
+            scope: "Cluster"
           - id: "region-a.cluster-a.10.0.0.3-dpu0"
             endpoint: "10.0.0.3:8000"
-            scope: "cluster"
+            scope: "Cluster"
         "#;
 
         let dir = tempdir().unwrap();
@@ -130,7 +65,12 @@ mod tests {
         file.write_all(yaml_content.as_bytes()).unwrap();
 
         let result = RoutesConfig::load_from_yaml(file_path.to_str().unwrap().to_string());
-        assert!(result.is_ok());
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                panic!("Failed to load config from yaml: {}", e);
+            }
+        }
 
         let config = result.unwrap();
         assert_eq!(config.routes.len(), 1);

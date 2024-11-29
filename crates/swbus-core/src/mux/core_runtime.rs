@@ -1,15 +1,13 @@
 use super::route_config::RoutesConfig;
-use super::SwbusConn;
 use crate::mux::multiplexer::SwbusMultiplexer;
 use crate::mux::service::SwbusServiceServerImpl;
 use std::io;
 use std::sync::Arc;
 use swbus_proto::result::*;
-use swbus_proto::swbus::swbus_service_client::SwbusServiceClient;
-use swbus_proto::swbus::swbus_service_server::{SwbusService, SwbusServiceServer};
+use swbus_proto::swbus::swbus_service_server::SwbusServiceServer;
 use swbus_proto::swbus::*;
 use tokio::task::JoinHandle;
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::transport::Server;
 
 pub struct SwbusCoreRuntime {
     swbus_server_addr: String,
@@ -18,8 +16,7 @@ pub struct SwbusCoreRuntime {
 
 impl SwbusCoreRuntime {
     pub fn new(swbus_server_addr: String) -> Self {
-        //let multiplexer = Arc::new(SwbusMultiplexer::new());
-        let multiplexer = SwbusMultiplexer::get().clone();
+        let multiplexer = Arc::new(SwbusMultiplexer::new());
         // populate the multiplexer with the routes
         Self {
             swbus_server_addr,

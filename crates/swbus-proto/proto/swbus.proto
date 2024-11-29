@@ -142,11 +142,11 @@ message RequestResponse {
 // Registration related messages.
 //
 enum Scope {
-  SCOPE_CLIENT = 0;
-  SCOPE_LOCAL = 1;
-  SCOPE_REGION = 2;
-  SCOPE_CLUSTER = 3;
-  SCOPE_GLOBAL = 4;
+  CLIENT = 0;
+  LOCAL = 1;
+  REGION = 2;
+  CLUSTER = 3;
+  GLOBAL = 4;
 }
 
 message RegistrationQueryRequest {

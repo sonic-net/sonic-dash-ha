@@ -59,11 +59,18 @@ impl SwbusCoreClient {
 
 // Message processing functions
 impl SwbusCoreClient {
-    #[requires(self.recv_stream_task.is_none() && self.client.is_none() && self.send_queue_tx.is_none())]
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn connect(
+        uri: String,
+        sp: ServicePath,
+        receive_queue_tx: mpsc::Sender<SwbusMessage>,
+    ) -> Result<(
+        tokio::task::JoinHandle<Result<()>>,
+        mpsc::Sender<SwbusMessage>,
+        SwbusServiceClient<Channel>,
+    )> {
         let (send_queue_tx, send_queue_rx) = mpsc::channel::<SwbusMessage>(100);
 
-        let endpoint = Endpoint::from_str(&self.uri).map_err(|e| {
+        let endpoint = Endpoint::from_str(&uri).map_err(|e| {
             SwbusError::input(
                 SwbusErrorCode::InvalidArgs,
                 format!("Failed to create endpoint: {}.", e),
@@ -76,7 +83,7 @@ impl SwbusCoreClient {
                 error!("Failed to connect: {}.", e);
                 return Err(SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
-                    io::Error::new(io::ErrorKind::ConnectionReset, e.to_string()),
+                    io::Error::new(io::ErrorKind::ConnectionReset, format!("Failed to connect: {:?}", e)),
                 ));
             }
         };
@@ -86,11 +93,11 @@ impl SwbusCoreClient {
         let send_stream = ReceiverStream::new(send_queue_rx);
         let mut send_stream_request = Request::new(send_stream);
 
-        let mut meta = send_stream_request.metadata_mut();
+        let meta = send_stream_request.metadata_mut();
 
         meta.insert(
             CLIENT_SERVICE_PATH,
-            MetadataValue::from_str(&self.sp.to_service_prefix()).unwrap(),
+            MetadataValue::from_str(&sp.to_service_prefix()).unwrap(),
         );
 
         meta.insert(
@@ -110,11 +117,17 @@ impl SwbusCoreClient {
         };
 
         let send_queue_tx_clone = send_queue_tx.clone();
-        let message_processor_tx_clone = self.message_processor_tx.clone();
+        let message_processor_tx_clone = receive_queue_tx.clone();
         let recv_stream_task = tokio::spawn(async move {
             Self::run_recv_stream_task(recv_stream, message_processor_tx_clone, send_queue_tx_clone).await
         });
+        Ok((recv_stream_task, send_queue_tx, client))
+    }
 
+    #[requires(self.recv_stream_task.is_none() && self.client.is_none() && self.send_queue_tx.is_none())]
+    pub async fn start(&mut self) -> Result<()> {
+        let (recv_stream_task, send_queue_tx, client) =
+            Self::connect(self.uri.clone(), self.sp.clone(), self.message_processor_tx.clone()).await?;
         self.client = Some(client);
         self.recv_stream_task = Some(recv_stream_task);
         self.send_queue_tx = Some(send_queue_tx);

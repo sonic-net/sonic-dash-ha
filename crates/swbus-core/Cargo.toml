@@ -42,6 +42,9 @@ swbus-proto.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+lazy_static.workspace = true
+# used in tests/
+swbus-edge.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true
