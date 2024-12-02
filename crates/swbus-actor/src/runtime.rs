@@ -49,6 +49,7 @@ impl ActorRuntime {
     }
 }
 
+/// Main loop for an actor task
 async fn actor_main(mut actor: impl Actor, mut inbox_rx: Receiver<InboxMessage>, outbox: Outbox) {
     actor.init(outbox.clone()).await;
 
@@ -68,8 +69,8 @@ enum InboxMessage {
     MessageFailure(MessageId),
 }
 
-/// A bridge between Swbus and an actors, providing middleware (currently just the resend queue).
-struct MessageBridge {
+/// A bridge between Swbus and an actor, providing middleware (currently just the resend queue).
+pub(crate) struct MessageBridge {
     resend_queue: ResendQueue,
 
     swbus_client: Arc<SimpleSwbusEdgeClient>,

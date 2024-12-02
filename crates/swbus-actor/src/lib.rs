@@ -30,6 +30,7 @@ pub trait Actor: Send + 'static {
 /// An actor's outbox, used to send messages on Swbus.
 #[derive(Clone)]
 pub struct Outbox {
+    /// Outgoing message sender. The receiver lives in [`runtime::MessageBridge`].
     message_tx: Sender<SwbusMessage>,
 
     /// We need a copy of the SimpleSwbusEdgeClient so that we can get `MessageId`s
