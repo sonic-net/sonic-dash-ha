@@ -30,15 +30,12 @@ impl SwbusMessageRouter {
 
 impl SwbusMessageRouter {
     pub async fn start(&mut self) -> Result<()> {
-        let routes_clone = self.routes.clone();
-        let recv_rx = self.recv_rx.take().unwrap();
+        let routes = self.routes.clone();
+        let mut recv_rx = self.recv_rx.take().unwrap();
         let mut swbus_client = self.swbus_client.take().unwrap();
         swbus_client.start().await?;
 
         let route_task = task::spawn(async move {
-            let routes = routes_clone;
-            let mut swbus_client = swbus_client;
-            let mut recv_rx = recv_rx;
             while let Some(message) = recv_rx.recv().await {
                 // Route the received message from core_client to the appropriate handler.
                 Self::route_message(&mut swbus_client, &routes, message).await;

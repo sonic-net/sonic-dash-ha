@@ -3,6 +3,7 @@ mod show;
 use clap::Parser;
 use std::sync::Arc;
 use swbus_edge::edge_runtime::SwbusEdgeRuntime;
+use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::result::SwbusError;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
@@ -42,6 +43,7 @@ struct CommandContext {
     debug: bool,
     sp: ServicePath,
     runtime: Arc<Mutex<SwbusEdgeRuntime>>,
+    id_generator: MessageIdGenerator,
 }
 
 pub struct ResponseResult {
@@ -61,7 +63,7 @@ impl ResponseResult {
 }
 pub(crate) async fn wait_for_response(
     recv_queue_rx: &mut mpsc::Receiver<SwbusMessage>,
-    request_epoch: u64,
+    request_id: u64,
     timeout: u32,
 ) -> ResponseResult {
     let start = Instant::now();
@@ -69,7 +71,7 @@ pub(crate) async fn wait_for_response(
         match time::timeout(Duration::from_secs(timeout as u64), recv_queue_rx.recv()).await {
             Ok(Some(msg)) => match msg.body {
                 Some(swbus_message::Body::Response(ref response)) => {
-                    if response.request_epoch != request_epoch {
+                    if response.request_id != request_id {
                         // Not my response
                         continue;
                     }
@@ -105,6 +107,7 @@ async fn main() {
         debug: args.debug,
         sp: args.service_path,
         runtime: runtime.clone(),
+        id_generator: MessageIdGenerator::new(),
     };
     match args.subcommand {
         CliSub::Ping(ping_args) => ping_args.handle(&ctx).await,

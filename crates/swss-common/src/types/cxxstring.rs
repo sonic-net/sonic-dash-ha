@@ -20,19 +20,15 @@ pub struct CxxString {
 impl CxxString {
     /// Take the object and replace the argument with null.
     /// This is to avoid copying the pointer and later double-freeing it.
-    /// This takes advantage of the fact that SWSSString_free specifically permits freeing a null SWSSStr.
-    pub(crate) fn take_raw(s: &mut SWSSString) -> Option<CxxString> {
+    /// This takes advantage of the fact that SWSSString_free specifically permits freeing a null SWSSString.
+    pub(crate) unsafe fn take_raw(s: &mut SWSSString) -> Option<CxxString> {
         let s = mem::replace(s, ptr::null_mut());
         NonNull::new(s).map(|ptr| CxxString { ptr })
     }
 
-    pub(crate) fn as_raw(&self) -> SWSSString {
-        self.ptr.as_ptr()
-    }
-
-    /// Shortcut for self.deref().as_raw()
-    pub(crate) fn as_raw_ref(&self) -> SWSSStrRef {
-        (**self).as_raw()
+    /// Convert `self` into a wrapper type which provides safe mutable access to the underlying `std::string`.
+    pub(crate) fn into_raw(self) -> RawMutableSWSSString {
+        RawMutableSWSSString(self)
     }
 
     /// Copies the given data into a new C++ string.
@@ -50,6 +46,24 @@ impl CxxString {
     /// Like `String::as_str`, this method is unnecessary where deref coercion can be used.
     pub fn as_cxx_str(&self) -> &CxxStr {
         self
+    }
+}
+
+/// Wrapper type around `CxxString` which disables access to methods that borrow the underlying
+/// data, like `.deref()`. This prevents code from creating an `SWSSString` and `SWSSStrRef` at the
+/// same time, which would cause a data race in multi-threaded contexts.
+///
+/// A similar struct could be made which would allow access via just an `&mut CxxString`, but any
+/// function taking `SWSSString` will destroy the underlying data anyway, so we might as well just
+/// drop it when we're done.
+///
+/// This newtype needs to exist (as opposed to into_raw returning the raw pointer) so that the
+/// string is not dropped immediately.
+pub(crate) struct RawMutableSWSSString(CxxString);
+
+impl RawMutableSWSSString {
+    pub(crate) fn as_raw(&self) -> SWSSString {
+        self.0.ptr.as_ptr()
     }
 }
 
@@ -78,7 +92,12 @@ impl Clone for CxxString {
     }
 }
 
+/// SAFETY: A C++ string has no thread related state.
 unsafe impl Send for CxxString {}
+
+/// SAFETY: A `CxxString` can only be mutated through `.into_raw()` which takes ownership of `self`.
+/// Thus, normal Rust borrow checking rules will prevent data races.
+unsafe impl Sync for CxxString {}
 
 impl Deref for CxxString {
     type Target = CxxStr;
@@ -144,7 +163,7 @@ impl Borrow<CxxStr> for CxxString {
     }
 }
 
-/// Equivalent of a C++ `std::string&`, which can be borrowed from a [CxxString].
+/// Equivalent of a C++ `const std::string&`, which can be borrowed from a [`CxxString`].
 ///
 /// `CxxStr` has the same conceptual relationship with `CxxString` as a Rust `&str` does with `String`.
 #[repr(transparent)]
@@ -154,6 +173,7 @@ pub struct CxxStr {
 }
 
 impl CxxStr {
+    /// This is safe because the C api guarantees that `SWSSStrRef` is read-only. On `CxxString`, this would not be safe.
     pub(crate) fn as_raw(&self) -> SWSSStrRef {
         self.ptr.as_ptr()
     }
@@ -251,3 +271,9 @@ impl PartialEq<String> for CxxStr {
         self.eq(other.as_str())
     }
 }
+
+/// SAFETY: `CxxStr` can never be obtained by value, only as a reference by dereferencing a
+/// `CxxString`. Thus, the same logic as implementing `Sync` for `CxxString` applies. Mutation
+/// is protected by `CxxString::into_raw` requiring an owned `self`. By the same logic, `Send` is
+/// unnecessary to implement (you can never obtain a value to send).
+unsafe impl Sync for CxxStr {}

@@ -9,7 +9,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct SwbusServiceServerImpl {
     multiplexer: Arc<SwbusMultiplexer>,
 }

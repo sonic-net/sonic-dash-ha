@@ -2,6 +2,7 @@ use super::result::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 tonic::include_proto!("swbus");
+use crate::swbus::request_response::ResponseBody;
 
 /// Service path attribute in gRPC request meta data
 pub const CLIENT_SERVICE_PATH: &str = "x-swbus-service-path";
@@ -89,7 +90,7 @@ impl ServicePath {
     }
 
     pub fn to_regional_prefix(&self) -> String {
-        return self.region_id.clone();
+        self.region_id.clone()
     }
 
     pub fn to_cluster_prefix(&self) -> String {
@@ -177,11 +178,22 @@ impl fmt::Display for ServicePath {
     }
 }
 
+impl SwbusMessage {
+    pub fn new(header: SwbusMessageHeader, body: swbus_message::Body) -> Self {
+        Self {
+            header: Some(header),
+            body: Some(body),
+        }
+    }
+}
+
 impl SwbusMessageHeader {
-    pub fn new(source: ServicePath, destination: ServicePath) -> Self {
+    /// To generate sane `id`s, use [`crate::message_id_generator::MessageIdGenerator`].
+    /// See [`SwbusMessageHeader::id`] for notes on what a message ID should be.
+    pub fn new(source: ServicePath, destination: ServicePath, id: u64) -> Self {
         SwbusMessageHeader {
             version: 1,
-            epoch: 0,
+            id,
             flag: 0,
             ttl: 64,
             source: Some(source),
@@ -192,9 +204,9 @@ impl SwbusMessageHeader {
 
 impl RequestResponse {
     /// Create a new OK response.
-    pub fn ok(request_epoch: u64) -> Self {
+    pub fn ok(request_id: u64) -> Self {
         RequestResponse {
-            request_epoch,
+            request_id,
             error_code: SwbusErrorCode::Ok as i32,
             error_message: "".to_string(),
             response_body: None,
@@ -202,9 +214,9 @@ impl RequestResponse {
     }
 
     /// Create a new infra error response.
-    pub fn infra_error(request_epoch: u64, error_code: SwbusErrorCode, error_message: &str) -> Self {
+    pub fn infra_error(request_id: u64, error_code: SwbusErrorCode, error_message: &str) -> Self {
         RequestResponse {
-            request_epoch,
+            request_id,
             error_code: error_code as i32,
             error_message: error_message.to_string(),
             response_body: None,
@@ -213,10 +225,20 @@ impl RequestResponse {
 }
 
 impl SwbusMessage {
-    pub fn new_response(request: &SwbusMessage, error_code: SwbusErrorCode, error_message: &str) -> Self {
-        let request_response = match error_code {
-            SwbusErrorCode::Ok => RequestResponse::ok(request.header.as_ref().unwrap().epoch),
-            _ => RequestResponse::infra_error(request.header.as_ref().unwrap().epoch, error_code, error_message),
+    pub fn new_response(
+        request: &SwbusMessage,
+        error_code: SwbusErrorCode,
+        error_message: &str,
+        request_id: u64,
+        response_body: Option<ResponseBody>,
+    ) -> Self {
+        let mut request_response = match error_code {
+            SwbusErrorCode::Ok => RequestResponse::ok(request.header.as_ref().unwrap().id),
+            _ => RequestResponse::infra_error(request.header.as_ref().unwrap().id, error_code, error_message),
+        };
+
+        if response_body.is_some() {
+            request_response.response_body = response_body;
         };
         SwbusMessage {
             header: Some(SwbusMessageHeader::new(
@@ -234,6 +256,7 @@ impl SwbusMessage {
                     .source
                     .clone()
                     .expect("missing source service_path"),
+                request_id,
             )),
             body: Some(swbus_message::Body::Response(request_response)),
         }
@@ -270,14 +293,16 @@ impl ManagementRequest {
     }
 }
 
-impl RouteDataRequest {
+impl DataRequest {
     pub fn new(payload: Vec<u8>) -> Self {
-        RouteDataRequest { payload }
+        DataRequest { payload }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::message_id_generator::MessageIdGenerator;
+
     use super::*;
     use pretty_assertions::assert_eq;
 
@@ -328,10 +353,11 @@ mod tests {
 
     #[test]
     fn request_response_can_be_created() {
-        let response = RequestResponse::ok(123);
+        let response = RequestResponse::ok(create_mock_message_id());
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
 
-        let response = RequestResponse::infra_error(123, SwbusErrorCode::NoRoute, "No route is found.");
+        let response =
+            RequestResponse::infra_error(create_mock_message_id(), SwbusErrorCode::NoRoute, "No route is found.");
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
     }
 
@@ -367,8 +393,8 @@ mod tests {
 
     #[test]
     fn route_data_request_can_be_created() {
-        let request = RouteDataRequest::new("mock-payload".as_bytes().to_vec());
-        test_packing_with_swbus_message(swbus_message::Body::RouteDataRequest(request));
+        let request = DataRequest::new("mock-payload".as_bytes().to_vec());
+        test_packing_with_swbus_message(swbus_message::Body::DataRequest(request));
     }
 
     fn create_mock_service_path() -> ServicePath {
@@ -390,7 +416,11 @@ mod tests {
         let mut destination = create_mock_service_path();
         destination.resource_id = "destination_resource_id".to_string();
 
-        SwbusMessageHeader::new(source, destination)
+        SwbusMessageHeader::new(source, destination, create_mock_message_id())
+    }
+
+    fn create_mock_message_id() -> u64 {
+        MessageIdGenerator::new().generate()
     }
 
     fn test_packing_with_swbus_message(body: swbus_message::Body) {

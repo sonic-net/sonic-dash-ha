@@ -4,9 +4,10 @@ use crate::message_router::SwbusMessageRouter;
 use std::io;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
+use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
 
-const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
+pub(crate) const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
 pub struct SwbusEdgeRuntime {
     swbus_uri: String,
@@ -16,7 +17,7 @@ pub struct SwbusEdgeRuntime {
 
 impl SwbusEdgeRuntime {
     pub fn new(swbus_uri: String, sp: ServicePath) -> Self {
-        let (recv_queue_tx, recv_queue_rx) = tokio::sync::mpsc::channel::<SwbusMessage>(SWBUS_RECV_QUEUE_SIZE);
+        let (recv_queue_tx, recv_queue_rx) = channel::<SwbusMessage>(SWBUS_RECV_QUEUE_SIZE);
         let sender_to_message_router = recv_queue_tx.clone();
         let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), sp, recv_queue_tx);
         let message_router = SwbusMessageRouter::new(swbus_client, recv_queue_rx);

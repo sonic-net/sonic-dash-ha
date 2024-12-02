@@ -3,6 +3,7 @@ use super::{NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::{Arc, OnceLock};
+use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::task::JoinHandle;
@@ -34,12 +35,13 @@ const ROUTE_STAGES: [RouteStage; 4] = [
 ];
 
 static MUX: OnceLock<Arc<SwbusMultiplexer>> = OnceLock::new();
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct SwbusMultiplexer {
     /// Route table. Each entry is a registered prefix to a next hop, which points to a connection.
     routes: DashMap<String, SwbusNextHop>,
     connections: DashMap<Arc<SwbusConnInfo>, ConnTracker>,
     my_routes: DashSet<RouteConfig>,
+    id_generator: MessageIdGenerator,
 }
 
 impl SwbusMultiplexer {
@@ -52,7 +54,12 @@ impl SwbusMultiplexer {
             routes: DashMap::new(),
             connections: DashMap::new(),
             my_routes: DashSet::new(),
+            id_generator: MessageIdGenerator::new(),
         }
+    }
+
+    pub fn generate_message_id(&self) -> u64 {
+        self.id_generator.generate()
     }
 
     pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
@@ -204,34 +211,11 @@ impl SwbusMultiplexer {
 
             // If the route entry is resolved, we forward the message to the next hop.
             nexthop.queue_message(message).await.unwrap();
-            // check nexthop type, decrement ttl and send unreachable response if needed
-            //     Ok(_) => {
-            //         return Ok(());
-            //     }
-            //     Err(SwbusError::InputError { code, .. }) => {
-            //         match code {
-            //             SwbusErrorCode::Unreachable => {
-            //                 let response = SwbusMessage::new_response(&message, SwbusErrorCode::NoRoute, "Route not found");
-            //                 self.route_message(response).await.unwrap();
-            //             }
-            //             _ => {
-            //                 return Err(SwbusError::input(
-            //                     SwbusErrorCode::Fail,
-            //                     format!("Failed to queue message to next hop"),
-            //                 ));
-            //             }
-            //         }
-            //     }
-            //     Err(e) => {
-            //         return Err(e);
-            //     }
-            // }
+
             return Ok(());
         }
 
-        let response = SwbusMessage::new_response(&message, SwbusErrorCode::NoRoute, "Route not found");
-        //todo: add Box::pin to route_message
-        //self.route_message(response).await.unwrap();
+        //todo: send response with no_route error
 
         Ok(())
     }
