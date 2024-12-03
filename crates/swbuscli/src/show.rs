@@ -114,7 +114,7 @@ impl ShowCmdHandler for ShowRouteCmd {
                     .to_longest_path(),
                 hop_count: entry.hop_count,
                 nh_id: entry.nh_id.clone(),
-                nh_scope: Scope::try_from(entry.nh_scope).unwrap().as_str_name().to_string(),
+                nh_scope: RouteScope::try_from(entry.nh_scope).unwrap().as_str_name().to_string(),
                 nh_service_path: entry
                     .nh_service_path
                     .as_ref()

@@ -153,7 +153,7 @@ message RequestResponse {
 //
 // Registration related messages.
 //
-enum Scope {
+enum RouteScope {
   SCOPE_CLIENT = 0;
   SCOPE_LOCAL = 1;
   SCOPE_REGION = 2;
@@ -175,7 +175,7 @@ message RouteQueryResultEntry {
   ServicePath service_path = 10;
   string nh_id = 20;
   ServicePath nh_service_path = 30;
-  Scope nh_scope = 40;
+  RouteScope nh_scope = 40;
   uint32 hop_count = 50;
 }
 

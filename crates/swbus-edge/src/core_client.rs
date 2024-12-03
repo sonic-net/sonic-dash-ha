@@ -95,7 +95,7 @@ impl SwbusCoreClient {
 
         meta.insert(
             SERVICE_PATH_SCOPE,
-            MetadataValue::from_str(Scope::Local.as_str_name()).unwrap(),
+            MetadataValue::from_str(RouteScope::ScopeLocal.as_str_name()).unwrap(),
         );
 
         let recv_stream = match client.stream_messages(send_stream_request).await {

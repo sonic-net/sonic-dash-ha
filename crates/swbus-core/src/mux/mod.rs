@@ -1,20 +1,19 @@
 mod conn;
 mod conn_info;
 mod conn_proxy;
+mod conn_store;
 mod conn_worker;
-pub mod core_runtime;
 mod message_handler;
 mod multiplexer;
 pub mod nexthop;
 pub mod route_config;
-mod service;
+pub mod service;
 
 pub use conn::*;
 pub use conn_info::*;
 pub(crate) use conn_proxy::*;
 pub use conn_worker::*;
 pub use message_handler::*;
-pub use multiplexer::*;
+pub(crate) use multiplexer::*;
 pub(crate) use nexthop::*;
 pub(crate) use route_config::*;
-pub(crate) use service::*;

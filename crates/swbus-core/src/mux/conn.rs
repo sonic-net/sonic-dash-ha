@@ -1,3 +1,4 @@
+use super::conn_store::SwbusConnStore;
 use super::SwbusConnControlMessage;
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
@@ -48,7 +49,11 @@ impl SwbusConn {
 
 // Client factory and task entry
 impl SwbusConn {
-    pub async fn from_connect(conn_info: Arc<SwbusConnInfo>, mux: Arc<SwbusMultiplexer>) -> Result<SwbusConn> {
+    pub async fn from_connect(
+        conn_info: Arc<SwbusConnInfo>,
+        mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
+    ) -> Result<SwbusConn> {
         let endpoint = Endpoint::from_str(&format!("http://{}", conn_info.remote_addr())).map_err(|e| {
             SwbusError::input(
                 SwbusErrorCode::InvalidArgs,
@@ -68,20 +73,29 @@ impl SwbusConn {
         };
 
         let client = SwbusServiceClient::new(channel);
-        Self::start_client_worker_task(conn_info, client, mux).await
+        Self::start_client_worker_task(conn_info, client, mux, conn_store).await
     }
 
     async fn start_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         client: SwbusServiceClient<Channel>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
         let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
         let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
 
         let conn_info_for_worker = conn_info.clone();
         let worker_task = tokio::spawn(async move {
-            Self::run_client_worker_task(conn_info_for_worker, client, control_queue_rx, message_queue_rx, mux).await
+            Self::run_client_worker_task(
+                conn_info_for_worker,
+                client,
+                control_queue_rx,
+                message_queue_rx,
+                mux,
+                conn_store,
+            )
+            .await
         });
 
         Ok(SwbusConn {
@@ -91,6 +105,7 @@ impl SwbusConn {
             message_queue_tx,
         })
     }
+
     /// This function is the entry point for the client worker task.
     /// It creates a stream of messages from the message queue and sends it to the server.
     /// It also receives messages from the server and forwards them to the message queue.
@@ -106,6 +121,7 @@ impl SwbusConn {
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_queue_rx: mpsc::Receiver<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> Result<()> {
         let request_stream = ReceiverStream::new(message_queue_rx)
             .map(|result| result.expect("Not expecting grpc client adding messages with error status"));
@@ -136,7 +152,7 @@ impl SwbusConn {
             }
         };
 
-        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux);
+        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux, conn_store);
         conn_worker.run().await
     }
     /// This function handles incoming connection from clients. It creates a SwbusConn object
@@ -148,16 +164,17 @@ impl SwbusConn {
     /// - message_queue_tx: The tx end of outgoing message queue
     /// - mux: The SwbusMultiplexer
     pub async fn from_receive(
-        conn_type: Scope,
+        conn_type: RouteScope,
         client_addr: SocketAddr,
         remote_service_path: ServicePath,
         incoming_stream: Streaming<SwbusMessage>,
         message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> SwbusConn {
         let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr, remote_service_path));
 
-        Self::start_server_worker_task(conn_info, incoming_stream, message_queue_tx, mux).await
+        Self::start_server_worker_task(conn_info, incoming_stream, message_queue_tx, mux, conn_store).await
     }
 
     async fn start_server_worker_task(
@@ -165,12 +182,13 @@ impl SwbusConn {
         incoming_stream: Streaming<SwbusMessage>,
         message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> SwbusConn {
         let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
 
         let conn_info_for_worker = conn_info.clone();
         let worker_task = tokio::spawn(async move {
-            Self::run_server_worker_task(conn_info_for_worker, incoming_stream, control_queue_rx, mux).await
+            Self::run_server_worker_task(conn_info_for_worker, incoming_stream, control_queue_rx, mux, conn_store).await
         });
 
         SwbusConn {
@@ -186,8 +204,9 @@ impl SwbusConn {
         incoming_stream: Streaming<SwbusMessage>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> Result<()> {
-        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux);
+        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux, conn_store);
         conn_worker.run().await
     }
 }

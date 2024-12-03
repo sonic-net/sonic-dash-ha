@@ -1,6 +1,6 @@
 use getset::{CopyGetters, Getters};
 use std::net::SocketAddr;
-use swbus_proto::swbus::Scope;
+use swbus_proto::swbus::RouteScope;
 use swbus_proto::swbus::ServicePath;
 
 #[derive(Debug, Copy, Clone, strum::Display, Eq, PartialEq, Hash)]
@@ -21,7 +21,7 @@ pub struct SwbusConnInfo {
     remote_addr: SocketAddr,
 
     #[getset(get_copy = "pub")]
-    connection_type: Scope,
+    connection_type: RouteScope,
 
     // Local service path is only used for client mode to send my route to the server
     // this will be removed when we implement route update
@@ -32,7 +32,7 @@ pub struct SwbusConnInfo {
 
 impl SwbusConnInfo {
     pub fn new_client(
-        conn_type: Scope,
+        conn_type: RouteScope,
         remote_addr: SocketAddr,
         remote_service_path: ServicePath,
         local_service_path: ServicePath,
@@ -47,7 +47,11 @@ impl SwbusConnInfo {
         }
     }
 
-    pub fn new_server(conn_type: Scope, remote_addr: SocketAddr, remote_service_path: ServicePath) -> SwbusConnInfo {
+    pub fn new_server(
+        conn_type: RouteScope,
+        remote_addr: SocketAddr,
+        remote_service_path: ServicePath,
+    ) -> SwbusConnInfo {
         SwbusConnInfo {
             id: format!("swbs-from://{}:{}", remote_addr.ip(), remote_addr.port()),
             mode: SwbusConnMode::Server,
