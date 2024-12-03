@@ -21,7 +21,7 @@ pub enum DbConnectionInfo {
 impl DbConnector {
     /// Create a new DbConnector from [`DbConnectionInfo`].
     ///
-    /// Timeout of 0 means infinite.
+    /// Timeout of 0 means block indefinitely.
     fn new(db_id: i32, connection: DbConnectionInfo, timeout_ms: u32) -> DbConnector {
         let ptr = match &connection {
             DbConnectionInfo::Tcp { hostname, port } => {
@@ -39,7 +39,7 @@ impl DbConnector {
 
     /// Create a DbConnector over a tcp socket.
     ///
-    /// Timeout of 0 means infinite.
+    /// Timeout of 0 means block indefinitely.
     pub fn new_tcp(db_id: i32, hostname: impl Into<String>, port: u16, timeout_ms: u32) -> DbConnector {
         let hostname = hostname.into();
         Self::new(db_id, DbConnectionInfo::Tcp { hostname, port }, timeout_ms)
@@ -47,7 +47,7 @@ impl DbConnector {
 
     /// Create a DbConnector over a unix socket.
     ///
-    /// Timeout of 0 means infinite.
+    /// Timeout of 0 means block indefinitely.
     pub fn new_unix(db_id: i32, sock_path: impl Into<String>, timeout_ms: u32) -> DbConnector {
         let sock_path = sock_path.into();
         Self::new(db_id, DbConnectionInfo::Unix { sock_path }, timeout_ms)
@@ -55,7 +55,7 @@ impl DbConnector {
 
     /// Clone a DbConnector with a timeout.
     ///
-    /// Timeout of 0 means infinite.
+    /// Timeout of 0 means block indefinitely.
     pub fn clone_timeout(&self, timeout_ms: u32) -> Self {
         Self::new(self.db_id, self.connection.clone(), timeout_ms)
     }
