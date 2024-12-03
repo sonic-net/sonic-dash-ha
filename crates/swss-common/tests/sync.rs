@@ -9,7 +9,6 @@ fn dbconnector_sync_api_basic_test() {
     let redis = Redis::start();
     let db = redis.db_connector();
 
-    drop(db.clone());
     drop(db.clone_timeout(10000));
 
     assert!(db.flush_db());

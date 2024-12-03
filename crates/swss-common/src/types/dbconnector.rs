@@ -139,19 +139,11 @@ impl Drop for DbConnector {
 
 unsafe impl Send for DbConnector {}
 
-impl Clone for DbConnector {
-    /// Clone the `DbConnector` with no timeout.
-    fn clone(&self) -> Self {
-        self.clone_timeout(0)
-    }
-}
-
 #[cfg(feature = "async")]
 impl DbConnector {
     async_util::impl_basic_async_method!(new_tcp_async <= new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector);
     async_util::impl_basic_async_method!(new_unix_async <= new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector);
     async_util::impl_basic_async_method!(clone_timeout_async <= clone_timeout(&self, timeout_ms: u32) -> DbConnector);
-    async_util::impl_basic_async_method!(clone_async <= clone(&self) -> DbConnector);
     async_util::impl_basic_async_method!(del_async <= del(&self, key: &str) -> bool);
     async_util::impl_basic_async_method!(set_async <= set(&self, key: &str, value: &CxxStr));
     async_util::impl_basic_async_method!(get_async <= get(&self, key: &str) -> Option<CxxString>);

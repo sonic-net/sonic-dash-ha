@@ -37,7 +37,6 @@ async fn dbconnector_async_api_basic_test() {
     let redis = Redis::start();
     let mut db = redis.db_connector();
 
-    drop(db.clone_async().await);
     drop(db.clone_timeout_async(10000).await);
 
     assert!(db.flush_db_async().await);
