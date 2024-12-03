@@ -13,7 +13,7 @@ mod zmqserver;
 
 pub use consumerstatetable::ConsumerStateTable;
 pub use cxxstring::{CxxStr, CxxString};
-pub use dbconnector::DbConnector;
+pub use dbconnector::{DbConnectionInfo, DbConnector};
 pub use producerstatetable::ProducerStateTable;
 pub use subscriberstatetable::SubscriberStateTable;
 pub use zmqclient::ZmqClient;

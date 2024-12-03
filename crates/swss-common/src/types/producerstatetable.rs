@@ -11,7 +11,7 @@ pub struct ProducerStateTable {
 impl ProducerStateTable {
     pub fn new(db: DbConnector, table_name: &str) -> Self {
         let table_name = cstr(table_name);
-        let ptr = unsafe { SWSSProducerStateTable_new(db.ptr, table_name.as_ptr()).into() };
+        let ptr = unsafe { SWSSProducerStateTable_new(db.ptr, table_name.as_ptr()) };
         Self { ptr, _db: db }
     }
 
