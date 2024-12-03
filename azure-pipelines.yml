@@ -1,11 +1,14 @@
 pr:
-- master
-
-trigger:
-  batch: true
   branches:
     include:
       - master
+  paths:
+    exclude:
+      - .github
+      - docs
+      - LICENSE
+      - README.md
+trigger: none
 
 stages:
 - stage: Build
