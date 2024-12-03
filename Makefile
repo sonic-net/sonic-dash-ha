@@ -52,3 +52,6 @@ build-release:
 
 test-release:
 	cargo test --release --all
+
+clean-release:
+	cargo clean --release
