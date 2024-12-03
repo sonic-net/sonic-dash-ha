@@ -1,6 +1,7 @@
 use clap::Parser;
-use swbus_core::mux::core_runtime::SwbusCoreRuntime;
+use std::sync::Arc;
 use swbus_core::mux::route_config::RoutesConfig;
+use swbus_core::mux::service::SwbusServiceHost;
 
 #[derive(Parser, Debug)]
 #[command(name = "swbusd")]
@@ -16,6 +17,6 @@ struct Args {
 async fn main() {
     let args = Args::parse();
     let route_config = RoutesConfig::load_from_yaml(args.route_config).unwrap();
-    let mut runtime = SwbusCoreRuntime::new(args.address);
-    runtime.start(route_config).await.unwrap();
+    let server = Arc::new(SwbusServiceHost::new(args.address));
+    server.start(route_config).await.unwrap();
 }

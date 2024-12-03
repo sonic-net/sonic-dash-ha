@@ -55,8 +55,8 @@ impl super::CmdHandler for ShowCmd {
         };
 
         let mgmt_request = sub_cmd.create_request();
-        let header = SwbusMessageHeader::new(src_sp.clone(), dst_sp.clone());
-        let request_epoch = header.epoch;
+        let header = SwbusMessageHeader::new(src_sp.clone(), dst_sp.clone(), ctx.id_generator.generate());
+        let request_id = header.id;
         let request_msg = SwbusMessage {
             header: Some(header),
             body: Some(swbus_message::Body::ManagementRequest(mgmt_request)),
@@ -66,7 +66,7 @@ impl super::CmdHandler for ShowCmd {
         ctx.runtime.lock().await.send(request_msg).await.unwrap();
 
         //wait on the channel to receive response
-        let result = wait_for_response(&mut recv_queue_rx, request_epoch, CMD_TIMEOUT).await;
+        let result = wait_for_response(&mut recv_queue_rx, request_id, CMD_TIMEOUT).await;
         match result.error_code {
             SwbusErrorCode::Ok => {
                 let body = result.msg.unwrap().body.unwrap();
@@ -114,7 +114,7 @@ impl ShowCmdHandler for ShowRouteCmd {
                     .to_longest_path(),
                 hop_count: entry.hop_count,
                 nh_id: entry.nh_id.clone(),
-                nh_scope: Scope::try_from(entry.nh_scope).unwrap().as_str_name().to_string(),
+                nh_scope: RouteScope::try_from(entry.nh_scope).unwrap().as_str_name().to_string(),
                 nh_service_path: entry
                     .nh_service_path
                     .as_ref()

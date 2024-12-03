@@ -38,8 +38,8 @@
               },
               "body": {
                 "Response": {
-                  "request_epoch": 0,
-                  "error_code": 0,
+                  "request_id": 0,
+                  "error_code": 1,
                   "error_message": "",
                   "response_body": {
                     "RouteQueryResult": {

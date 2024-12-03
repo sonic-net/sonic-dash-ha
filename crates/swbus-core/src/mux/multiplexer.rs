@@ -1,18 +1,11 @@
-use super::route_config::{PeerConfig, RouteConfig};
-use super::{NextHopType, SwbusConn, SwbusConnInfo, SwbusConnMode, SwbusNextHop};
+use super::route_config::RouteConfig;
+use super::{NextHopType, SwbusConnInfo, SwbusConnProxy, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
+use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
-use tokio::task::JoinHandle;
-use tokio::time::Duration;
-
-#[derive(Debug)]
-enum ConnTracker {
-    SwbusConn(SwbusConn),
-    Task(JoinHandle<()>),
-}
 
 enum RouteStage {
     Global,
@@ -27,11 +20,11 @@ const ROUTE_STAGES: [RouteStage; 4] = [
     RouteStage::Global,
 ];
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct SwbusMultiplexer {
     /// Route table. Each entry is a registered prefix to a next hop, which points to a connection.
     routes: DashMap<String, SwbusNextHop>,
-    connections: DashMap<Arc<SwbusConnInfo>, ConnTracker>,
+    id_generator: MessageIdGenerator,
     my_routes: DashSet<RouteConfig>,
 }
 
@@ -39,101 +32,43 @@ impl SwbusMultiplexer {
     pub fn new() -> Self {
         SwbusMultiplexer {
             routes: DashMap::new(),
-            connections: DashMap::new(),
+            id_generator: MessageIdGenerator::new(),
             my_routes: DashSet::new(),
         }
     }
 
-    pub fn set_my_routes(self: &Arc<Self>, routes: Vec<RouteConfig>) {
-        for route in routes {
-            let sr = route.key.clone_for_local_mgmt();
-
-            self.my_routes.insert(route);
-
-            //Create local service route
-            let route_key = sr.to_service_prefix();
-            let nexthop = SwbusNextHop::new_local(&self);
-            self.update_route(route_key, nexthop);
-        }
+    pub fn generate_message_id(&self) -> u64 {
+        self.id_generator.generate()
     }
 
-    fn start_connect_task(self: &Arc<Self>, conn_info: Arc<SwbusConnInfo>, reconnect: bool) {
-        let conn_info_clone = conn_info.clone();
-
-        let retry_interval = match reconnect {
-            true => Duration::from_millis(1),
-            false => Duration::from_secs(1),
-        };
-        let mux = self.clone();
-        let retry_task: JoinHandle<()> = tokio::spawn(async move {
-            loop {
-                match SwbusConn::from_connect(conn_info.clone(), mux.clone()).await {
-                    Ok(conn) => {
-                        println!("Successfully connect to peer {}", conn_info.id());
-                        // register the new connection and update the route table
-                        mux.register(conn);
-                        break;
-                    }
-                    Err(_) => {
-                        tokio::time::sleep(retry_interval).await;
-                    }
-                }
-            }
-        });
-        self.connections.insert(conn_info_clone, ConnTracker::Task(retry_task));
-    }
-
-    pub fn add_peer(self: &Arc<Self>, peer: PeerConfig) {
-        //todo: assuming only one route for now. Will be improved to send routes in route update message and remove this
-        let my_route = self.my_routes.iter().next().expect("My service path is not set");
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
-            peer.scope,
-            peer.endpoint,
-            peer.id.clone(),
-            my_route.key.clone(),
-        ));
-        self.start_connect_task(conn_info, false);
-    }
-
-    pub fn register(self: &Arc<Self>, conn: SwbusConn) {
-        // First, we insert the connection to connection table.
-        let conn_info = conn.info().clone();
-        let proxy = conn.new_proxy();
-        self.connections.insert(conn_info.clone(), ConnTracker::SwbusConn(conn));
-        // Next, we update the route table.
+    pub(crate) fn register(self: &Arc<SwbusMultiplexer>, conn_info: &Arc<SwbusConnInfo>, proxy: SwbusConnProxy) {
+        // Update the route table.
         let path = conn_info.remote_service_path();
         let route_key = match conn_info.connection_type() {
-            Scope::Global => path.to_regional_prefix(),
-            Scope::Region => path.to_cluster_prefix(),
-            Scope::Cluster => path.to_node_prefix(),
-            Scope::Local => path.to_service_prefix(),
-            Scope::Client => path.to_string(),
+            RouteScope::ScopeGlobal => path.to_regional_prefix(),
+            RouteScope::ScopeRegion => path.to_cluster_prefix(),
+            RouteScope::ScopeCluster => path.to_node_prefix(),
+            RouteScope::ScopeLocal => path.to_service_prefix(),
+            RouteScope::ScopeClient => path.to_string(),
         };
-        let nexthop = SwbusNextHop::new_remote(&self, conn_info, proxy, 1);
+        let nexthop = SwbusNextHop::new_remote(self, conn_info.clone(), proxy, 1);
         self.update_route(route_key, nexthop);
     }
 
-    pub fn unregister(self: &Arc<Self>, conn_info: Arc<SwbusConnInfo>) {
-        // First, we remove the connection from the connection table.
-        self.connections.remove(&conn_info);
-
-        // Next, we remove the route entry from the route table.
+    pub(crate) fn unregister(&self, conn_info: Arc<SwbusConnInfo>) {
+        // remove the route entry from the route table.
         let path = conn_info.remote_service_path();
         let route_key = match conn_info.connection_type() {
-            Scope::Global => path.to_regional_prefix(),
-            Scope::Region => path.to_cluster_prefix(),
-            Scope::Cluster => path.to_node_prefix(),
-            Scope::Local => path.to_service_prefix(),
-            Scope::Client => path.to_string(),
+            RouteScope::ScopeGlobal => path.to_regional_prefix(),
+            RouteScope::ScopeRegion => path.to_cluster_prefix(),
+            RouteScope::ScopeCluster => path.to_node_prefix(),
+            RouteScope::ScopeLocal => path.to_service_prefix(),
+            RouteScope::ScopeClient => path.to_string(),
         };
         self.routes.remove(&route_key);
-        // If connection is client mode, we start a new connection task.
-        if conn_info.mode() == SwbusConnMode::Client {
-            self.start_connect_task(conn_info, true /*reconnect from connection loss*/);
-        }
     }
 
-    fn update_route(&self, route_key: String, nexthop: SwbusNextHop) {
+    pub(crate) fn update_route(&self, route_key: String, nexthop: SwbusNextHop) {
         // If route entry doesn't exist, we insert the next hop as a new one.
         match self.routes.entry(route_key) {
             Entry::Occupied(mut existing) => {
@@ -152,6 +87,11 @@ impl SwbusMultiplexer {
         // if route_entry.hop_count > nexthop.hop_count {
         //     *route_entry.value_mut() = nexthop;
         // }
+    }
+    pub fn set_my_routes(self: &Arc<Self>, routes: Vec<RouteConfig>) {
+        for route in routes {
+            self.my_routes.insert(route);
+        }
     }
     fn get_my_service_path(&self) -> ServicePath {
         self.my_routes
@@ -202,9 +142,11 @@ impl SwbusMultiplexer {
                 if header.ttl == 0 {
                     let response = SwbusMessage::new_response(
                         &message,
-                        &self.get_my_service_path(),
+                        Some(&self.get_my_service_path()),
                         SwbusErrorCode::Unreachable,
                         "TTL expired",
+                        self.id_generator.generate(),
+                        None,
                     );
                     Box::pin(self.route_message(response)).await.unwrap();
                     return Ok(()); //returning here as we don't want to forward the message
@@ -212,22 +154,25 @@ impl SwbusMultiplexer {
             }
             // If the route entry is resolved, we forward the message to the next hop.
             nexthop.queue_message(message).await.unwrap();
+
             return Ok(());
         }
 
         let response = SwbusMessage::new_response(
             &message,
-            &self.get_my_service_path(),
+            Some(&self.get_my_service_path()),
             SwbusErrorCode::NoRoute,
             "Route not found",
+            self.id_generator.generate(),
+            None,
         );
-        //todo: add Box::pin to route_message
+
         Box::pin(self.route_message(response)).await.unwrap();
 
         Ok(())
     }
 
-    pub fn export_routes(&self, scope: Option<Scope>) -> RouteQueryResult {
+    pub fn export_routes(&self, scope: Option<RouteScope>) -> RouteQueryResult {
         let entries: Vec<RouteQueryResultEntry> = self
             .routes
             .iter()
@@ -237,7 +182,7 @@ impl SwbusMultiplexer {
                 }
                 let connection_type = entry.value().conn_info.as_ref().unwrap().connection_type();
                 match scope {
-                    Some(s) => connection_type <= s && connection_type >= Scope::Cluster,
+                    Some(s) => connection_type <= s && connection_type >= RouteScope::ScopeCluster,
                     None => true,
                 }
             })
@@ -261,6 +206,8 @@ impl SwbusMultiplexer {
 mod tests {
     use tokio::time;
 
+    use crate::mux::PeerConfig;
+
     use super::*;
 
     #[tokio::test]
@@ -268,35 +215,11 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new());
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: Scope::Cluster,
+            scope: RouteScope::ScopeCluster,
         };
         mux.set_my_routes(vec![route_config.clone()]);
 
         assert!(mux.my_routes.contains(&route_config));
-        assert!(mux
-            .routes
-            .contains_key(&route_config.key.clone_for_local_mgmt().to_longest_path()));
-    }
-
-    #[tokio::test]
-    async fn test_add_peer() {
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let peer_config = PeerConfig {
-            scope: Scope::Local,
-            endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
-            id: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-        };
-        let route_config = RouteConfig {
-            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: Scope::Cluster,
-        };
-        mux.set_my_routes(vec![route_config]);
-
-        mux.add_peer(peer_config);
-        assert!(mux
-            .connections
-            .iter()
-            .any(|entry| entry.key().id() == "swbs-to://127.0.0.1:8080"));
     }
 
     // #[tokio::test]
@@ -322,13 +245,13 @@ mod tests {
     async fn test_route_message() {
         let mux = SwbusMultiplexer::new();
         let peer_config = PeerConfig {
-            scope: Scope::Local,
+            scope: RouteScope::ScopeLocal,
             endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
             id: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
         };
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: Scope::Cluster,
+            scope: RouteScope::ScopeCluster,
         };
 
         let message = SwbusMessage {

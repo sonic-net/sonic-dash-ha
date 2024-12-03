@@ -44,7 +44,13 @@ message SwbusMessageHeader {
   uint32 version = 1;
 
   // Message info
-  uint64 epoch = 10;
+
+  // A unique message id among messages from a specific `ServicePath`/endpoint.
+  // Two messages from different endpoints may have the same id, but two messages
+  // from the same endpoint should never share the same id (even if the program
+  // is restarted).
+  // The id is defined as (client startup time in epoch nanos) + (number of messages sent).
+  uint64 id = 10;
   uint32 flag = 20;
   uint32 ttl = 30;
 
@@ -57,80 +63,86 @@ message SwbusMessageHeader {
 // Common request response message.
 //
 enum SwbusErrorCode {
-  // OK
-  SWBUS_ERROR_CODE_OK = 0;
+  // Unknown error.
+  //
+  // This must be the first variant defined in the `.proto` file, as that's how `prost` decides the default value.
+  // The default value is returned by methods such as `RequestResponse::error_code` if the `error_code` field has an unknown value.
+  SWBUS_ERROR_CODE_UNKNOWN_ERROR = 0;
 
-  // Connection error starts
+  // OK - no error
+  SWBUS_ERROR_CODE_OK = 1;
+
+  // Connection error starts.
   // This section captures all error code that related to connection or network.
   SWBUS_ERROR_CODE_CONNECTION_ERROR_MIN = 100;
 
   // Failed to connect or not connected
   SWBUS_ERROR_CODE_CONNECTION_ERROR = 101;
 
-  // Message timed out
+  // Message timed out.
   SWBUS_ERROR_CODE_TIMEOUT = 102;
 
-  // Connection error ends
+  // Connection error ends.
   SWBUS_ERROR_CODE_CONNECTION_ERROR_MAX = 199;
 
-  // Input error starts
+  // Input error starts.
   // This section captures all error code that caused by user input, either API parameter or message format.
   SWBUS_ERROR_CODE_INPUT_ERROR_MIN = 200;
 
-  // Generic invalid arguments
+  // Generic invalid arguments.
   SWBUS_ERROR_CODE_INVALID_ARGS = 201;
 
-  // Invalid destination
+  // Invalid destination.
   SWBUS_ERROR_CODE_INVALID_DESTINATION = 202;
 
-  // Invalid source
+  // Invalid source.
   SWBUS_ERROR_CODE_INVALID_SOURCE = 203;
 
-  // Invalid message header
+  // Invalid message header.
   SWBUS_ERROR_CODE_INVALID_HEADER = 210;
 
-  // Invalid message payload
+  // Invalid message payload.
   SWBUS_ERROR_CODE_INVALID_PAYLOAD = 211;
 
-  // Input error ends
+  // Input error ends.
   SWBUS_ERROR_CODE_INPUT_ERROR_MAX = 299;
 
-  // Routing errors starts
+  // Routing errors starts.
   // This section captures all error code that happens during message routing or forwarding.
   SWBUS_ERROR_CODE_ROUTE_ERROR_MIN = 300;
 
-  // Destination route not found
+  // Destination route not found.
   SWBUS_ERROR_CODE_NO_ROUTE = 301;
 
-  // Message queue full
+  // Message queue full.
   SWBUS_ERROR_CODE_QUEUE_FULL = 302;
 
-  // TTL expired
+  // TTL expired.
   SWBUS_ERROR_CODE_UNREACHABLE = 303;
 
-  // Service not found
+  // Service not found.
   SWBUS_ERROR_CODE_SERVICE_NOT_FOUND = 370;
 
-  // Resource not found
+  // Resource not found.
   SWBUS_ERROR_CODE_RESOURCE_NOT_FOUND = 380;
 
-  // Routing errors ends
+  // Routing errors ends.
   SWBUS_ERROR_CODE_ROUTE_ERROR_MAX = 399;
 
-  // Internal error starts
+  // Internal error starts.
   // This section captures all error code that caused by service itself, not a user error.
   // The errors in this section are rare to happen, and should be logged and investigated.
   SWBUS_ERROR_CODE_INTERNAL_ERROR_MIN = 900;
 
-  // Uncategorized internal error
+  // Uncategorized internal error.
   SWBUS_ERROR_CODE_FAIL = 901;
 
-  // Internal error ends
+  // Internal error ends.
   SWBUS_ERROR_CODE_INTERNAL_ERROR_MAX = 999;
 }
 
 message RequestResponse {
-  uint64 request_epoch = 10;
+  uint64 request_id = 10;
   SwbusErrorCode error_code = 20;
   string error_message = 30;
   oneof ResponseBody {
@@ -141,12 +153,12 @@ message RequestResponse {
 //
 // Registration related messages.
 //
-enum Scope {
-  CLIENT = 0;
-  LOCAL = 1;
-  REGION = 2;
-  CLUSTER = 3;
-  GLOBAL = 4;
+enum RouteScope {
+  SCOPE_CLIENT = 0;
+  SCOPE_LOCAL = 1;
+  SCOPE_REGION = 2;
+  SCOPE_CLUSTER = 3;
+  SCOPE_GLOBAL = 4;
 }
 
 message RegistrationQueryRequest {
@@ -163,7 +175,7 @@ message RouteQueryResultEntry {
   ServicePath service_path = 10;
   string nh_id = 20;
   ServicePath nh_service_path = 30;
-  Scope nh_scope = 40;
+  RouteScope nh_scope = 40;
   uint32 hop_count = 50;
 }
 
@@ -199,7 +211,7 @@ message ManagementRequest {
 //
 // Route data request
 //
-message RouteDataRequest {
+message DataRequest {
   bytes payload = 20;
 }
 
@@ -226,9 +238,8 @@ message SwbusMessage {
     // Management request
     ManagementRequest management_request = 510;
 
-    // Route data
-    RouteDataRequest route_data_request = 10000;
-
-
+    // General purpose request.
+    // Send a binary payload to another node.
+    DataRequest data_request = 10000;
   }
 }

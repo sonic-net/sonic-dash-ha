@@ -10,7 +10,7 @@ pub(crate) enum NextHopType {
     Local,
     Remote,
 }
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct SwbusNextHop {
     pub nh_type: NextHopType,
     pub conn_info: Option<Arc<SwbusConnInfo>>,
@@ -61,11 +61,11 @@ impl SwbusNextHop {
     async fn process_local_message(&self, message: SwbusMessage) -> Result<()> {
         //@todo: move to trace
         // process message locally
-        let response = match message.body {
+        let response = match message.body.as_ref() {
             Some(swbus_message::Body::PingRequest(_)) => self.process_ping_request(message).unwrap(),
-            Some(swbus_message::Body::ManagementRequest(mgmt_request)) => self
-                .process_mgmt_request(&message.header.unwrap(), &mgmt_request)
-                .unwrap(),
+            Some(swbus_message::Body::ManagementRequest(mgmt_request)) => {
+                self.process_mgmt_request(&message, &mgmt_request).unwrap()
+            }
             _ => {
                 return Err(SwbusError::input(
                     SwbusErrorCode::ServiceNotFound,
@@ -80,34 +80,30 @@ impl SwbusNextHop {
     fn process_ping_request(&self, message: SwbusMessage) -> Result<SwbusMessage> {
         //@todo: move to trace
         //println!("Received ping request: {:?}", message);
+        let id = self.mux.generate_message_id();
         Ok(SwbusMessage::new_response(
             &message,
-            message.header.as_ref().unwrap().destination.as_ref().unwrap(),
+            None,
             SwbusErrorCode::Ok,
             "",
+            id,
+            None,
         ))
     }
 
-    fn process_mgmt_request(
-        &self,
-        header: &SwbusMessageHeader,
-        mgmt_request: &ManagementRequest,
-    ) -> Result<SwbusMessage> {
+    fn process_mgmt_request(&self, message: &SwbusMessage, mgmt_request: &ManagementRequest) -> Result<SwbusMessage> {
         match mgmt_request.request.as_str() {
             "show_route" => {
                 let routes = self.mux.export_routes(None);
-                let mut response = RequestResponse::ok(header.epoch);
-                response.response_body = Some(request_response::ResponseBody::RouteQueryResult(routes));
-                Ok(SwbusMessage {
-                    header: Some(SwbusMessageHeader::new(
-                        header.destination.clone().expect("missing destination"), //should not happen otherwise it won't reach here
-                        header.source.clone().ok_or(SwbusError::input(
-                            SwbusErrorCode::InvalidSource,
-                            format!("missing message source in show_route request"),
-                        ))?,
-                    )),
-                    body: Some(swbus_message::Body::Response(response)),
-                })
+                let response_msg = SwbusMessage::new_response(
+                    &message,
+                    None,
+                    SwbusErrorCode::Ok,
+                    "",
+                    self.mux.generate_message_id(),
+                    Some(request_response::ResponseBody::RouteQueryResult(routes)),
+                );
+                Ok(response_msg)
             }
             _ => Err(SwbusError::input(
                 SwbusErrorCode::InvalidArgs,

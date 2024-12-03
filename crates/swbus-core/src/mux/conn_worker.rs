@@ -1,5 +1,6 @@
 use super::SwbusConnInfo;
 use super::SwbusMultiplexer;
+use crate::mux::conn_store::SwbusConnStore;
 use std::io;
 use std::sync::Arc;
 use swbus_proto::result::*;
@@ -19,20 +20,23 @@ pub struct SwbusConnWorker {
     // incoming message stream
     message_stream: Streaming<SwbusMessage>,
     mux: Arc<SwbusMultiplexer>,
+    conn_store: Arc<SwbusConnStore>,
 }
 
 impl SwbusConnWorker {
-    pub fn new(
+    pub(crate) fn new(
         info: Arc<SwbusConnInfo>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_stream: Streaming<SwbusMessage>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> Self {
         Self {
             info,
             control_queue_rx,
             message_stream,
             mux,
+            conn_store,
         }
     }
 
@@ -41,6 +45,8 @@ impl SwbusConnWorker {
         let result = self.run_worker_loop().await;
         //unregister from mux
         self.unregister_from_mux()?;
+        //todo: start reconnect task if needed
+        self.conn_store.conn_lost(self.info.clone());
         result
     }
 

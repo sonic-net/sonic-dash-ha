@@ -42,8 +42,8 @@ impl super::CmdHandler for PingCmd {
         //Send ping messages
         println!("PING {}", self.dest.to_longest_path());
         for i in 0..self.count {
-            let header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone());
-            let header_epoch = header.epoch;
+            let mut header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
+            let header_id = header.id;
             let ping_msg = SwbusMessage {
                 header: Some(header),
                 body: Some(swbus_message::Body::PingRequest(PingRequest::new())),
@@ -52,7 +52,7 @@ impl super::CmdHandler for PingCmd {
             ctx.runtime.lock().await.send(ping_msg).await.unwrap();
 
             //wait on the channel to receive response or timeout
-            let result = wait_for_response(&mut recv_queue_rx, header_epoch, self.timeout).await;
+            let result = wait_for_response(&mut recv_queue_rx, header_id, self.timeout).await;
             match result.error_code {
                 SwbusErrorCode::Ok => {
                     let elapsed = start.elapsed();

@@ -27,6 +27,7 @@ tracing.workspace = true
 contracts.workspace = true
 strum.workspace = true
 dashmap.workspace = true
+thiserror.workspace = true
 
 # Internal dependencies
 swbus-proto.workspace = true

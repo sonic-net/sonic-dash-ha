@@ -15,7 +15,7 @@ pub struct RoutesConfig {
 pub struct RouteConfig {
     #[serde(deserialize_with = "deserialize_service_path")]
     pub key: ServicePath,
-    pub scope: Scope,
+    pub scope: RouteScope,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -23,7 +23,7 @@ pub struct PeerConfig {
     #[serde(deserialize_with = "deserialize_service_path")]
     pub id: ServicePath,
     pub endpoint: SocketAddr,
-    pub scope: Scope,
+    pub scope: RouteScope,
 }
 
 impl RoutesConfig {
@@ -49,14 +49,14 @@ mod tests {
         let yaml_content = r#"
         routes:
           - key: "region-a.cluster-a.10.0.0.1-dpu0"
-            scope: "Cluster"
+            scope: "ScopeCluster"
         peers:
           - id: "region-a.cluster-a.10.0.0.2-dpu0"
             endpoint: "10.0.0.2:8000"
-            scope: "Cluster"
+            scope: "ScopeCluster"
           - id: "region-a.cluster-a.10.0.0.3-dpu0"
             endpoint: "10.0.0.3:8000"
-            scope: "Cluster"
+            scope: "ScopeCluster"
         "#;
 
         let dir = tempdir().unwrap();
@@ -80,7 +80,7 @@ mod tests {
             config.routes[0].key,
             ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap()
         );
-        assert_eq!(config.routes[0].scope, Scope::Cluster);
+        assert_eq!(config.routes[0].scope, RouteScope::ScopeCluster);
 
         assert_eq!(
             config.peers[0].id,
@@ -90,7 +90,7 @@ mod tests {
             config.peers[0].endpoint,
             "10.0.0.2:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[0].scope, Scope::Cluster);
+        assert_eq!(config.peers[0].scope, RouteScope::ScopeCluster);
         assert_eq!(
             config.peers[1].id,
             ServicePath::from_string("region-a.cluster-a.10.0.0.3-dpu0").unwrap()
@@ -99,6 +99,6 @@ mod tests {
             config.peers[1].endpoint,
             "10.0.0.3:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[1].scope, Scope::Cluster);
+        assert_eq!(config.peers[1].scope, RouteScope::ScopeCluster);
     }
 }

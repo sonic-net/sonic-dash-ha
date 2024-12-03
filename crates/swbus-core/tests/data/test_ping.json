@@ -11,7 +11,7 @@
             "message": {
               "header": {
                 "version": 1,
-                "epoch": 0,
+                "id": 0,
                 "flag": 0,
                 "ttl": 64,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
@@ -29,7 +29,7 @@
             "message": {
               "header": {
                 "version": 1,
-                "epoch": 0,
+                "id": 0,
                 "flag": 0,
                 "ttl": 62,
                 "source": "region-a.cluster-a.10.0.0.2-dpu0/local-mgmt/0",
@@ -37,8 +37,8 @@
               },
               "body": {
                 "Response": {
-                  "request_epoch": 0,
-                  "error_code": 0,
+                  "request_id": 0,
+                  "error_code": 1,
                   "error_message": "",
                   "response_body": null
                 }
@@ -61,7 +61,7 @@
             "message": {
               "header": {
                 "version": 1,
-                "epoch": 0,
+                "id": 0,
                 "flag": 0,
                 "ttl": 1,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
@@ -79,7 +79,7 @@
             "message": {
               "header": {
                 "version": 1,
-                "epoch": 0,
+                "id": 0,
                 "flag": 0,
                 "ttl": 63,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0",
@@ -87,7 +87,7 @@
               },
               "body": {
                 "Response": {
-                  "request_epoch": 0,
+                  "request_id": 0,
                   "error_code": 303,
                   "error_message": "TTL expired",
                   "response_body": null
@@ -111,7 +111,7 @@
             "message": {
               "header": {
                 "version": 1,
-                "epoch": 0,
+                "id": 0,
                 "flag": 0,
                 "ttl": 64,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
@@ -129,7 +129,7 @@
             "message": {
               "header": {
                 "version": 1,
-                "epoch": 0,
+                "id": 0,
                 "flag": 0,
                 "ttl": 63,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0",
@@ -137,7 +137,7 @@
               },
               "body": {
                 "Response": {
-                  "request_epoch": 0,
+                  "request_id": 0,
                   "error_code": 301,
                   "error_message": "Route not found",
                   "response_body": null

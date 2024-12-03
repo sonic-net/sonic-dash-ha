@@ -4,9 +4,10 @@ use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
 use std::io::BufReader;
-use swbus_core::mux::core_runtime::SwbusCoreRuntime;
+use std::sync::Arc;
 use swbus_core::mux::route_config::RoutesConfig;
 use swbus_core::mux::route_config::*;
+use swbus_core::mux::service::SwbusServiceHost;
 use swbus_edge::core_client::SwbusCoreClient;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
@@ -79,9 +80,9 @@ struct SwbusClientConfig {
 
 /// Start a swbusd server with the given name and node address. The route_config_serde contains the routes and peers configuration.
 fn start_server(name: &str, node_addr: &str, route_config: RoutesConfig) {
-    let mut runtime = SwbusCoreRuntime::new(node_addr.to_string());
+    let mut service_host = Arc::new(SwbusServiceHost::new(node_addr.to_string()));
     let server_task = tokio::spawn(async move {
-        runtime.start(route_config).await.unwrap();
+        service_host.start(route_config).await.unwrap();
     });
     TOPO.lock().unwrap().server_jobs.push(server_task);
     println!("Server {} started at {}", name, node_addr);
@@ -219,7 +220,14 @@ async fn receive_and_compare(expected_responses: &Vec<MessageClientPair>, timeou
         let receiver = topo.client_receivers.get_mut(&resp.client).unwrap();
         match time::timeout(Duration::from_secs(timeout as u64), receiver.recv()).await {
             Ok(Some(msg)) => {
-                // by serializing then deserializing, we reset undeterminstic fields to default to compare
+                // by serializing then deserializing, we reset undeterminstic fields to default to compare.
+                // This includes the following fields:
+                // - SwbusMessageHeader.id
+                // - RouteQueryResultEntry.nh_id
+                //   nh_id includes nexthop IP and port, which is not deterministic.
+                // During serialization, vector is also sorted by sorted_vec_serializer to make sure the order is deterministic.
+                // This includes
+                // - RouteQueryResult.entries
                 let json_string = serde_json::to_string(&msg).unwrap();
                 let trimmed_msg: SwbusMessage = serde_json::from_str(&json_string).unwrap();
                 assert_eq!(trimmed_msg, resp.message);
