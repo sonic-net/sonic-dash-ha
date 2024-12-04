@@ -17,12 +17,77 @@ stages:
 
   jobs:
   - job:
-    displayName: "amd64/ubuntu-20.04"
+    displayName: "amd64/ubuntu-22.04"
     pool:
-      vmImage: 'ubuntu-20.04'
+      vmImage: 'ubuntu-22.04'
 
     steps:
     - script: |
+        set -exuo pipefail
+        # dash-ha build deps
         sudo apt-get update
-      displayName: 'Install dependencies'
+        sudo apt-get install -y curl protobuf-compiler redis
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
+      displayName: 'Install dash-ha dependencies'
 
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-buildimage.common_libs
+        artifact: common-lib
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+        path: $(Build.ArtifactStagingDirectory)/download/common
+        patterns: |
+          target/debs/bullseye/libnl-3-200_*.deb
+          target/debs/bullseye/libnl-3-dev_*.deb
+          target/debs/bullseye/libnl-genl-3-200_*.deb
+          target/debs/bullseye/libnl-genl-3-dev_*.deb
+          target/debs/bullseye/libnl-route-3-200_*.deb
+          target/debs/bullseye/libnl-route-3-dev_*.deb
+          target/debs/bullseye/libnl-nf-3-200_*.deb
+          target/debs/bullseye/libnl-nf-3-dev_*.deb
+          target/debs/bullseye/libyang_*.deb
+# target/debs/bullseye/libprotobuf*.deb
+# target/debs/bullseye/libprotoc*.deb
+# target/debs/bullseye/protobuf-compiler*.deb
+      displayName: "Download common-libs deb packages"
+    
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-swss-common
+        artifact: sonic-swss-common-bookworm
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+        allowPartiallySucceededBuilds: true
+        path: $(Build.ArtifactStagingDirectory)/download/swsscommon
+        patterns: |
+          libswsscommon_1.0.0_*.deb
+          libswsscommon-dev_1.0.0_*.deb
+      displayName: "Download libswsscommon deb packages"
+    
+    - script: |
+        set -exuo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update
+        sudo apt-get install -y libboost-dev libboost-serialization-dev libhiredis-dev libzmq3-dev
+        pushd download
+        sudo dpkg -i $(find common -type f -name '*.deb')
+        sudo dpkg --ignore-depends=libboost-serialization1.74.0 -i $(find swsscommon -type f -name '*.deb')
+        popd
+        rm -rf download
+      workingDirectory: $(Build.ArtifactStagingDirectory)
+      displayName: 'Install libswsscommon'
+
+    - script: |
+        set -exuo pipefail
+        RUSTFLAGS="--deny warnings" cargo build           --workspace --all-features
+        RUSTFLAGS="--deny warnings" cargo build --release --workspace --all-features
+        cargo clippy           --workspace --all-features --no-deps -- --deny "clippy::all"
+        cargo clippy --release --workspace --all-features --no-deps -- --deny "clippy::all"
+        cargo test           --workspace --all-features
+        cargo test --release --workspace --all-features
+      displayName: 'Compile and test'
