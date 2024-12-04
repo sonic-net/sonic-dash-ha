@@ -10,6 +10,8 @@ pr:
       - README.md
 trigger: none
 
+name: $(TeamProject)_$(Build.DefinitionName)_$(SourceBranchName)_$(Date:yyyyMMdd)$(Rev:.r)
+
 stages:
 - stage: Build
 
@@ -23,3 +25,4 @@ stages:
     - script: |
         sudo apt-get update
       displayName: 'Install dependencies'
+
