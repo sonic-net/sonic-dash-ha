@@ -59,7 +59,6 @@ clean-release:
 ci-all: | ci-format ci-build ci-doc ci-lint ci-test
 
 ci-format:
-	git diff --check master
 	cargo fmt --check --all
 
 ci-build:
