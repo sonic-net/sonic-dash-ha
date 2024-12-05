@@ -53,10 +53,16 @@ build-release:
 test-release:
 	cargo test --release --all
 
-ci-test:
+ci-all: | ci-build ci-clippy ci-test
+	
+ci-build:
 	RUSTFLAGS="--deny warnings" cargo build           --workspace --all-features
 	RUSTFLAGS="--deny warnings" cargo build --release --workspace --all-features
+
+ci-clippy:
 	cargo clippy           --workspace --all-features --no-deps -- --deny "clippy::all"
 	cargo clippy --release --workspace --all-features --no-deps -- --deny "clippy::all"
+
+ci-test:
 	cargo test           --workspace --all-features
 	cargo test --release --workspace --all-features

@@ -83,6 +83,13 @@ stages:
       displayName: 'Install libswsscommon'
 
     - script: |
-        set -exuo pipefail
-        make ci-test
-      displayName: 'Compile and test'
+        make ci-build
+      displayName: 'Build'
+
+    - script: |
+        make ci-clippy
+      displayName: 'Lint (clippy)'
+
+    - script: |
+        make ci-build
+      displayName: 'Test'
