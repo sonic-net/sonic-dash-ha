@@ -35,7 +35,7 @@ pub fn init(program_name: &'static str) -> Result<()> {
 }
 
 #[allow(dead_code)]
-fn report_panic_as_dump(program_name: &'static str, panic_info: &std::panic::PanicInfo) {
+fn report_panic_as_dump(program_name: &'static str, panic_info: &std::panic::PanicHookInfo) {
     let meta = human_panic::Metadata::new(program_name, env!("CARGO_PKG_VERSION"))
         .authors(env!("CARGO_PKG_AUTHORS").replace(':', ", "))
         .homepage(env!("CARGO_PKG_HOMEPAGE"));

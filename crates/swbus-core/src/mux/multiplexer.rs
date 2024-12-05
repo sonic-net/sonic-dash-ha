@@ -2,6 +2,7 @@ use super::{SwbusConn, SwbusNextHop};
 use dashmap::DashMap;
 use swbus_proto::swbus::*;
 
+#[derive(Default)]
 pub struct SwbusMultiplexer {
     /// Route table. Each entry is a registered prefix to a next hop, which points to a connection.
     routes: DashMap<String, Option<SwbusNextHop>>,

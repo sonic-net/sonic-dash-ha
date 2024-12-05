@@ -64,7 +64,7 @@ impl ServicePath {
     }
 
     pub fn to_regional_prefix(&self) -> String {
-        return self.region_id.clone();
+        self.region_id.clone()
     }
 
     pub fn to_cluster_prefix(&self) -> String {
