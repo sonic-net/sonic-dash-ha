@@ -10,7 +10,7 @@ pub mod prelude {
     pub use crate::{resend_queue::ResendQueueConfig, runtime::ActorRuntime, Actor, Outbox};
     pub use swbus_edge::{
         simple_client::{IncomingMessage, MessageBody, MessageId, OutgoingMessage},
-        swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath},
+        swbus_proto::swbus::{DataRequest, RequestResponse, ServicePath, SwbusErrorCode},
         SwbusEdgeRuntime,
     };
 }
