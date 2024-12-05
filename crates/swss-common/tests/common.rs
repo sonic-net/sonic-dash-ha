@@ -45,7 +45,7 @@ impl Redis {
             if stdout.read_line(&mut buf).unwrap() == 0 {
                 panic!("Redis didn't start");
             }
-            if buf.contains("ready to accept connections") {
+            if buf.contains("eady to accept connections") {
                 break Self { proc: child, sock };
             }
         }

@@ -32,6 +32,10 @@ derivative.workspace = true
 dashmap.workspace = true
 getset.workspace = true
 atomic_enum.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
 
 # Internal dependencies
 swbus-proto.workspace = true

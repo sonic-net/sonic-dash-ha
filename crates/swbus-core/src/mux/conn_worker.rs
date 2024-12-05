@@ -1,5 +1,6 @@
 use super::SwbusConnInfo;
 use super::SwbusMultiplexer;
+use crate::mux::conn_store::SwbusConnStore;
 use std::io;
 use std::sync::Arc;
 use swbus_proto::result::*;
@@ -16,39 +17,45 @@ pub(crate) enum SwbusConnControlMessage {
 pub struct SwbusConnWorker {
     info: Arc<SwbusConnInfo>,
     control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
+    // incoming message stream
     message_stream: Streaming<SwbusMessage>,
     mux: Arc<SwbusMultiplexer>,
+    conn_store: Arc<SwbusConnStore>,
 }
 
 impl SwbusConnWorker {
-    pub fn new(
+    pub(crate) fn new(
         info: Arc<SwbusConnInfo>,
         control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
         message_stream: Streaming<SwbusMessage>,
         mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
     ) -> Self {
         Self {
             info,
             control_queue_rx,
             message_stream,
             mux,
+            conn_store,
         }
     }
 
     pub async fn run(&mut self) -> Result<()> {
         self.register_to_mux()?;
         let result = self.run_worker_loop().await;
+        //unregister from mux
         self.unregister_from_mux()?;
+        //todo: start reconnect task if needed
+        self.conn_store.conn_lost(self.info.clone());
         result
     }
 
     pub fn register_to_mux(&self) -> Result<()> {
-        // self.multiplexer.register(&self.info);
         Ok(())
     }
 
     pub fn unregister_from_mux(&self) -> Result<()> {
-        // self.multiplexer.unregister(&self.info);
+        self.mux.unregister(self.info.clone());
         Ok(())
     }
 
@@ -101,7 +108,15 @@ impl SwbusConnWorker {
 
     async fn process_data_message(&mut self, message: SwbusMessage) -> Result<()> {
         self.validate_message_common(&message)?;
-        // TODO: Handle message
+        match message.body {
+            Some(swbus_message::Body::TraceRouteRequest(_)) => {
+                println!("Received traceroute request: {:?}", message);
+                //self.process_ping_request(&message);
+            }
+            _ => {
+                self.mux.route_message(message).await?;
+            }
+        }
         Ok(())
     }
 
