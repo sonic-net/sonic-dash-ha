@@ -49,9 +49,6 @@ stages:
           target/debs/bullseye/libnl-nf-3-200_*.deb
           target/debs/bullseye/libnl-nf-3-dev_*.deb
           target/debs/bullseye/libyang_*.deb
-# target/debs/bullseye/libprotobuf*.deb
-# target/debs/bullseye/libprotoc*.deb
-# target/debs/bullseye/protobuf-compiler*.deb
       displayName: "Download common-libs deb packages"
 
     - task: DownloadPipelineArtifact@2
