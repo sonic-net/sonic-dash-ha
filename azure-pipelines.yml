@@ -99,5 +99,5 @@ stages:
       displayName: 'Lint'
 
     - script: |
-        make ci-build
+        make ci-test
       displayName: 'Test'
