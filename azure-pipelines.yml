@@ -83,12 +83,20 @@ stages:
       displayName: 'Install libswsscommon'
 
     - script: |
+        make ci-format
+      displayName: 'Check formatting'
+
+    - script: |
         make ci-build
       displayName: 'Build'
 
     - script: |
-        make ci-clippy
-      displayName: 'Lint (clippy)'
+        make ci-doc
+      displayName: 'Document'
+
+    - script: |
+        make ci-lint
+      displayName: 'Lint'
 
     - script: |
         make ci-build
