@@ -53,7 +53,7 @@ stages:
 # target/debs/bullseye/libprotoc*.deb
 # target/debs/bullseye/protobuf-compiler*.deb
       displayName: "Download common-libs deb packages"
-    
+
     - task: DownloadPipelineArtifact@2
       inputs:
         source: specific
@@ -68,7 +68,7 @@ stages:
           libswsscommon_1.0.0_*.deb
           libswsscommon-dev_1.0.0_*.deb
       displayName: "Download libswsscommon deb packages"
-    
+
     - script: |
         set -exuo pipefail
         export DEBIAN_FRONTEND=noninteractive

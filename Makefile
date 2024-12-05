@@ -53,10 +53,13 @@ build-release:
 test-release:
 	cargo test --release --all
 
+clean-release:
+	cargo clean --release
+
 ci-all: | ci-format ci-build ci-doc ci-lint ci-test
-	
+
 ci-format:
-	git diff --check
+	git diff --check master
 	cargo fmt --check --all
 
 ci-build:
