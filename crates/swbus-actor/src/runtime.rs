@@ -57,7 +57,9 @@ async fn actor_main(mut actor: impl Actor, mut inbox_rx: Receiver<InboxMessage>,
     while let Some(msg) = inbox_rx.recv().await {
         match msg {
             InboxMessage::Message(msg) => actor.handle_message(msg, outbox.clone()).await,
-            InboxMessage::MessageFailure(id) => actor.handle_message_failure(id, outbox.clone()).await,
+            InboxMessage::MessageFailure { id, destination } => {
+                actor.handle_message_failure(id, destination, outbox.clone()).await
+            }
         }
     }
 }
@@ -66,7 +68,7 @@ async fn actor_main(mut actor: impl Actor, mut inbox_rx: Receiver<InboxMessage>,
 /// These messages trigger callbacks from the Actor trait.
 enum InboxMessage {
     Message(IncomingMessage),
-    MessageFailure(MessageId),
+    MessageFailure { id: MessageId, destination: ServicePath },
 }
 
 /// A bridge between Swbus and an actor, providing middleware (currently just the resend queue).
@@ -140,7 +142,10 @@ impl MessageBridge {
         for resend in self.resend_queue.iter_resend() {
             match resend {
                 Resend(swbus_msg) => self.swbus_client.send_raw((**swbus_msg).clone()).await.unwrap(),
-                TooManyTries(id) => self.inbox_tx.send(InboxMessage::MessageFailure(id)).await.unwrap(),
+                TooManyTries { id, destination } => {
+                    let inbox_message = InboxMessage::MessageFailure { id, destination };
+                    self.inbox_tx.send(inbox_message).await.unwrap();
+                }
             }
         }
     }
