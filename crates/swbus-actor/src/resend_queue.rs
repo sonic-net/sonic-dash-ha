@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use swbus_edge::swbus_proto::swbus::SwbusMessage;
+use swbus_edge::swbus_proto::swbus::{ServicePath, SwbusMessage};
 use tokio::time::Instant;
 
 type MessageId = u64;
@@ -42,12 +42,15 @@ impl ResendQueue {
 
     /// Add a message to the ResendQueue. Assumes the message has already been sent once.
     pub(crate) fn enqueue(&mut self, message: SwbusMessage) {
-        let id = message.header.as_ref().unwrap().id;
+        let header = message.header.as_ref().unwrap();
+        let id = header.id;
+        let destination = header.destination.as_ref().unwrap().clone();
         let strong_message = Arc::new(Box::new(message));
         let weak_message = Arc::downgrade(&strong_message);
         self.unacked_messages.insert(id, strong_message);
         self.queue.push_back(QueuedMessage {
             message: weak_message,
+            destination,
             tries: 1,
             resend_at: Instant::now() + self.config.resend_time,
         });
@@ -80,8 +83,9 @@ impl ResendQueue {
                             // This message has been resent too may times.
                             // We are going to drop it, and tell the caller.
                             let id = msg.header.as_ref().unwrap().id;
+                            let destination = queued_msg.destination;
                             self.unacked_messages.remove(&id);
-                            return Some(ResendMessage::TooManyTries(id));
+                            return Some(ResendMessage::TooManyTries { id, destination });
                         }
                         Some(msg) => {
                             // This message should be retried right now.
@@ -121,7 +125,7 @@ pub(crate) enum ResendMessage {
     Resend(Arc<Box<SwbusMessage>>),
 
     /// The message that was in this slot went stale and was dropped
-    TooManyTries(MessageId),
+    TooManyTries { id: MessageId, destination: ServicePath },
 }
 
 /// A message awaiting an ack from the recipient.
@@ -131,6 +135,9 @@ struct QueuedMessage {
     /// If this Weak is broken, that means the message was acked and removed
     /// from ResendQueue::unacked_messages, so we should ignore this entry.
     message: Weak<Box<SwbusMessage>>,
+
+    /// A copy of the destination so it can be given to the actor if the message fails
+    destination: ServicePath,
 
     /// How many times the message has been sent so far
     tries: u32,
