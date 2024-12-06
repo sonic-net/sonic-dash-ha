@@ -33,11 +33,34 @@ macro_rules! impl_read_data_async {
     () => {
         /// Async version of [`read_data`](Self::read_data). Does not time out or interrupt on signal.
         pub async fn read_data_async(&mut self) -> ::std::io::Result<()> {
-            use ::tokio::io::{unix::AsyncFd, Interest};
+            fn fd_is_readable(fd: ::std::os::fd::BorrowedFd) -> ::std::io::Result<bool> {
+                use ::nix::sys::{select, time};
+                let mut fd_set = select::FdSet::new();
+                fd_set.insert(fd);
+                let n_ready = select::select(None, &mut fd_set, None, None, &mut time::TimeVal::new(0, 0))?;
+                Ok(n_ready > 0)
+            }
+            use ::tokio::io::{unix::AsyncFd, Interest, Ready};
 
-            let _ready_guard = AsyncFd::with_interest(self.get_fd(), Interest::READABLE)?
-                .readable()
-                .await?;
+            // According to AsyncFd docs, its methods can return two false positives:
+            // (1) an empty Ready set
+            // (2) a false readable Ready which still would end with EAGAIN or EWOULDBLOCK
+            let fd = self.get_fd();
+            let async_fd = AsyncFd::with_interest(fd, Interest::READABLE)?;
+            loop {
+                let mut guard = async_fd.readable().await?;
+
+                // Account for (1) by checking if guard is actually indicating readability.
+                if guard.ready().is_readable() {
+                    // Account for (2) by checking if the fd is actually readable.
+                    if fd_is_readable(fd)? {
+                        break;
+                    } else {
+                        guard.clear_ready_matching(Ready::READABLE);
+                    }
+                }
+            }
+
             self.read_data(Duration::from_secs(0), false);
             Ok(())
         }

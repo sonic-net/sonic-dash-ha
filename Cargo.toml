@@ -8,7 +8,8 @@ members = [
     "crates/swss-common",
     "crates/swbus-edge",
     "crates/swbus-proto", 
-    "crates/swbus-actor"
+    "crates/swbus-actor",
+    "crates/swss-common-bridge"
 ]
 exclude = []
 
@@ -30,6 +31,7 @@ unused_import_braces = 'warn'
 [workspace.dependencies]
 # Async framework
 tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
 
 # Log and error handling
