@@ -77,6 +77,7 @@ impl SelectResult {
 /// In swsscommon, this is represented as a string of `"SET"` or `"DEL"`.
 /// This type can be constructed similarly - `let op: KeyOperation = "SET".parse().unwrap()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum KeyOperation {
     Set,
     Del,
@@ -132,6 +133,7 @@ impl Error for InvalidKeyOperationString {}
 
 /// Rust version of `swss::KeyOpFieldsValuesTuple`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct KeyOpFieldValues {
     pub key: String,
     pub operation: KeyOperation,
