@@ -60,4 +60,5 @@ unsafe impl Send for ConsumerStateTable {}
 #[cfg(feature = "async")]
 impl ConsumerStateTable {
     async_util::impl_read_data_async!();
+    async_util::impl_basic_async_method!(new_async <= new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Result<Self>);
 }

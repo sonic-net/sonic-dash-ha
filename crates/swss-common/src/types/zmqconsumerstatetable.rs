@@ -88,4 +88,5 @@ unsafe impl Sync for DropGuard {}
 #[cfg(feature = "async")]
 impl ZmqConsumerStateTable {
     async_util::impl_read_data_async!();
+    async_util::impl_basic_async_method!(new_async <= new(db: DbConnector, table_name: &str, zmqs: &mut ZmqServer, pop_batch_size: Option<i32>, pri: Option<i32>) -> Result<Self>);
 }

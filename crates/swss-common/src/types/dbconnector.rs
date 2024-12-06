@@ -10,7 +10,8 @@ pub struct DbConnector {
 }
 
 /// Details about how a DbConnector is connected to Redis
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DbConnectionInfo {
     Tcp { hostname: String, port: u16, db_id: i32 },
     Unix { sock_path: String, db_id: i32 },

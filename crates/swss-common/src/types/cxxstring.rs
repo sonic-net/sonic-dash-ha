@@ -160,6 +160,43 @@ impl Borrow<CxxStr> for CxxString {
     }
 }
 
+#[cfg(feature = "serde")]
+impl serde::Serialize for CxxString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(self.as_bytes())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for CxxString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CxxStringVisitor;
+
+        impl serde::de::Visitor<'_> for CxxStringVisitor {
+            type Value = CxxString;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("bytes")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(CxxString::new(v))
+            }
+        }
+
+        deserializer.deserialize_bytes(CxxStringVisitor)
+    }
+}
+
 /// Equivalent of a C++ `const std::string&`, which can be borrowed from a [`CxxString`].
 ///
 /// `CxxStr` has the same conceptual relationship with `CxxString` as a Rust `&str` does with `String`.
@@ -274,3 +311,13 @@ impl PartialEq<String> for CxxStr {
 /// is protected by `CxxString::into_raw` requiring an owned `self`. By the same logic, `Send` is
 /// unnecessary to implement (you can never obtain a value to send).
 unsafe impl Sync for CxxStr {}
+
+#[cfg(feature = "serde")]
+impl serde::Serialize for CxxStr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(self.as_bytes())
+    }
+}
