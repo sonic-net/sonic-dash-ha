@@ -12,7 +12,8 @@ pub struct DbConnector {
 }
 
 /// Details about how a DbConnector is connected to Redis
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DbConnectionInfo {
     Tcp { hostname: String, port: u16 },
     Unix { sock_path: String },
@@ -141,6 +142,7 @@ unsafe impl Send for DbConnector {}
 
 #[cfg(feature = "async")]
 impl DbConnector {
+    async_util::impl_basic_async_method!(new_async <= new(db_id: i32, connection: DbConnectionInfo, timeout_ms: u32) -> DbConnector);
     async_util::impl_basic_async_method!(new_tcp_async <= new_tcp(db_id: i32, hostname: &str, port: u16, timeout_ms: u32) -> DbConnector);
     async_util::impl_basic_async_method!(new_unix_async <= new_unix(db_id: i32, sock_path: &str, timeout_ms: u32) -> DbConnector);
     async_util::impl_basic_async_method!(clone_timeout_async <= clone_timeout(&self, timeout_ms: u32) -> DbConnector);
