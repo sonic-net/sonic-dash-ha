@@ -1,33 +1,39 @@
 use super::*;
 use crate::*;
-use std::rc::Rc;
+use std::sync::Arc;
 
-obj_wrapper! {
-    struct ZmqServerObj { ptr: SWSSZmqServer } SWSSZmqServer_free
-}
-
-#[derive(Clone, Debug)]
+/// Rust wrapper around `swss::ZmqServer`.
+#[derive(Debug)]
 pub struct ZmqServer {
-    pub(crate) obj: Rc<ZmqServerObj>,
+    pub(crate) ptr: SWSSZmqServer,
 
-    // The types that register message handlers with a ZmqServer must be kept alive until
-    // the server thread dies, otherwise we risk the server thread calling methods on deleted objects.
-    // Currently this is just ZmqConsumerStateTable, but in the future there may be other types added
-    // and this vec will need to hold an enum of the possible message handlers.
-    handlers: Vec<ZmqConsumerStateTable>,
+    /// The types that register message handlers with a ZmqServer must be kept alive until
+    /// the server thread dies, otherwise we risk the server thread calling methods on deleted objects.
+    ///
+    /// Currently this is just ZmqConsumerStateTable, but in the future there may be other types added
+    /// and this vec will need to hold an enum of the possible message handlers.
+    message_handler_guards: Vec<Arc<zmqconsumerstatetable::DropGuard>>,
 }
 
 impl ZmqServer {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let obj = unsafe { Rc::new(SWSSZmqServer_new(endpoint.as_ptr()).into()) };
+        let obj = unsafe { SWSSZmqServer_new(endpoint.as_ptr()) };
         Self {
-            obj,
-            handlers: Vec::new(),
+            ptr: obj,
+            message_handler_guards: Vec::new(),
         }
     }
 
-    pub(crate) fn register_consumer_state_table(&mut self, tbl: ZmqConsumerStateTable) {
-        self.handlers.push(tbl);
+    pub(crate) fn register_consumer_state_table(&mut self, tbl_dg: Arc<zmqconsumerstatetable::DropGuard>) {
+        self.message_handler_guards.push(tbl_dg);
     }
 }
+
+impl Drop for ZmqServer {
+    fn drop(&mut self) {
+        unsafe { SWSSZmqServer_free(self.ptr) };
+    }
+}
+
+unsafe impl Send for ZmqServer {}

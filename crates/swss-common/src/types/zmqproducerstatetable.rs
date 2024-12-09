@@ -1,14 +1,10 @@
 use super::*;
 use crate::*;
-use std::rc::Rc;
 
-obj_wrapper! {
-    struct ZmqProducerStateTableObj { ptr: SWSSZmqProducerStateTable } SWSSZmqProducerStateTable_free
-}
-
-#[derive(Clone, Debug)]
+/// Rust wrapper around `swss::ZmqProducerStateTable`.
+#[derive(Debug)]
 pub struct ZmqProducerStateTable {
-    obj: Rc<ZmqProducerStateTableObj>,
+    ptr: SWSSZmqProducerStateTable,
     _db: DbConnector,
     _zmqc: ZmqClient,
 }
@@ -16,14 +12,10 @@ pub struct ZmqProducerStateTable {
 impl ZmqProducerStateTable {
     pub fn new(db: DbConnector, table_name: &str, zmqc: ZmqClient, db_persistence: bool) -> Self {
         let table_name = cstr(table_name);
-        let obj = unsafe {
-            Rc::new(
-                SWSSZmqProducerStateTable_new(db.obj.ptr, table_name.as_ptr(), zmqc.obj.ptr, db_persistence as u8)
-                    .into(),
-            )
-        };
+        let db_persistence = db_persistence as u8;
+        let ptr = unsafe { SWSSZmqProducerStateTable_new(db.ptr, table_name.as_ptr(), zmqc.ptr, db_persistence) };
         Self {
-            obj,
+            ptr,
             _db: db,
             _zmqc: zmqc,
         }
@@ -37,15 +29,35 @@ impl ZmqProducerStateTable {
     {
         let key = cstr(key);
         let (arr, _k) = make_field_value_array(fvs);
-        unsafe { SWSSZmqProducerStateTable_set(self.obj.ptr, key.as_ptr(), arr) };
+        unsafe { SWSSZmqProducerStateTable_set(self.ptr, key.as_ptr(), arr) };
     }
 
     pub fn del(&self, key: &str) {
         let key = cstr(key);
-        unsafe { SWSSZmqProducerStateTable_del(self.obj.ptr, key.as_ptr()) };
+        unsafe { SWSSZmqProducerStateTable_del(self.ptr, key.as_ptr()) };
     }
 
     pub fn db_updater_queue_size(&self) -> u64 {
-        unsafe { SWSSZmqProducerStateTable_dbUpdaterQueueSize(self.obj.ptr) }
+        unsafe { SWSSZmqProducerStateTable_dbUpdaterQueueSize(self.ptr) }
     }
+}
+
+impl Drop for ZmqProducerStateTable {
+    fn drop(&mut self) {
+        unsafe { SWSSZmqProducerStateTable_free(self.ptr) };
+    }
+}
+
+unsafe impl Send for ZmqProducerStateTable {}
+
+#[cfg(feature = "async")]
+impl ZmqProducerStateTable {
+    async_util::impl_basic_async_method!(
+        set_async <= set<I, F, V>(&self, key: &str, fvs: I)
+                     where
+                         I: IntoIterator<Item = (F, V)> + Send,
+                         F: AsRef<[u8]>,
+                         V: Into<CxxString>,
+    );
+    async_util::impl_basic_async_method!(del_async <= del(&self, key: &str));
 }

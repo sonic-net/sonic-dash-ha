@@ -1,6 +1,6 @@
-use crate::contracts::swbus::ConnectionType;
 use getset::{CopyGetters, Getters};
 use std::net::SocketAddr;
+use swbus_proto::swbus::ConnectionType;
 
 #[derive(Debug, Copy, Clone, strum::Display)]
 pub enum SwbusConnMode {

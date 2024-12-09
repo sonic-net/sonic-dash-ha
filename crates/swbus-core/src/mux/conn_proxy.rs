@@ -1,5 +1,5 @@
-use crate::contracts::swbus::*;
-use crate::result::*;
+use swbus_proto::result::*;
+use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]

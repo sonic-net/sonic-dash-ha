@@ -1,0 +1,28 @@
+[package]
+name = "swbus-proto"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# gRPC
+tonic.workspace = true
+prost.workspace = true
+
+# Utilities
+contracts.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true

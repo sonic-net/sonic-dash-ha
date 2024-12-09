@@ -12,7 +12,7 @@ use std::{
 
 /// A C++ `std::string` that can be moved around and accessed from Rust.
 #[repr(transparent)]
-#[derive(PartialOrd, Eq)]
+#[derive(Eq)]
 pub struct CxxString {
     ptr: NonNull<SWSSStringOpaque>,
 }
@@ -20,19 +20,15 @@ pub struct CxxString {
 impl CxxString {
     /// Take the object and replace the argument with null.
     /// This is to avoid copying the pointer and later double-freeing it.
-    /// This takes advantage of the fact that SWSSString_free specifically permits freeing a null SWSSStr.
-    pub(crate) fn take_raw(s: &mut SWSSString) -> Option<CxxString> {
+    /// This takes advantage of the fact that SWSSString_free specifically permits freeing a null SWSSString.
+    pub(crate) unsafe fn take_raw(s: &mut SWSSString) -> Option<CxxString> {
         let s = mem::replace(s, ptr::null_mut());
         NonNull::new(s).map(|ptr| CxxString { ptr })
     }
 
-    pub(crate) fn as_raw(&self) -> SWSSString {
-        self.ptr.as_ptr()
-    }
-
-    /// Shortcut for self.deref().as_raw()
-    pub(crate) fn as_raw_ref(&self) -> SWSSStrRef {
-        (**self).as_raw()
+    /// Convert `self` into a wrapper type which provides safe mutable access to the underlying `std::string`.
+    pub(crate) fn into_raw(self) -> RawMutableSWSSString {
+        RawMutableSWSSString(self)
     }
 
     /// Copies the given data into a new C++ string.
@@ -43,6 +39,31 @@ impl CxxString {
             let mut obj = SWSSString_new(ptr, len);
             CxxString::take_raw(&mut obj).unwrap()
         }
+    }
+
+    /// Borrows a `CxxStr` from this string.
+    ///
+    /// Like `String::as_str`, this method is unnecessary where deref coercion can be used.
+    pub fn as_cxx_str(&self) -> &CxxStr {
+        self
+    }
+}
+
+/// Wrapper type around `CxxString` which disables access to methods that borrow the underlying
+/// data, like `.deref()`. This prevents code from creating an `SWSSString` and `SWSSStrRef` at the
+/// same time, which would cause a data race in multi-threaded contexts.
+///
+/// A similar struct could be made which would allow access via just an `&mut CxxString`, but any
+/// function taking `SWSSString` will destroy the underlying data anyway, so we might as well just
+/// drop it when we're done.
+///
+/// This newtype needs to exist (as opposed to into_raw returning the raw pointer) so that the
+/// string is not dropped immediately.
+pub(crate) struct RawMutableSWSSString(CxxString);
+
+impl RawMutableSWSSString {
+    pub(crate) fn as_raw(&self) -> SWSSString {
+        self.0.ptr.as_ptr()
     }
 }
 
@@ -58,7 +79,7 @@ impl Drop for CxxString {
     }
 }
 
-/// This calls [CxxStr::to_string_lossy] which may clone the string. Use sparingly to avoid potential copies.
+/// This calls [CxxStr::to_string_lossy] which may clone the underlying data (i.e. may be expensive).
 impl Debug for CxxString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.deref().fmt(f)
@@ -71,7 +92,12 @@ impl Clone for CxxString {
     }
 }
 
+/// SAFETY: A C++ string has no thread related state.
 unsafe impl Send for CxxString {}
+
+/// SAFETY: A `CxxString` can only be mutated through `.into_raw()` which takes ownership of `self`.
+/// Thus, normal Rust borrow checking rules will prevent data races.
+unsafe impl Sync for CxxString {}
 
 impl Deref for CxxString {
     type Target = CxxStr;
@@ -80,6 +106,12 @@ impl Deref for CxxString {
         // SAFETY: CxxString and CxxStr are both repr(transparent) and identical in alignment &
         // size, and the C API guarantees that SWSSString can always be cast into SWSSStrRef
         unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl PartialOrd for CxxString {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -131,24 +163,32 @@ impl Borrow<CxxStr> for CxxString {
     }
 }
 
-/// Like Rust's String and str, this is equivalent to a C++ `std::string&` and can be derived from a [CxxString].
+/// Equivalent of a C++ `const std::string&`, which can be borrowed from a [`CxxString`].
+///
+/// `CxxStr` has the same conceptual relationship with `CxxString` as a Rust `&str` does with `String`.
 #[repr(transparent)]
-#[derive(PartialOrd, Eq)]
+#[derive(Eq)]
 pub struct CxxStr {
     ptr: NonNull<SWSSStrRefOpaque>,
 }
 
 impl CxxStr {
+    /// This is safe because the C api guarantees that `SWSSStrRef` is read-only. On `CxxString`, this would not be safe.
     pub(crate) fn as_raw(&self) -> SWSSStrRef {
         self.ptr.as_ptr()
     }
 
-    /// Length of the string, not including a null pointer
+    /// Length of the string, not including a null terminator.
     pub fn len(&self) -> usize {
         unsafe { SWSSStrRef_length(self.as_raw()).try_into().unwrap() }
     }
 
-    /// Underlying buffer, not including a null pointer
+    /// Returns `true` if `self` has a length of zero bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The underlying bytes of the string, not including a null terminator.
     pub fn as_bytes(&self) -> &[u8] {
         unsafe {
             let data = SWSSStrRef_c_str(self.as_raw());
@@ -156,15 +196,15 @@ impl CxxStr {
         }
     }
 
-    /// Try to convert the C++ string to a rust `&str` without copying. This can only be done if the
-    /// string contains valid UTF-8. See [std::str::from_utf8].
+    /// Tries to convert the C++ string to a Rust `&str` without copying. This can only be done if
+    /// the string contains valid UTF-8. See [std::str::from_utf8].
     pub fn to_str(&self) -> Result<&str, Utf8Error> {
         std::str::from_utf8(self.as_bytes())
     }
 
-    /// Convert the C++ string to a [Cow::Borrowed] if the string contains valid UTF-8, the same as
-    /// [Self::to_str]. Otherwise, make a [Cow::Owned] copy of the string and replace invalid UTF-8
-    /// with replacement bytes. See [String::from_utf8_lossy]. Mainly intended for debugging.
+    /// Converts the C++ string to a Rust `&str` or `String`. If the string is valid UTF-8, the
+    /// result is a `&str` pointing to the original data. Otherwise, the result is a `String` with
+    /// a copy of the data, but with invalid UTF-8 replaced. See [String::from_utf8_lossy].
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         String::from_utf8_lossy(self.as_bytes())
     }
@@ -181,6 +221,12 @@ impl ToOwned for CxxStr {
 impl Debug for CxxStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.to_string_lossy())
+    }
+}
+
+impl PartialOrd for CxxStr {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -225,3 +271,9 @@ impl PartialEq<String> for CxxStr {
         self.eq(other.as_str())
     }
 }
+
+/// SAFETY: `CxxStr` can never be obtained by value, only as a reference by dereferencing a
+/// `CxxString`. Thus, the same logic as implementing `Sync` for `CxxString` applies. Mutation
+/// is protected by `CxxString::into_raw` requiring an owned `self`. By the same logic, `Send` is
+/// unnecessary to implement (you can never obtain a value to send).
+unsafe impl Sync for CxxStr {}

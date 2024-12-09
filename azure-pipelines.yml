@@ -1,0 +1,28 @@
+pr:
+  branches:
+    include:
+      - master
+  paths:
+    exclude:
+      - .github
+      - docs
+      - LICENSE
+      - README.md
+trigger: none
+
+name: $(TeamProject)_$(Build.DefinitionName)_$(SourceBranchName)_$(Date:yyyyMMdd)$(Rev:.r)
+
+stages:
+- stage: Build
+
+  jobs:
+  - job:
+    displayName: "amd64/ubuntu-20.04"
+    pool:
+      vmImage: 'ubuntu-20.04'
+
+    steps:
+    - script: |
+        sudo apt-get update
+      displayName: 'Install dependencies'
+

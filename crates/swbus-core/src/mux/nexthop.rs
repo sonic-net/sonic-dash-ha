@@ -1,7 +1,8 @@
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
-use crate::contracts::swbus::*;
 use std::sync::Arc;
+use swbus_proto::result::*;
+use swbus_proto::swbus::*;
 
 #[derive(Debug)]
 pub(crate) struct SwbusNextHop {
@@ -19,7 +20,7 @@ impl SwbusNextHop {
         }
     }
 
-    pub async fn queue_message(&self, message: SwbusMessage) -> crate::Result<()> {
+    pub async fn queue_message(&self, message: SwbusMessage) -> Result<()> {
         self.conn_proxy.queue_message(message).await
     }
 }

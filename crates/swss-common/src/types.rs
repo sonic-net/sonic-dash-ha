@@ -1,3 +1,6 @@
+#[cfg(feature = "async")]
+mod async_util;
+
 mod consumerstatetable;
 mod cxxstring;
 mod dbconnector;
@@ -10,7 +13,7 @@ mod zmqserver;
 
 pub use consumerstatetable::ConsumerStateTable;
 pub use cxxstring::{CxxStr, CxxString};
-pub use dbconnector::DbConnector;
+pub use dbconnector::{DbConnectionInfo, DbConnector};
 pub use producerstatetable::ProducerStateTable;
 pub use subscriberstatetable::SubscriberStateTable;
 pub use zmqclient::ZmqClient;
@@ -19,6 +22,7 @@ pub use zmqproducerstatetable::ZmqProducerStateTable;
 pub use zmqserver::ZmqServer;
 
 use crate::*;
+use cxxstring::RawMutableSWSSString;
 use std::{
     any::Any,
     collections::HashMap,
@@ -29,30 +33,6 @@ use std::{
     str::FromStr,
 };
 
-macro_rules! obj_wrapper {
-    (struct $obj:ident { ptr: $ptr:ty } $freefn:expr) => {
-        #[derive(Debug)]
-        pub(crate) struct $obj {
-            pub(crate) ptr: $ptr,
-        }
-
-        impl Drop for $obj {
-            fn drop(&mut self) {
-                unsafe {
-                    $freefn(self.ptr);
-                }
-            }
-        }
-
-        impl From<$ptr> for $obj {
-            fn from(ptr: $ptr) -> Self {
-                Self { ptr }
-            }
-        }
-    };
-}
-pub(crate) use obj_wrapper;
-
 pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
     CString::new(s.as_ref()).unwrap()
 }
@@ -61,13 +41,20 @@ pub(crate) unsafe fn str(p: *const i8) -> String {
     CStr::from_ptr(p).to_str().unwrap().to_string()
 }
 
+/// Rust version of the return type from `swss::Select::select`.
+///
+/// This enum does not include the `swss::Select::ERROR` because errors are handled via a different
+/// mechanism in this library.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SelectResult {
     /// Data is now available.
+    /// (`swss::Select::OBJECT`)
     Data,
     /// Waiting was interrupted by a signal.
+    /// (`swss::Select::SIGNALINT`)
     Signal,
     /// Timed out.
+    /// (`swss::Select::TIMEOUT`)
     Timeout,
 }
 
@@ -86,6 +73,9 @@ impl SelectResult {
 }
 
 /// Type of the `operation` field in [KeyOpFieldValues].
+///
+/// In swsscommon, this is represented as a string of `"SET"` or `"DEL"`.
+/// This type can be constructed similarly - `let op: KeyOperation = "SET".parse().unwrap()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KeyOperation {
     Set,
@@ -114,15 +104,21 @@ impl KeyOperation {
 impl FromStr for KeyOperation {
     type Err = InvalidKeyOperationString;
 
+    /// Create a KeyOperation from `"SET"` or `"DEL"` (case insensitive).
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "SET" => Ok(Self::Set),
-            "DEL" => Ok(Self::Del),
+        let Ok(mut bytes): Result<[u8; 3], _> = s.as_bytes().try_into() else {
+            return Err(InvalidKeyOperationString(s.to_string()));
+        };
+        bytes.make_ascii_uppercase();
+        match &bytes {
+            b"SET" => Ok(Self::Set),
+            b"DEL" => Ok(Self::Del),
             _ => Err(InvalidKeyOperationString(s.to_string())),
         }
     }
 }
 
+/// Error type indicating that a `KeyOperation` string was neither `"SET"` nor `"DEL"`.
 #[derive(Debug)]
 pub struct InvalidKeyOperationString(String);
 
@@ -204,12 +200,13 @@ where
 
     for (field, value) in fvs {
         let field = cstr(field);
-        let value = value.into();
+        let value_cxxstring: CxxString = value.into();
+        let value_rawswssstring: RawMutableSWSSString = value_cxxstring.into_raw();
         data.push(SWSSFieldValueTuple {
             field: field.as_ptr(),
-            value: value.as_raw(),
+            value: value_rawswssstring.as_raw(),
         });
-        k.keep((field, value));
+        k.keep((field, value_rawswssstring));
     }
 
     let arr = SWSSFieldValueArray {
@@ -221,7 +218,7 @@ where
     (arr, k)
 }
 
-pub(crate) fn make_key_op_field_values_array<'a, I>(kfvs: I) -> (SWSSKeyOpFieldValuesArray, KeepAlive)
+pub(crate) fn make_key_op_field_values_array<I>(kfvs: I) -> (SWSSKeyOpFieldValuesArray, KeepAlive)
 where
     I: IntoIterator<Item = KeyOpFieldValues>,
 {

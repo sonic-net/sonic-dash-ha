@@ -6,6 +6,8 @@ members = [
     "crates/swbusd",
     "crates/hamgrd",
     "crates/swss-common",
+    "crates/swbus-edge",
+    "crates/swbus-proto",
     "crates/container"
 ]
 exclude = []
@@ -24,9 +26,6 @@ unused_extern_crates = 'warn'
 trivial_numeric_casts = 'warn'
 unstable_features = 'warn'
 unused_import_braces = 'warn'
-
-[workspace.lints.clippy]
-all = 'allow'
 
 [workspace.dependencies]
 # Async framework
@@ -71,6 +70,7 @@ atomic_enum = "0.3"
 
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
+swbus-proto = { version = "0.1.0", path = "crates/swbus-proto" }
 
 # Dev dependencies
 criterion = "0.5"

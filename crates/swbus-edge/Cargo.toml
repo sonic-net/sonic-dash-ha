@@ -1,7 +1,5 @@
 [package]
-name = "swbus-core"
-description = "SONiC Switch Bus"
-categories = ["network-programming"]
+name = "swbus-edge"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -10,7 +8,8 @@ documentation.workspace = true
 keywords.workspace = true
 edition.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+workspace = true
 
 [dependencies]
 # Async framework
@@ -23,24 +22,12 @@ prost.workspace = true
 
 # Log and error handling
 tracing.workspace = true
-color-eyre.workspace = true
 
-# Utility
+# Utilities
 contracts.workspace = true
 strum.workspace = true
-derivative.workspace = true
 dashmap.workspace = true
-getset.workspace = true
-atomic_enum.workspace = true
+thiserror.workspace = true
 
 # Internal dependencies
 swbus-proto.workspace = true
-
-[dev-dependencies]
-pretty_assertions.workspace = true
-
-[build-dependencies]
-tonic-build.workspace = true
-
-[lints]
-workspace = true
