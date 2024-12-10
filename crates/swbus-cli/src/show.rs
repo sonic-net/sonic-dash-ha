@@ -15,10 +15,14 @@ pub struct ShowCmd {
 #[derive(Parser, Debug)]
 enum ShowSub {
     Route(ShowRouteCmd),
+    Connections(ShowConnectionsCmd),
 }
 
 #[derive(Parser, Debug)]
 pub struct ShowRouteCmd {}
+
+#[derive(Parser, Debug)]
+pub struct ShowConnectionsCmd {}
 
 trait ShowCmdHandler {
     fn create_request(&self) -> ManagementRequest;
@@ -33,6 +37,7 @@ struct RouteDisplay {
     nh_scope: String,
     nh_service_path: String,
 }
+
 impl super::CmdHandler for ShowCmd {
     async fn handle(&self, ctx: &super::CommandContext) {
         //Create a channel to receive response
@@ -50,8 +55,9 @@ impl super::CmdHandler for ShowCmd {
             .await
             .unwrap();
 
-        let sub_cmd = match &self.subcommand {
+        let sub_cmd: &dyn ShowCmdHandler = match &self.subcommand {
             ShowSub::Route(show_route_args) => show_route_args,
+            ShowSub::Connections(show_connections_args) => show_connections_args,
         };
 
         let mgmt_request = sub_cmd.create_request();
@@ -91,7 +97,7 @@ impl super::CmdHandler for ShowCmd {
 
 impl ShowCmdHandler for ShowRouteCmd {
     fn create_request(&self) -> ManagementRequest {
-        ManagementRequest::new(&"show_route")
+        ManagementRequest::new("show_route")
     }
 
     fn process_response(&self, response: &RequestResponse) {
@@ -124,5 +130,15 @@ impl ShowCmdHandler for ShowRouteCmd {
             .collect();
         let table = Table::new(routes);
         println!("{}", table)
+    }
+}
+
+impl ShowCmdHandler for ShowConnectionsCmd {
+    fn create_request(&self) -> ManagementRequest {
+        ManagementRequest::new("show_connections")
+    }
+
+    fn process_response(&self, _response: &RequestResponse) {
+        println!("not implemented")
     }
 }

@@ -36,6 +36,7 @@ serde.workspace = true
 serde_yaml.workspace = true
 tempfile.workspace = true
 serde_json.workspace = true
+futures-core.workspace = true
 
 # Internal dependencies
 swbus-proto.workspace = true
@@ -45,6 +46,7 @@ pretty_assertions.workspace = true
 lazy_static.workspace = true
 # used in tests/
 swbus-edge.workspace = true
+
 
 [build-dependencies]
 tonic-build.workspace = true

@@ -156,8 +156,8 @@ message RequestResponse {
 enum RouteScope {
   SCOPE_CLIENT = 0;
   SCOPE_LOCAL = 1;
-  SCOPE_REGION = 2;
-  SCOPE_CLUSTER = 3;
+  SCOPE_CLUSTER = 2;
+  SCOPE_REGION = 3;
   SCOPE_GLOBAL = 4;
 }
 

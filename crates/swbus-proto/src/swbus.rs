@@ -6,9 +6,9 @@ tonic::include_proto!("swbus");
 use crate::swbus::request_response::ResponseBody;
 
 /// Service path attribute in gRPC request meta data
-pub const CLIENT_SERVICE_PATH: &str = "x-swbus-service-path";
+pub const SWBUS_CLIENT_SERVICE_PATH: &str = "x-swbus-service-path";
 /// Service path scope of the connection
-pub const SERVICE_PATH_SCOPE: &str = "x-swbus-scope";
+pub const SWBUS_SERVICE_PATH_SCOPE: &str = "x-swbus-scope";
 
 impl ServicePath {
     /// Create a new region level service path.
@@ -138,9 +138,22 @@ impl ServicePath {
         .collect::<Vec<&str>>()
         .join("/");
         match rsc_str.is_empty() {
-            true => format!("{}", loc_str),
+            true => loc_str.to_string(),
             false => format!("{}/{}", loc_str, rsc_str),
         }
+    }
+
+    pub fn route_scope(&self) -> RouteScope {
+        if self.cluster_id.is_empty() {
+            return RouteScope::ScopeGlobal;
+        }
+        if self.node_id.is_empty() {
+            return RouteScope::ScopeRegion;
+        }
+        if self.service_id.is_empty() {
+            return RouteScope::ScopeCluster;
+        }
+        RouteScope::ScopeClient
     }
 }
 
@@ -201,12 +214,10 @@ where
 
     match ServicePath::from_string(&s) {
         Ok(sp) => Ok(Some(sp)),
-        Err(_) => {
-            return Err(serde::de::Error::custom(format!(
-                "Failed to parse service path from string: {}",
-                s
-            )))
-        }
+        Err(_) => Err(serde::de::Error::custom(format!(
+            "Failed to parse service path from string: {}",
+            s
+        ))),
     }
 }
 
@@ -219,12 +230,10 @@ where
 
     match ServicePath::from_string(&s) {
         Ok(sp) => Ok(sp),
-        Err(_) => {
-            return Err(serde::de::Error::custom(format!(
-                "Failed to parse service path from string: {}",
-                s
-            )))
-        }
+        Err(_) => Err(serde::de::Error::custom(format!(
+            "Failed to parse service path from string: {}",
+            s
+        ))),
     }
 }
 
@@ -238,13 +247,13 @@ impl PartialOrd for RouteQueryResultEntry {
 }
 
 /// sort vec then serialize
-fn sorted_vec_serializer<S, T>(vec: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
+fn sorted_vec_serializer<S, T>(vec: &[T], serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
     T: PartialOrd + Serialize + Clone,
 {
     // Clone and sort the vector
-    let mut sorted_vec = vec.clone();
+    let mut sorted_vec = vec.to_vec();
     sorted_vec.sort_by(|a, b| a.partial_cmp(b).unwrap());
     // Serialize the sorted vector
     let mut seq = serializer.serialize_seq(Some(sorted_vec.len()))?;
@@ -252,6 +261,20 @@ where
         seq.serialize_element(&element)?;
     }
     seq.end()
+}
+
+/// By serializing then deserializing, we reset undeterminstic fields to default to compare.
+///   This includes the following fields:
+/// * SwbusMessageHeader.id
+/// * RouteQueryResultEntry.nh_id
+///   nh_id includes nexthop IP and port, which is not deterministic.
+///
+/// During serialization, vector is also sorted by sorted_vec_serializer to make sure the order is deterministic.
+/// This includes
+/// - RouteQueryResult.entries
+pub fn normalize_msg(msg: &SwbusMessage) -> SwbusMessage {
+    let json_string = serde_json::to_string(msg).unwrap();
+    serde_json::from_str(&json_string).unwrap()
 }
 
 impl SwbusMessageHeader {
@@ -326,7 +349,7 @@ impl SwbusMessage {
                 .unwrap()
                 .destination
                 .clone()
-                .expect("missing source service_path"),
+                .expect("missing dest service_path"),
         };
 
         SwbusMessage {
@@ -542,5 +565,33 @@ mod tests {
         let sp_str = service_path.to_longest_path();
         assert_eq!(sp_str, "/hamgrd/0");
         assert_eq!(ServicePath::from_string(sp_str.as_str()).unwrap(), service_path);
+    }
+
+    #[test]
+    fn test_swbus_message_new_response() {
+        let request = SwbusMessage::new(
+            create_mock_swbus_message_header(),
+            swbus_message::Body::PingRequest(PingRequest::new()),
+        );
+        let request_id = request.header.as_ref().unwrap().id;
+        let src = request.header.as_ref().unwrap().source.as_ref().unwrap().clone();
+        let dest = request.header.as_ref().unwrap().destination.as_ref().unwrap().clone();
+        let response =
+            SwbusMessage::new_response(&request, None, SwbusErrorCode::Ok, "", create_mock_message_id(), None);
+        assert_eq!(response.header.as_ref().unwrap().version, 1);
+        assert_eq!(response.header.as_ref().unwrap().flag, 0);
+        assert_eq!(response.header.as_ref().unwrap().ttl, 64);
+        assert_eq!(response.header.as_ref().unwrap().source.as_ref().unwrap().clone(), dest);
+        assert_eq!(
+            response.header.as_ref().unwrap().destination.as_ref().unwrap().clone(),
+            src
+        );
+        assert_eq!(response.body.is_some(), true);
+        let swbus_message::Body::Response(response) = response.body.as_ref().unwrap() else {
+            panic!("Invalid response body. Expected Response body type");
+        };
+        assert_eq!(response.request_id, request_id);
+
+        //assert_eq!(response.body.as_ref().unwrap().request_, true);
     }
 }

@@ -53,7 +53,7 @@
                         {
                           "service_path": "region-a.cluster-a.10.0.0.2-dpu0",
                           "nh_service_path": "region-a.cluster-a.10.0.0.2-dpu0",
-                          "nh_scope": 3,
+                          "nh_scope": 2,
                           "hop_count": 1
                         }
                       ]

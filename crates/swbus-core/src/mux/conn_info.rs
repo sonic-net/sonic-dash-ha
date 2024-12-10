@@ -70,3 +70,42 @@ impl SwbusConnInfo {
         self.local_service_path.as_ref()
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn test_new_client() {
+        let remote_addr = "127.0.0.1:8080".parse().unwrap();
+        let remote_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
+        let local_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap();
+        let conn_info = SwbusConnInfo::new_client(
+            RouteScope::ScopeCluster,
+            remote_addr,
+            remote_service_path.clone(),
+            local_service_path.clone(),
+        );
+
+        assert_eq!(conn_info.id(), "swbs-to://127.0.0.1:8080");
+        assert_eq!(conn_info.mode(), SwbusConnMode::Client);
+        assert_eq!(conn_info.remote_addr(), remote_addr);
+        assert_eq!(conn_info.connection_type(), RouteScope::ScopeCluster);
+        assert_eq!(conn_info.remote_service_path(), &remote_service_path);
+        assert_eq!(conn_info.local_service_path(), Some(&local_service_path));
+    }
+
+    #[test]
+    fn test_new_server() {
+        let remote_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let remote_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
+        let conn_info = SwbusConnInfo::new_server(RouteScope::ScopeRegion, remote_addr, remote_service_path.clone());
+
+        assert_eq!(conn_info.id(), "swbs-from://127.0.0.1:8080");
+        assert_eq!(conn_info.mode(), SwbusConnMode::Server);
+        assert_eq!(conn_info.remote_addr(), remote_addr);
+        assert_eq!(conn_info.connection_type(), RouteScope::ScopeRegion);
+        assert_eq!(conn_info.remote_service_path(), &remote_service_path);
+        assert_eq!(conn_info.local_service_path(), None);
+    }
+}

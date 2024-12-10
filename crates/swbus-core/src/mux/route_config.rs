@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use std::fs::File;
 use std::io::BufReader;
-use std::io::Write;
 use std::net::SocketAddr;
 use swbus_proto::swbus::*;
 
@@ -40,9 +39,9 @@ impl RoutesConfig {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
-
     use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_load_from_yaml() {

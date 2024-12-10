@@ -4,11 +4,9 @@ use clap::Parser;
 use std::sync::Arc;
 use swbus_edge::edge_runtime::SwbusEdgeRuntime;
 use swbus_proto::message_id_generator::MessageIdGenerator;
-use swbus_proto::result::SwbusError;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
 
 #[derive(Parser, Debug)]
@@ -99,7 +97,7 @@ async fn main() {
         args.service_path.clone(),
     )));
     let runtime_clone = runtime.clone();
-    let runtime_task: JoinHandle<()> = tokio::spawn(async move {
+    tokio::spawn(async move {
         runtime_clone.lock().await.start().await.unwrap();
     });
 
@@ -109,8 +107,74 @@ async fn main() {
         runtime: runtime.clone(),
         id_generator: MessageIdGenerator::new(),
     };
+
+    if ctx.debug {
+        println!("Swbus-edge client started.");
+    }
+
     match args.subcommand {
         CliSub::Ping(ping_args) => ping_args.handle(&ctx).await,
         CliSub::Show(show_args) => show_args.handle(&ctx).await,
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use swbus_proto::swbus::{swbus_message, SwbusMessage};
+
+    #[tokio::test]
+    async fn test_response_result_from_code() {
+        let msg = SwbusMessage {
+            body: Some(swbus_message::Body::Response(swbus_proto::swbus::RequestResponse::ok(
+                1,
+            ))),
+            ..Default::default()
+        };
+        let result = ResponseResult::from_code(SwbusErrorCode::Ok as i32, "Success".to_string(), Some(msg.clone()));
+        assert_eq!(result.error_code, SwbusErrorCode::Ok);
+        assert_eq!(result.msg, Some(msg));
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_response_success() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let msg = SwbusMessage {
+            body: Some(swbus_message::Body::Response(swbus_proto::swbus::RequestResponse::ok(
+                1,
+            ))),
+            ..Default::default()
+        };
+        tx.send(msg).await.unwrap();
+
+        let result = wait_for_response(&mut rx, 1, 5).await;
+        assert_eq!(result.error_code, SwbusErrorCode::Ok);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_response_timeout() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let msg = SwbusMessage {
+            body: Some(swbus_message::Body::Response(swbus_proto::swbus::RequestResponse::ok(
+                1,
+            ))),
+            ..Default::default()
+        };
+        tx.send(msg).await.unwrap();
+
+        // mismatched response id causing timeout
+        let result = wait_for_response(&mut rx, 1000, 1).await;
+        assert_eq!(result.error_code, SwbusErrorCode::Timeout);
+        assert_eq!(result.error_message, "request timeout");
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_response_channel_broken() {
+        let (tx, mut rx) = mpsc::channel(1);
+        drop(tx);
+
+        let result = wait_for_response(&mut rx, 1, 5).await;
+        assert_eq!(result.error_code, SwbusErrorCode::Fail);
+        assert_eq!(result.error_message, "channel broken");
+    }
 }

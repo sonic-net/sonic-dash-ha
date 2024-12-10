@@ -1,5 +1,5 @@
 [package]
-name = "swbuscli"
+name = "swbus-cli"
 description = "SONiC Switch Bus CLI"
 categories = ["command-line-utilities", "network-programming"]
 version.workspace = true

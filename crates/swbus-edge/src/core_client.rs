@@ -96,12 +96,12 @@ impl SwbusCoreClient {
         let meta = send_stream_request.metadata_mut();
 
         meta.insert(
-            CLIENT_SERVICE_PATH,
+            SWBUS_CLIENT_SERVICE_PATH,
             MetadataValue::from_str(&sp.to_service_prefix()).unwrap(),
         );
 
         meta.insert(
-            SERVICE_PATH_SCOPE,
+            SWBUS_SERVICE_PATH_SCOPE,
             MetadataValue::from_str(RouteScope::ScopeLocal.as_str_name()).unwrap(),
         );
 
@@ -116,11 +116,9 @@ impl SwbusCoreClient {
             }
         };
 
-        let send_queue_tx_clone = send_queue_tx.clone();
         let message_processor_tx_clone = receive_queue_tx.clone();
-        let recv_stream_task = tokio::spawn(async move {
-            Self::run_recv_stream_task(recv_stream, message_processor_tx_clone, send_queue_tx_clone).await
-        });
+        let recv_stream_task =
+            tokio::spawn(async move { Self::run_recv_stream_task(recv_stream, message_processor_tx_clone).await });
         Ok((recv_stream_task, send_queue_tx, client))
     }
 
@@ -154,7 +152,6 @@ impl SwbusCoreClient {
     async fn run_recv_stream_task(
         mut recv_stream: Streaming<SwbusMessage>,
         message_processor_tx: mpsc::Sender<SwbusMessage>,
-        send_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> Result<()> {
         loop {
             let message = match recv_stream.message().await {
@@ -175,18 +172,14 @@ impl SwbusCoreClient {
                 }
             };
 
-            Self::process_incoming_message(message, &message_processor_tx, &send_queue_tx).await;
+            Self::process_incoming_message(message, &message_processor_tx).await;
         }
 
         Ok(())
     }
 
-    async fn process_incoming_message(
-        message: SwbusMessage,
-        message_processor_tx: &mpsc::Sender<SwbusMessage>,
-        send_queue_tx: &mpsc::Sender<SwbusMessage>,
-    ) {
-        // TODO: Check local registrations
+    async fn process_incoming_message(message: SwbusMessage, message_processor_tx: &mpsc::Sender<SwbusMessage>) {
+        // send to message router, which will route to the appropriate handler or core client
         match message_processor_tx.try_send(message) {
             Ok(_) => {}
             Err(e) => {

@@ -2,7 +2,6 @@ use super::SwbusConn;
 use super::SwbusMultiplexer;
 use crate::mux::conn_store::SwbusConnStore;
 use crate::mux::RoutesConfig;
-use crate::mux::SwbusNextHop;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -43,15 +42,14 @@ impl SwbusServiceHost {
                 format!("Failed to parse server address: {}.", e),
             )
         })?;
-        match routes_config.routes.len() {
-            0 => {
-                return Err(SwbusError::input(
-                    SwbusErrorCode::InvalidArgs,
-                    "No routes found in the configuration.".to_string(),
-                ));
-            }
-            _ => {}
+
+        if routes_config.routes.is_empty() {
+            return Err(SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                "No routes found in the configuration.".to_string(),
+            ));
         }
+
         let server_instance = self.clone();
         let server_handle: JoinHandle<Result<()>> = tokio::spawn(async move {
             Server::builder()
@@ -69,12 +67,6 @@ impl SwbusServiceHost {
         // register local nexthops for local services
         self.mux.set_my_routes(routes_config.routes.clone());
         for route in routes_config.routes {
-            let sr = route.key.clone_for_local_mgmt();
-
-            //Create local service route
-            let route_key = sr.to_service_prefix();
-            let nexthop = SwbusNextHop::new_local(&self.mux);
-            self.mux.update_route(route_key, nexthop);
             self.conn_store.add_my_route(route);
         }
 
@@ -103,7 +95,7 @@ impl SwbusService for SwbusServiceHost {
         let client_addr = request.remote_addr().unwrap();
 
         println!("SwbusServiceServer::connection from {} accepted", client_addr);
-        let service_path = match request.metadata().get(CLIENT_SERVICE_PATH) {
+        let service_path = match request.metadata().get(SWBUS_CLIENT_SERVICE_PATH) {
             Some(path) => match ServicePath::from_string(path.to_str().unwrap()) {
                 Ok(service_path) => service_path,
                 Err(e) => {
@@ -117,7 +109,7 @@ impl SwbusService for SwbusServiceHost {
             }
         };
 
-        let scope = match request.metadata().get(SERVICE_PATH_SCOPE) {
+        let scope = match request.metadata().get(SWBUS_SERVICE_PATH_SCOPE) {
             Some(scope_name) => match RouteScope::from_str_name(scope_name.to_str().unwrap()) {
                 Some(scope) => scope,
                 None => {
@@ -137,7 +129,7 @@ impl SwbusService for SwbusServiceHost {
         // outgoing message queue
         let (tx, rx) = mpsc::channel(16);
 
-        let conn = SwbusConn::from_receive(
+        let conn = SwbusConn::from_incoming_stream(
             scope,
             client_addr,
             service_path,

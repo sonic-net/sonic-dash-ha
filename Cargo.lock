@@ -488,9 +488,9 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.30"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfc6580bb841c5a68e9ef15c77ccc837b40a7504914d52e47b8b0e9bbda25a1d"
+checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
 
 [[package]]
 name = "futures-sink"
@@ -668,9 +668,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.4.1"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50dfd22e0e76d0f662d429a5f80fcaf3855009297eab6a0a9f8543834744ba05"
+checksum = "97818827ef4f364230e16705d4706e2897df2bb60617d6ca15d598025a3c481f"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -1443,6 +1443,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "swbus-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde_yaml",
+ "swbus-core",
+ "swbus-edge",
+ "swbus-proto",
+ "tabled",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+]
+
+[[package]]
 name = "swbus-core"
 version = "0.1.0"
 dependencies = [
@@ -1451,6 +1466,7 @@ dependencies = [
  "contracts",
  "dashmap",
  "derivative",
+ "futures-core",
  "getset",
  "lazy_static",
  "pretty_assertions",
@@ -1498,21 +1514,6 @@ dependencies = [
  "thiserror",
  "tonic",
  "tonic-build",
-]
-
-[[package]]
-name = "swbuscli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "serde_yaml",
- "swbus-core",
- "swbus-edge",
- "swbus-proto",
- "tabled",
- "tokio",
- "tokio-stream",
- "tonic",
 ]
 
 [[package]]
@@ -1687,9 +1688,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.15"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "267ac89e0bec6e691e5813911606935d77c476ff49024f98abcea3e7b15e37af"
+checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
 dependencies = [
  "futures-core",
  "pin-project-lite",
@@ -1745,9 +1746,9 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.12.1"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38659f4a91aba8598d27821589f5db7dddd94601e7a01b1e485a50e5484c7401"
+checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
 dependencies = [
  "async-stream",
  "async-trait",

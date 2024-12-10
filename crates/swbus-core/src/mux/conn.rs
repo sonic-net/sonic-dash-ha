@@ -22,7 +22,7 @@ use tracing::error;
 #[derive(Debug)]
 pub struct SwbusConn {
     info: Arc<SwbusConnInfo>,
-    worker_task: tokio::task::JoinHandle<Result<()>>,
+    _worker_task: Option<tokio::task::JoinHandle<Result<()>>>,
     control_queue_tx: mpsc::Sender<SwbusConnControlMessage>,
     message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
 }
@@ -33,23 +33,40 @@ impl SwbusConn {
         &self.info
     }
 
-    pub fn new_proxy(&self) -> SwbusConnProxy {
-        SwbusConnProxy {
-            message_queue_tx: self.message_queue_tx.clone(),
-        }
+    pub(crate) fn new_proxy(&self) -> SwbusConnProxy {
+        SwbusConnProxy::new(self.message_queue_tx.clone())
     }
 
-    pub async fn start_shutdown(&self) -> Result<()> {
+    pub async fn shutdown(&self) -> Result<()> {
         self.control_queue_tx
             .send(SwbusConnControlMessage::Shutdown)
             .await
             .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        conn_info: &Arc<SwbusConnInfo>,
+    ) -> (
+        SwbusConn,
+        mpsc::Receiver<SwbusConnControlMessage>,
+        mpsc::Receiver<Result<SwbusMessage, Status>>,
+    ) {
+        let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
+        let (message_queue_tx, message_queue_rx) = mpsc::channel(1);
+        let conn = SwbusConn {
+            info: conn_info.clone(),
+            _worker_task: None,
+            control_queue_tx,
+            message_queue_tx,
+        };
+        (conn, control_queue_rx, message_queue_rx)
+    }
 }
 
 // Client factory and task entry
 impl SwbusConn {
-    pub async fn from_connect(
+    pub async fn connect(
         conn_info: Arc<SwbusConnInfo>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
@@ -100,7 +117,7 @@ impl SwbusConn {
 
         Ok(SwbusConn {
             info: conn_info,
-            worker_task,
+            _worker_task: Some(worker_task),
             control_queue_tx,
             message_queue_tx,
         })
@@ -133,11 +150,14 @@ impl SwbusConn {
             .expect("missing local service path")
             .to_string();
 
-        let mut meta = stream_message_request.metadata_mut();
+        let meta = stream_message_request.metadata_mut();
 
-        meta.insert(CLIENT_SERVICE_PATH, MetadataValue::from_str(sp_str.as_str()).unwrap());
         meta.insert(
-            SERVICE_PATH_SCOPE,
+            SWBUS_CLIENT_SERVICE_PATH,
+            MetadataValue::from_str(sp_str.as_str()).unwrap(),
+        );
+        meta.insert(
+            SWBUS_SERVICE_PATH_SCOPE,
             MetadataValue::from_str(conn_info.connection_type().as_str_name()).unwrap(),
         );
 
@@ -155,6 +175,7 @@ impl SwbusConn {
         let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux, conn_store);
         conn_worker.run().await
     }
+
     /// This function handles incoming connection from clients. It creates a SwbusConn object
     /// and starts the worker task for incoming messages.
     /// parameters:
@@ -163,7 +184,7 @@ impl SwbusConn {
     /// - incoming_stream: The incoming message stream.
     /// - message_queue_tx: The tx end of outgoing message queue
     /// - mux: The SwbusMultiplexer
-    pub async fn from_receive(
+    pub async fn from_incoming_stream(
         conn_type: RouteScope,
         client_addr: SocketAddr,
         remote_service_path: ServicePath,
@@ -193,7 +214,7 @@ impl SwbusConn {
 
         SwbusConn {
             info: conn_info,
-            worker_task,
+            _worker_task: Some(worker_task),
             control_queue_tx,
             message_queue_tx,
         }

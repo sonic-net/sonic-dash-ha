@@ -1,9 +1,8 @@
 use crate::wait_for_response;
 use clap::Parser;
 use std::time::Instant;
-use swbus_proto::{result, swbus::*};
+use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
-use tokio::time::{self, Duration};
 
 #[derive(Parser, Debug)]
 pub struct PingCmd {
@@ -42,7 +41,7 @@ impl super::CmdHandler for PingCmd {
         //Send ping messages
         println!("PING {}", self.dest.to_longest_path());
         for i in 0..self.count {
-            let mut header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
+            let header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
             let header_id = header.id;
             let ping_msg = SwbusMessage {
                 header: Some(header),

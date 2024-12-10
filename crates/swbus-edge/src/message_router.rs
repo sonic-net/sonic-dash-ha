@@ -59,24 +59,28 @@ impl SwbusMessageRouter {
         let header = match message.header {
             Some(ref header) => header,
             None => {
-                println!("Missing message header");
+                error!("Missing message header");
                 return;
             }
         };
         let destination = match header.destination {
             Some(ref destination) => destination,
             None => {
-                println!("Missing message destination");
+                error!("Missing message destination");
                 return;
             }
         };
         // If the route entry doesn't exist, send to swbus_client.
-        match routes.get(&destination) {
+        match routes.get(destination) {
             Some(handler) => {
-                handler.send(message).await;
+                if let Err(swbus_err) = handler.send(message).await {
+                    error!("Failed to send message to handler: {:?}", swbus_err);
+                }
             }
             None => {
-                swbus_client.send(message).await;
+                if let Err(swbus_err) = swbus_client.send(message).await {
+                    error!("Failed to send message to core client: {:?}", swbus_err);
+                }
             }
         };
     }

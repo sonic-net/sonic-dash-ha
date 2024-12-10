@@ -7,6 +7,8 @@ use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
+use tracing::error;
+
 #[derive(Debug)]
 enum ConnTracker {
     SwbusConn(SwbusConn),
@@ -39,7 +41,7 @@ impl SwbusConnStore {
         let conn_store = self.clone();
         let retry_task: JoinHandle<()> = tokio::spawn(async move {
             loop {
-                match SwbusConn::from_connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
+                match SwbusConn::connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
                     Ok(conn) => {
                         println!("Successfully connect to peer {}", conn_info.id());
                         // register the new connection and update the route table
@@ -86,6 +88,22 @@ impl SwbusConnStore {
         self.connections
             .insert(conn.info().clone(), ConnTracker::SwbusConn(conn));
     }
+
+    pub async fn shutdown(self: &Arc<SwbusConnStore>) {
+        while let Some(entry) = self.connections.iter().next() {
+            match entry.value() {
+                ConnTracker::SwbusConn(conn) => {
+                    if let Err(swbus_err) = conn.shutdown().await {
+                        error!("Failed to shutdown connection: {:?}", swbus_err);
+                    }
+                }
+                ConnTracker::Task(task) => {
+                    task.abort();
+                }
+            }
+            self.connections.remove(entry.key());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -93,7 +111,6 @@ mod tests {
     use super::*;
     use swbus_proto::swbus::RouteScope;
     use swbus_proto::swbus::ServicePath;
-    use tokio::time;
     #[tokio::test]
     async fn test_add_peer() {
         let mux = Arc::new(SwbusMultiplexer::new());
@@ -110,9 +127,71 @@ mod tests {
         conn_store.add_my_route(route_config);
 
         conn_store.add_peer(peer_config);
+
+        assert!(conn_store.connections.iter().any(|entry| {
+            entry.key().id() == "swbs-to://127.0.0.1:8080" && matches!(entry.value(), ConnTracker::Task(_))
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_add_my_route() {
+        let mux = Arc::new(SwbusMultiplexer::new());
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: RouteScope::ScopeCluster,
+        };
+
+        conn_store.add_my_route(route_config.clone());
+
+        assert!(conn_store.my_routes.contains(&route_config));
+    }
+
+    #[tokio::test]
+    async fn test_conn_lost() {
+        let mux = Arc::new(SwbusMultiplexer::new());
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: RouteScope::ScopeCluster,
+        };
+        conn_store.add_my_route(route_config);
+
+        let conn_info = Arc::new(SwbusConnInfo::new_client(
+            RouteScope::ScopeCluster,
+            "127.0.0.1:8080".parse().unwrap(),
+            ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
+            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
+        ));
+        conn_store.conn_lost(conn_info.clone());
+
+        assert!(conn_store.connections.iter().any(|entry| {
+            entry.key().id() == "swbs-to://127.0.0.1:8080" && matches!(entry.value(), ConnTracker::Task(_))
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_conn_established() {
+        let mux = Arc::new(SwbusMultiplexer::new());
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: RouteScope::ScopeCluster,
+        };
+        conn_store.add_my_route(route_config);
+
+        let conn_info = Arc::new(SwbusConnInfo::new_client(
+            RouteScope::ScopeCluster,
+            "127.0.0.1:8080".parse().unwrap(),
+            ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
+            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
+        ));
+        let (conn, _, _) = SwbusConn::new_for_test(&conn_info);
+        conn_store.conn_established(conn);
+
         assert!(conn_store
             .connections
             .iter()
-            .any(|entry| entry.key().id() == "swbs-to://127.0.0.1:8080"));
+            .any(|entry| entry.key().id() == conn_info.id() && matches!(entry.value(), ConnTracker::SwbusConn(_))));
     }
 }
