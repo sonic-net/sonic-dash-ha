@@ -13,6 +13,7 @@ pub(crate) async fn spawn_blocking_scoped<F: FnOnce() -> T + Send, T: Send + 'st
 macro_rules! impl_basic_async_method {
     // Method (with self)
     ($async_fn:ident <= $sync_fn:ident $(<$($generic_decls:tt),*>)? (& $(mut)? self $(, $arg:ident : $typ:ty)*) $(-> $ret_ty:ty)? $(where $($generic_bounds:tt)*)?) => {
+        #[doc = concat!("Async version of [`", stringify!($sync_fn), "`](Self::", stringify!($sync_fn), ") that uses `tokio::task::spawn_blocking`.")]
         pub async fn $async_fn $(<$($generic_decls),*>)? (&mut self $(, $arg: $typ)*) $(-> $ret_ty)? $(where $($generic_bounds)*)? {
             $crate::types::async_util::spawn_blocking_scoped(move || self.$sync_fn($($arg),*)).await
         }
@@ -20,6 +21,7 @@ macro_rules! impl_basic_async_method {
 
     // Associated fn (without self)
     ($async_fn:ident <= $sync_fn:ident $(<$($generic_decls:tt),*>)? ($($arg:ident : $typ:ty),*) $(-> $ret_ty:ty)? $(where $($generic_bounds:tt)*)?) => {
+        #[doc = concat!("Async version of [`", stringify!($sync_fn), "`](Self::", stringify!($sync_fn), ") that uses `tokio::task::spawn_blocking`.")]
         pub async fn $async_fn $(<$($generic_decls),*>)? ($($arg: $typ),*) $(-> $ret_ty)? $(where $($generic_bounds)*)? {
             $crate::types::async_util::spawn_blocking_scoped(move || Self::$sync_fn($($arg),*)).await
         }

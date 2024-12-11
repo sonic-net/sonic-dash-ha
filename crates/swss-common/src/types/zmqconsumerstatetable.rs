@@ -68,7 +68,11 @@ impl Drop for DropGuard {
     }
 }
 
+// SAFETY: This is safe as long as ZmqConsumerStateTable is Send
 unsafe impl Send for DropGuard {}
+
+// SAFETY: There is no way to use &DropGuard so it is safe
+unsafe impl Sync for DropGuard {}
 
 /// Async versions of methods
 #[cfg(feature = "async")]

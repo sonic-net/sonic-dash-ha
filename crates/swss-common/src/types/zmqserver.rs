@@ -18,7 +18,7 @@ pub struct ZmqServer {
 impl ZmqServer {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let obj = unsafe { SWSSZmqServer_new(endpoint.as_ptr()).into() };
+        let obj = unsafe { SWSSZmqServer_new(endpoint.as_ptr()) };
         Self {
             ptr: obj,
             message_handler_guards: Vec::new(),
