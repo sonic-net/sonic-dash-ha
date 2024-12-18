@@ -109,13 +109,13 @@ impl SwbusService for SwbusServiceHost {
             }
         };
 
-        let scope = match request.metadata().get(SWBUS_SERVICE_PATH_SCOPE) {
-            Some(scope_name) => match RouteScope::from_str_name(scope_name.to_str().unwrap()) {
-                Some(scope) => scope,
+        let conn_type = match request.metadata().get(SWBUS_CONNECTION_TYPE) {
+            Some(conn_type_meta) => match ConnectionType::from_str_name(conn_type_meta.to_str().unwrap()) {
+                Some(conn_type) => conn_type,
                 None => {
                     return Err(Status::invalid_argument(format!(
-                        "Invalid service path scope: {}",
-                        scope_name.to_str().unwrap()
+                        "Invalid connection_type: {}",
+                        conn_type_meta.to_str().unwrap()
                     )));
                 }
             },
@@ -130,7 +130,7 @@ impl SwbusService for SwbusServiceHost {
         let (tx, rx) = mpsc::channel(16);
 
         let conn = SwbusConn::from_incoming_stream(
-            scope,
+            conn_type,
             client_addr,
             service_path,
             in_stream,

@@ -161,7 +161,7 @@ mod tests {
     #[tokio::test]
     async fn test_new_remote() {
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            RouteScope::ScopeCluster,
+            ConnectionType::Cluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
@@ -211,7 +211,7 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::default());
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::ScopeCluster,
+            scope: RouteScope::Cluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);
@@ -245,7 +245,7 @@ mod tests {
     #[tokio::test]
     async fn test_queue_message_remote_ttl_expired() {
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            RouteScope::ScopeCluster,
+            ConnectionType::Cluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
@@ -256,7 +256,7 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::default());
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::ScopeCluster,
+            scope: RouteScope::Cluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);

@@ -8,7 +8,7 @@ use crate::swbus::request_response::ResponseBody;
 /// Service path attribute in gRPC request meta data
 pub const SWBUS_CLIENT_SERVICE_PATH: &str = "x-swbus-service-path";
 /// Service path scope of the connection
-pub const SWBUS_SERVICE_PATH_SCOPE: &str = "x-swbus-scope";
+pub const SWBUS_CONNECTION_TYPE: &str = "x-swbus-connection-type";
 
 impl ServicePath {
     /// Create a new region level service path.
@@ -145,15 +145,15 @@ impl ServicePath {
 
     pub fn route_scope(&self) -> RouteScope {
         if self.cluster_id.is_empty() {
-            return RouteScope::ScopeGlobal;
+            return RouteScope::Global;
         }
         if self.node_id.is_empty() {
-            return RouteScope::ScopeRegion;
+            return RouteScope::Region;
         }
         if self.service_id.is_empty() {
-            return RouteScope::ScopeCluster;
+            return RouteScope::Cluster;
         }
-        RouteScope::ScopeClient
+        RouteScope::Client
     }
 }
 

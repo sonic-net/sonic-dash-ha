@@ -3,6 +3,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let builder = tonic_build::configure()
         .enum_attribute("swbus.SwbusErrorCode", "#[derive(strum::Display)]")
         .enum_attribute("swbus.RouteScope", "#[derive(strum::Display)]")
+        .enum_attribute("swbus.ConnectionType", "#[derive(strum::Display)]")
         .message_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .enum_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .message_attribute("swbus.ServicePath", "#[derive(Eq, Hash, Ord, PartialOrd)]")

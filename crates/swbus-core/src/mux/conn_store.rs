@@ -65,7 +65,7 @@ impl SwbusConnStore {
         //todo: assuming only one route for now. Will be improved to send routes in route update message and remove this
         let my_route = self.my_routes.iter().next().expect("My service path is not set");
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            peer.scope,
+            peer.conn_type,
             peer.endpoint,
             peer.id.clone(),
             my_route.key.clone(),
@@ -109,6 +109,7 @@ impl SwbusConnStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use swbus_proto::swbus::ConnectionType;
     use swbus_proto::swbus::RouteScope;
     use swbus_proto::swbus::ServicePath;
     #[tokio::test]
@@ -116,13 +117,13 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new());
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let peer_config = PeerConfig {
-            scope: RouteScope::ScopeLocal,
+            conn_type: ConnectionType::Local,
             endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
             id: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
         };
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::ScopeCluster,
+            scope: RouteScope::Cluster,
         };
         conn_store.add_my_route(route_config);
 
@@ -139,7 +140,7 @@ mod tests {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::ScopeCluster,
+            scope: RouteScope::Cluster,
         };
 
         conn_store.add_my_route(route_config.clone());
@@ -153,12 +154,12 @@ mod tests {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::ScopeCluster,
+            scope: RouteScope::Cluster,
         };
         conn_store.add_my_route(route_config);
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            RouteScope::ScopeCluster,
+            ConnectionType::Cluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
@@ -176,12 +177,12 @@ mod tests {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::ScopeCluster,
+            scope: RouteScope::Cluster,
         };
         conn_store.add_my_route(route_config);
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            RouteScope::ScopeCluster,
+            ConnectionType::Cluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),

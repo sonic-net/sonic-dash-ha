@@ -22,7 +22,7 @@ pub struct PeerConfig {
     #[serde(deserialize_with = "deserialize_service_path")]
     pub id: ServicePath,
     pub endpoint: SocketAddr,
-    pub scope: RouteScope,
+    pub conn_type: ConnectionType,
 }
 
 impl RoutesConfig {
@@ -48,14 +48,14 @@ mod tests {
         let yaml_content = r#"
         routes:
           - key: "region-a.cluster-a.10.0.0.1-dpu0"
-            scope: "ScopeCluster"
+            scope: "Cluster"
         peers:
           - id: "region-a.cluster-a.10.0.0.2-dpu0"
             endpoint: "10.0.0.2:8000"
-            scope: "ScopeCluster"
+            conn_type: "Cluster"
           - id: "region-a.cluster-a.10.0.0.3-dpu0"
             endpoint: "10.0.0.3:8000"
-            scope: "ScopeCluster"
+            conn_type: "Cluster"
         "#;
 
         let dir = tempdir().unwrap();
@@ -79,7 +79,7 @@ mod tests {
             config.routes[0].key,
             ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap()
         );
-        assert_eq!(config.routes[0].scope, RouteScope::ScopeCluster);
+        assert_eq!(config.routes[0].scope, RouteScope::Cluster);
 
         assert_eq!(
             config.peers[0].id,
@@ -89,7 +89,7 @@ mod tests {
             config.peers[0].endpoint,
             "10.0.0.2:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[0].scope, RouteScope::ScopeCluster);
+        assert_eq!(config.peers[0].conn_type, ConnectionType::Cluster);
         assert_eq!(
             config.peers[1].id,
             ServicePath::from_string("region-a.cluster-a.10.0.0.3-dpu0").unwrap()
@@ -98,6 +98,6 @@ mod tests {
             config.peers[1].endpoint,
             "10.0.0.3:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[1].scope, RouteScope::ScopeCluster);
+        assert_eq!(config.peers[1].conn_type, ConnectionType::Cluster);
     }
 }

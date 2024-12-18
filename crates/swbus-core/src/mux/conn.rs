@@ -157,7 +157,7 @@ impl SwbusConn {
             MetadataValue::from_str(sp_str.as_str()).unwrap(),
         );
         meta.insert(
-            SWBUS_SERVICE_PATH_SCOPE,
+            SWBUS_CONNECTION_TYPE,
             MetadataValue::from_str(conn_info.connection_type().as_str_name()).unwrap(),
         );
 
@@ -185,7 +185,7 @@ impl SwbusConn {
     /// - message_queue_tx: The tx end of outgoing message queue
     /// - mux: The SwbusMultiplexer
     pub async fn from_incoming_stream(
-        conn_type: RouteScope,
+        conn_type: ConnectionType,
         client_addr: SocketAddr,
         remote_service_path: ServicePath,
         incoming_stream: Streaming<SwbusMessage>,

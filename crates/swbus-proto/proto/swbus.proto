@@ -151,14 +151,25 @@ message RequestResponse {
 }
 
 //
+// Connection Type
+//
+enum ConnectionType {
+  CONNECTION_TYPE_CLIENT = 0;
+  CONNECTION_TYPE_LOCAL = 1;
+  CONNECTION_TYPE_CLUSTER = 2;
+  CONNECTION_TYPE_REGION = 3;
+  CONNECTION_TYPE_GLOBAL = 4;
+}
+
+//
 // Registration related messages.
 //
 enum RouteScope {
-  SCOPE_CLIENT = 0;
-  SCOPE_LOCAL = 1;
-  SCOPE_CLUSTER = 2;
-  SCOPE_REGION = 3;
-  SCOPE_GLOBAL = 4;
+  ROUTE_SCOPE_CLIENT = 0;
+  ROUTE_SCOPE_LOCAL = 1;
+  ROUTE_SCOPE_CLUSTER = 2;
+  ROUTE_SCOPE_REGION = 3;
+  ROUTE_SCOPE_GLOBAL = 4;
 }
 
 message RegistrationQueryRequest {

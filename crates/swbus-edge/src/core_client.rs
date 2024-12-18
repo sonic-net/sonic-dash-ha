@@ -101,8 +101,8 @@ impl SwbusCoreClient {
         );
 
         meta.insert(
-            SWBUS_SERVICE_PATH_SCOPE,
-            MetadataValue::from_str(RouteScope::ScopeLocal.as_str_name()).unwrap(),
+            SWBUS_CONNECTION_TYPE,
+            MetadataValue::from_str(ConnectionType::Local.as_str_name()).unwrap(),
         );
 
         let recv_stream = match client.stream_messages(send_stream_request).await {
