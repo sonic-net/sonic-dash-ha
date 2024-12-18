@@ -26,6 +26,7 @@ impl MessageIdGenerator {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 }
+
 impl Default for MessageIdGenerator {
     fn default() -> Self {
         Self::new()

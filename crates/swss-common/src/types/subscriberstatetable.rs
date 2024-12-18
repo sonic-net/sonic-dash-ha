@@ -14,7 +14,7 @@ impl SubscriberStateTable {
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
-        let ptr = unsafe { SWSSSubscriberStateTable_new(db.ptr, table_name.as_ptr(), pop_batch_size, pri).into() };
+        let ptr = unsafe { SWSSSubscriberStateTable_new(db.ptr, table_name.as_ptr(), pop_batch_size, pri) };
         Self { ptr, _db: db }
     }
 

@@ -10,7 +10,7 @@ pub struct ZmqClient {
 impl ZmqClient {
     pub fn new(endpoint: &str) -> Self {
         let endpoint = cstr(endpoint);
-        let ptr = unsafe { SWSSZmqClient_new(endpoint.as_ptr()).into() };
+        let ptr = unsafe { SWSSZmqClient_new(endpoint.as_ptr()) };
         Self { ptr }
     }
 
