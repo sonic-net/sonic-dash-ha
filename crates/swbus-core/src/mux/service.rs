@@ -13,9 +13,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
-use tracing::error;
-use tracing::info;
-
+use tracing::*;
 pub struct SwbusServiceHost {
     swbus_server_addr: String,
     mux: Arc<SwbusMultiplexer>,
@@ -80,6 +78,7 @@ impl SwbusServiceHost {
 impl SwbusService for SwbusServiceHost {
     type StreamMessagesStream = SwbusMessageStream;
 
+    #[instrument(name="connection_received", level="info", skip_all, fields(addr=%request.remote_addr().unwrap()))]
     async fn stream_messages(
         &self,
         request: Request<Streaming<SwbusMessage>>,
@@ -118,6 +117,11 @@ impl SwbusService for SwbusServiceHost {
         };
 
         let in_stream = request.into_inner();
+        info!(
+            conn_type = conn_type as i32,
+            service_path = service_path.to_longest_path(),
+            "Creating SwbusConn"
+        );
         // outgoing message queue
         let (out_tx, out_rx) = mpsc::channel(16);
 

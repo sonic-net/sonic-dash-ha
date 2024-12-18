@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::time::{self, Duration, Instant};
 use tracing::info;
+use tracing_subscriber::{fmt, prelude::*, Layer};
 
 #[derive(Parser, Debug)]
 #[command(name = "swbuscli")]
@@ -90,9 +91,41 @@ pub(crate) async fn wait_for_response(
     ResponseResult::from_code(SwbusErrorCode::Timeout as i32, "request timeout".to_string(), None)
 }
 
+fn init_logger(debug: bool) {
+    let stdout_level = if debug {
+        tracing::level_filters::LevelFilter::DEBUG
+    } else {
+        tracing::level_filters::LevelFilter::INFO
+    };
+
+    // Create a stdout logger for `info!` and lower severity levels
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_filter(stdout_level);
+
+    // Create a stderr logger for `error!` and higher severity levels
+    let stderr_layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_filter(tracing::level_filters::LevelFilter::ERROR);
+
+    // Combine the layers and set them as the global subscriber
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(stderr_layer)
+        .init();
+}
+
 #[tokio::main]
 async fn main() {
     let args = Command::parse();
+
+    init_logger(args.debug);
 
     let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
         format!("http://{}", args.address),

@@ -7,7 +7,7 @@ use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
-use tracing::{error, info};
+use tracing::*;
 
 #[derive(Debug)]
 enum ConnTracker {
@@ -30,30 +30,35 @@ impl SwbusConnStore {
         }
     }
 
+    #[instrument(skip(self, conn_info), fields(conn_id=conn_info.id()))]
     fn start_connect_task(self: &Arc<SwbusConnStore>, conn_info: Arc<SwbusConnInfo>, reconnect: bool) {
         let conn_info_clone = conn_info.clone();
-
+        info!("Starting connection task to the peer");
         let retry_interval = match reconnect {
             true => Duration::from_millis(1),
             false => Duration::from_secs(1),
         };
         let mux_clone = self.mux.clone();
         let conn_store = self.clone();
-        let retry_task: JoinHandle<()> = tokio::spawn(async move {
-            loop {
-                match SwbusConn::connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
-                    Ok(conn) => {
-                        info!("Successfully connect to peer {}", conn_info.id());
-                        // register the new connection and update the route table
-                        conn_store.conn_established(conn);
-                        break;
-                    }
-                    Err(_) => {
-                        tokio::time::sleep(retry_interval).await;
-                    }
+        let current_span = Span::current();
+        let retry_task: JoinHandle<()> = tokio::spawn(
+            async move {
+                loop {
+                    match SwbusConn::connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
+                        Ok(conn) => {
+                            info!("Successfully connect to the peer");
+                            // register the new connection and update the route table
+                            conn_store.conn_established(conn);
+                            return;
+                        }
+                        Err(_) => {
+                            tokio::time::sleep(retry_interval).await;
+                        }
+                    };
                 }
             }
-        });
+            .instrument(current_span.clone()),
+        );
         self.connections.insert(conn_info_clone, ConnTracker::Task(retry_task));
     }
 

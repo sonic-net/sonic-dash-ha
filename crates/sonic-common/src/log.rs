@@ -8,7 +8,7 @@ use tracing_subscriber::{
 use std::path::PathBuf;
 
 #[cfg(debug_assertions)]
-const DEFAULT_LOG_LEVEL: &str = "trace";
+const DEFAULT_LOG_LEVEL: &str = "debug";
 
 #[cfg(not(debug_assertions))]
 const DEFAULT_LOG_LEVEL: &str = "info";
@@ -20,7 +20,7 @@ pub fn init(program_name: &'static str) -> Result<()> {
         "RUST_LOG",
         std::env::var("RUST_LOG")
             .or_else(|_| std::env::var(log_level_env_var))
-            .unwrap_or_else(|_| format!("{}={}", program_name, DEFAULT_LOG_LEVEL)),
+            .unwrap_or_else(|_| DEFAULT_LOG_LEVEL.to_string()),
     );
 
     let file_subscriber = new_file_subscriber(program_name).wrap_err("Unable to create file subscriber.")?;
