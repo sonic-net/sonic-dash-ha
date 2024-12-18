@@ -41,7 +41,7 @@ impl SwbusMultiplexer {
         self.id_generator.generate()
     }
 
-    pub(crate) fn register(self: &Arc<SwbusMultiplexer>, conn_info: &Arc<SwbusConnInfo>, proxy: SwbusConnProxy) {
+    pub(crate) fn register(&self, conn_info: &Arc<SwbusConnInfo>, proxy: SwbusConnProxy) {
         // Update the route table.
         let path = conn_info.remote_service_path();
         let route_key = match conn_info.connection_type() {
@@ -88,7 +88,7 @@ impl SwbusMultiplexer {
         //     *route_entry.value_mut() = nexthop;
         // }
     }
-    pub fn set_my_routes(self: &Arc<Self>, routes: Vec<RouteConfig>) {
+    pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
         for route in routes {
             let sr = route.key.clone_for_local_mgmt();
 

@@ -57,7 +57,7 @@ impl SwbusConnStore {
         self.connections.insert(conn_info_clone, ConnTracker::Task(retry_task));
     }
 
-    pub fn add_my_route(self: &Arc<SwbusConnStore>, my_route: RouteConfig) {
+    pub fn add_my_route(&self, my_route: RouteConfig) {
         self.my_routes.insert(my_route);
     }
 
@@ -83,13 +83,13 @@ impl SwbusConnStore {
         }
     }
 
-    pub fn conn_established(self: &Arc<SwbusConnStore>, conn: SwbusConn) {
+    pub fn conn_established(&self, conn: SwbusConn) {
         self.mux.register(conn.info(), conn.new_proxy());
         self.connections
             .insert(conn.info().clone(), ConnTracker::SwbusConn(conn));
     }
 
-    pub async fn shutdown(self: &Arc<SwbusConnStore>) {
+    pub async fn shutdown(&self) {
         while let Some(entry) = self.connections.iter().next() {
             match entry.value() {
                 ConnTracker::SwbusConn(conn) => {
