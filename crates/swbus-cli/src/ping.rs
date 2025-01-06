@@ -1,3 +1,4 @@
+use super::CmdHandler;
 use crate::wait_for_response;
 use clap::Parser;
 use std::time::Instant;
@@ -23,7 +24,7 @@ pub struct PingCmd {
     dest: ServicePath,
 }
 
-impl super::CmdHandler for PingCmd {
+impl CmdHandler for PingCmd {
     async fn handle(&self, ctx: &super::CommandContext) {
         // Create a channel to receive response
         let (recv_queue_tx, mut recv_queue_rx) = mpsc::channel::<SwbusMessage>(1);

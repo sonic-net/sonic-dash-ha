@@ -27,6 +27,7 @@ pub struct SwbusConnInfo {
     // this will be removed when we implement route update
     local_service_path: Option<ServicePath>,
 
+    #[getset(get = "pub")]
     remote_service_path: ServicePath,
 }
 
@@ -62,14 +63,11 @@ impl SwbusConnInfo {
         }
     }
 
-    pub fn remote_service_path(&self) -> &ServicePath {
-        &self.remote_service_path
-    }
-
     pub fn local_service_path(&self) -> Option<&ServicePath> {
         self.local_service_path.as_ref()
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
