@@ -1,24 +1,34 @@
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
 use super::SwbusMultiplexer;
+use getset::CopyGetters;
+use getset::Getters;
 use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use swbus_proto::swbus::{swbus_message, SwbusMessage};
 use tracing::info;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum NextHopType {
     Local,
     Remote,
     Drop,
 }
-#[derive(Clone)]
+
+#[derive(Clone, Getters, CopyGetters)]
 pub(crate) struct SwbusNextHop {
-    pub nh_type: NextHopType,
-    pub conn_info: Option<Arc<SwbusConnInfo>>,
+    #[getset(get_copy = "pub")]
+    nh_type: NextHopType,
+
+    #[getset(get = "pub")]
+    conn_info: Option<Arc<SwbusConnInfo>>,
+
+    #[getset(get = "pub")]
     conn_proxy: Option<SwbusConnProxy>,
-    pub hop_count: u32,
+
+    #[getset(get_copy = "pub")]
+    hop_count: u32,
 }
 
 impl SwbusNextHop {
@@ -151,6 +161,7 @@ impl SwbusNextHop {
         Ok(None)
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

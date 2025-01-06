@@ -73,7 +73,7 @@ impl SwbusMultiplexer {
         match self.routes.entry(route_key) {
             Entry::Occupied(mut existing) => {
                 let route_entry = existing.get();
-                if route_entry.hop_count > nexthop.hop_count {
+                if route_entry.hop_count() > nexthop.hop_count() {
                     existing.insert(nexthop);
                 }
             }
@@ -89,6 +89,7 @@ impl SwbusMultiplexer {
         // }
     }
 
+    // Riff: The my route part is very confusing. Looks to be made for local service, but not really sure how it works.
     pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
         for route in routes {
             let sr = route.key.clone_for_local_mgmt();
@@ -185,7 +186,7 @@ impl SwbusMultiplexer {
             .routes
             .iter()
             .filter(|entry| {
-                if !matches!(entry.value().nh_type, NextHopType::Remote) {
+                if !matches!(entry.value().nh_type(), NextHopType::Remote) {
                     return false;
                 }
                 let route_scope = ServicePath::from_string(entry.key()).unwrap().route_scope();
@@ -199,10 +200,18 @@ impl SwbusMultiplexer {
                     ServicePath::from_string(entry.key())
                         .expect("Not expecting service_path in route table to be invalid"),
                 ),
-                hop_count: entry.value().hop_count,
-                nh_id: entry.value().conn_info.as_ref().unwrap().id().to_string(),
-                nh_service_path: Some(entry.value().conn_info.as_ref().unwrap().remote_service_path().clone()),
-                nh_scope: entry.value().conn_info.as_ref().unwrap().connection_type() as i32,
+                hop_count: entry.value().hop_count(),
+                nh_id: entry.value().conn_info().as_ref().unwrap().id().to_string(),
+                nh_service_path: Some(
+                    entry
+                        .value()
+                        .conn_info()
+                        .as_ref()
+                        .unwrap()
+                        .remote_service_path()
+                        .clone(),
+                ),
+                nh_scope: entry.value().conn_info().as_ref().unwrap().connection_type() as i32,
             })
             .collect();
 
@@ -234,10 +243,10 @@ mod tests {
             .routes
             .get(&route_config.key.clone_for_local_mgmt().to_service_prefix())
             .unwrap();
-        assert_eq!(nh.nh_type, NextHopType::Local);
+        assert_eq!(nh.nh_type(), NextHopType::Local);
 
         let nh = mux.routes.get(&route_config.key.to_node_prefix()).unwrap();
-        assert_eq!(nh.nh_type, NextHopType::Drop);
+        assert_eq!(nh.nh_type(), NextHopType::Drop);
     }
 
     fn add_route(
