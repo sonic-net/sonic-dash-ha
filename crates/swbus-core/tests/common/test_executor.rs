@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
 use std::io::BufReader;
-use std::sync::Arc;
 use swbus_core::mux::route_config::RoutesConfig;
 use swbus_core::mux::route_config::*;
 use swbus_core::mux::service::SwbusServiceHost;
@@ -126,7 +125,7 @@ impl TopoRuntime {
     }
 
     async fn start_server(&mut self, name: &str, node_addr: &str, route_config: RoutesConfig) {
-        let service_host = Arc::new(SwbusServiceHost::new(node_addr.to_string()));
+        let service_host = SwbusServiceHost::new(node_addr.to_string());
 
         let server_task = tokio::spawn(async move {
             service_host.start(route_config).await.unwrap();

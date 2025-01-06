@@ -22,7 +22,10 @@ use tracing::error;
 #[derive(Debug)]
 pub struct SwbusConn {
     info: Arc<SwbusConnInfo>,
-    _worker_task: Option<tokio::task::JoinHandle<Result<()>>>,
+
+    #[allow(dead_code)]
+    worker_task: Option<tokio::task::JoinHandle<Result<()>>>,
+
     control_queue_tx: mpsc::Sender<SwbusConnControlMessage>,
     message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
 }
@@ -56,7 +59,7 @@ impl SwbusConn {
         let (message_queue_tx, message_queue_rx) = mpsc::channel(1);
         let conn = SwbusConn {
             info: conn_info.clone(),
-            _worker_task: None,
+            worker_task: None,
             control_queue_tx,
             message_queue_tx,
         };
@@ -117,7 +120,7 @@ impl SwbusConn {
 
         Ok(SwbusConn {
             info: conn_info,
-            _worker_task: Some(worker_task),
+            worker_task: Some(worker_task),
             control_queue_tx,
             message_queue_tx,
         })
@@ -214,7 +217,7 @@ impl SwbusConn {
 
         SwbusConn {
             info: conn_info,
-            _worker_task: Some(worker_task),
+            worker_task: Some(worker_task),
             control_queue_tx,
             message_queue_tx,
         }

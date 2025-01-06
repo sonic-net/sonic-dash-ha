@@ -9,7 +9,6 @@ use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_server::{SwbusService, SwbusServiceServer};
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
@@ -35,7 +34,7 @@ impl SwbusServiceHost {
         }
     }
 
-    pub async fn start(self: &Arc<SwbusServiceHost>, routes_config: RoutesConfig) -> Result<()> {
+    pub async fn start(self: SwbusServiceHost, routes_config: RoutesConfig) -> Result<()> {
         let addr = self.swbus_server_addr.parse().map_err(|e| {
             SwbusError::input(
                 SwbusErrorCode::InvalidArgs,
@@ -50,20 +49,6 @@ impl SwbusServiceHost {
             ));
         }
 
-        let server_instance = self.clone();
-        let server_handle: JoinHandle<Result<()>> = tokio::spawn(async move {
-            Server::builder()
-                .add_service(SwbusServiceServer::from_arc(server_instance))
-                .serve(addr)
-                .await
-                .map_err(|e| {
-                    SwbusError::connection(
-                        SwbusErrorCode::ConnectionError,
-                        io::Error::new(io::ErrorKind::Other, format!("Failed to listen at {}: {}", addr, e)),
-                    )
-                })
-        });
-
         // register local nexthops for local services
         self.mux.set_my_routes(routes_config.routes.clone());
         for route in routes_config.routes {
@@ -75,12 +60,16 @@ impl SwbusServiceHost {
             self.conn_store.add_peer(peer);
         }
 
-        // Wait for server to finish
-        match server_handle.await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(SwbusError::internal(SwbusErrorCode::Fail, e.to_string())),
-        }
+        Server::builder()
+            .add_service(SwbusServiceServer::new(self))
+            .serve(addr)
+            .await
+            .map_err(|e| {
+                SwbusError::connection(
+                    SwbusErrorCode::ConnectionError,
+                    io::Error::new(io::ErrorKind::Other, format!("Failed to listen at {}: {}", addr, e)),
+                )
+            })
     }
 }
 
