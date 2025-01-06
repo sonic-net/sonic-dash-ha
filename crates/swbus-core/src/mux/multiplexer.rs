@@ -88,6 +88,7 @@ impl SwbusMultiplexer {
         //     *route_entry.value_mut() = nexthop;
         // }
     }
+
     pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
         for route in routes {
             let sr = route.key.clone_for_local_mgmt();
@@ -252,7 +253,7 @@ mod tests {
             ServicePath::from_string(nh_sp).unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (conn, _, message_queue_rx) = SwbusConn::new_for_test(&conn_info);
+        let (conn, message_queue_rx) = SwbusConn::new_for_test(&conn_info);
 
         let nexthop_nh1 = SwbusNextHop::new_remote(conn_info.clone(), conn.new_proxy(), hop_count);
         mux.update_route(route_key.to_string(), nexthop_nh1);

@@ -187,7 +187,7 @@ mod tests {
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (conn, _, _) = SwbusConn::new_for_test(&conn_info);
+        let (conn, _) = SwbusConn::new_for_test(&conn_info);
         conn_store.conn_established(conn);
 
         assert!(conn_store

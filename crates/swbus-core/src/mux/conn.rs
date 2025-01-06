@@ -1,5 +1,4 @@
 use super::conn_store::SwbusConnStore;
-use super::SwbusConnControlMessage;
 use super::SwbusConnInfo;
 use super::SwbusConnProxy;
 use super::SwbusConnWorker;
@@ -14,6 +13,7 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
+use tokio_util::sync::CancellationToken;
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status, Streaming};
@@ -21,17 +21,31 @@ use tracing::error;
 
 #[derive(Debug)]
 pub struct SwbusConn {
+    // Connection information
     info: Arc<SwbusConnInfo>,
 
-    #[allow(dead_code)]
+    // Worker task
     worker_task: Option<tokio::task::JoinHandle<Result<()>>>,
+    shutdown_ct: CancellationToken,
 
-    control_queue_tx: mpsc::Sender<SwbusConnControlMessage>,
+    // Data message queue
     message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
 }
 
 // Connection operations
 impl SwbusConn {
+    pub(crate) fn new(
+        conn_info: &Arc<SwbusConnInfo>,
+        message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
+    ) -> SwbusConn {
+        SwbusConn {
+            info: conn_info.clone(),
+            worker_task: None,
+            shutdown_ct: CancellationToken::new(),
+            message_queue_tx,
+        }
+    }
+
     pub fn info(&self) -> &Arc<SwbusConnInfo> {
         &self.info
     }
@@ -41,33 +55,21 @@ impl SwbusConn {
     }
 
     pub async fn shutdown(&self) -> Result<()> {
-        self.control_queue_tx
-            .send(SwbusConnControlMessage::Shutdown)
-            .await
-            .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, e.to_string()))
+        self.shutdown_ct.cancel();
+        Ok(())
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test(
         conn_info: &Arc<SwbusConnInfo>,
-    ) -> (
-        SwbusConn,
-        mpsc::Receiver<SwbusConnControlMessage>,
-        mpsc::Receiver<Result<SwbusMessage, Status>>,
-    ) {
-        let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
+    ) -> (SwbusConn, mpsc::Receiver<Result<SwbusMessage, Status>>) {
         let (message_queue_tx, message_queue_rx) = mpsc::channel(1);
-        let conn = SwbusConn {
-            info: conn_info.clone(),
-            worker_task: None,
-            control_queue_tx,
-            message_queue_tx,
-        };
-        (conn, control_queue_rx, message_queue_rx)
+        let conn = SwbusConn::new(conn_info, message_queue_tx);
+        (conn, message_queue_rx)
     }
 }
 
-// Client factory and task entry
+// Client-side connection factory and task entry
 impl SwbusConn {
     pub async fn connect(
         conn_info: Arc<SwbusConnInfo>,
@@ -102,28 +104,26 @@ impl SwbusConn {
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
-        let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
         let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
 
-        let conn_info_for_worker = conn_info.clone();
+        let mut conn = SwbusConn::new(&conn_info, message_queue_tx);
+
+        let conn_info_for_worker = conn.info().clone();
+        let shutdown_ct_for_worker = conn.shutdown_ct.clone();
         let worker_task = tokio::spawn(async move {
             Self::run_client_worker_task(
                 conn_info_for_worker,
                 client,
-                control_queue_rx,
+                shutdown_ct_for_worker,
                 message_queue_rx,
                 mux,
                 conn_store,
             )
             .await
         });
+        conn.worker_task = Some(worker_task);
 
-        Ok(SwbusConn {
-            info: conn_info,
-            worker_task: Some(worker_task),
-            control_queue_tx,
-            message_queue_tx,
-        })
+        Ok(conn)
     }
 
     /// This function is the entry point for the client worker task.
@@ -138,7 +138,7 @@ impl SwbusConn {
     async fn run_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         mut client: SwbusServiceClient<Channel>,
-        control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
+        shutdown_ct: CancellationToken,
         message_queue_rx: mpsc::Receiver<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
@@ -175,10 +175,13 @@ impl SwbusConn {
             }
         };
 
-        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux, conn_store);
+        let mut conn_worker = SwbusConnWorker::new(conn_info, shutdown_ct, incoming_stream, mux, conn_store);
         conn_worker.run().await
     }
+}
 
+// Server-side connection factory and task entry
+impl SwbusConn {
     /// This function handles incoming connection from clients. It creates a SwbusConn object
     /// and starts the worker task for incoming messages.
     /// parameters:
@@ -208,29 +211,33 @@ impl SwbusConn {
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> SwbusConn {
-        let (control_queue_tx, control_queue_rx) = mpsc::channel(1);
+        let mut conn = SwbusConn::new(&conn_info, message_queue_tx);
 
         let conn_info_for_worker = conn_info.clone();
+        let shutdown_ct_for_worker = conn.shutdown_ct.clone();
         let worker_task = tokio::spawn(async move {
-            Self::run_server_worker_task(conn_info_for_worker, incoming_stream, control_queue_rx, mux, conn_store).await
+            Self::run_server_worker_task(
+                conn_info_for_worker,
+                incoming_stream,
+                shutdown_ct_for_worker,
+                mux,
+                conn_store,
+            )
+            .await
         });
+        conn.worker_task = Some(worker_task);
 
-        SwbusConn {
-            info: conn_info,
-            worker_task: Some(worker_task),
-            control_queue_tx,
-            message_queue_tx,
-        }
+        conn
     }
 
     async fn run_server_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         incoming_stream: Streaming<SwbusMessage>,
-        control_queue_rx: mpsc::Receiver<SwbusConnControlMessage>,
+        shutdown_ct: CancellationToken,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<()> {
-        let mut conn_worker = SwbusConnWorker::new(conn_info, control_queue_rx, incoming_stream, mux, conn_store);
+        let mut conn_worker = SwbusConnWorker::new(conn_info, shutdown_ct, incoming_stream, mux, conn_store);
         conn_worker.run().await
     }
 }

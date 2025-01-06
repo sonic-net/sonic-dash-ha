@@ -15,6 +15,7 @@ edition.workspace = true
 [dependencies]
 # Async framework
 tokio.workspace = true
+tokio-util.workspace = true
 tokio-stream.workspace = true
 
 # gRPC
