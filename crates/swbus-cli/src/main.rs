@@ -24,11 +24,11 @@ struct Command {
     debug: bool,
 
     #[command(subcommand)]
-    subcommand: CliSub,
+    subcommand: CliSubCmd,
 }
 
 #[derive(Parser, Debug)]
-enum CliSub {
+enum CliSubCmd {
     Ping(ping::PingCmd),
     Show(show::ShowCmd),
 }
@@ -59,6 +59,7 @@ impl ResponseResult {
         }
     }
 }
+
 pub(crate) async fn wait_for_response(
     recv_queue_rx: &mut mpsc::Receiver<SwbusMessage>,
     request_id: u64,
@@ -113,8 +114,8 @@ async fn main() {
     }
 
     match args.subcommand {
-        CliSub::Ping(ping_args) => ping_args.handle(&ctx).await,
-        CliSub::Show(show_args) => show_args.handle(&ctx).await,
+        CliSubCmd::Ping(ping_args) => ping_args.handle(&ctx).await,
+        CliSubCmd::Show(show_args) => show_args.handle(&ctx).await,
     };
 }
 

@@ -24,5 +24,6 @@ tabled.workspace = true
 swbus-edge.workspace = true
 swbus-core.workspace = true
 swbus-proto.workspace = true
+
 [lints]
 workspace = true
