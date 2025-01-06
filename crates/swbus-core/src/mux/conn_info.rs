@@ -74,7 +74,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
-    fn test_new_client() {
+    fn new_client_conn_info_should_succeed() {
         let remote_addr = "127.0.0.1:8080".parse().unwrap();
         let remote_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
         let local_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap();
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new_server() {
+    fn new_server_conn_info_should_succeed() {
         let remote_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let remote_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
         let conn_info = SwbusConnInfo::new_server(ConnectionType::Region, remote_addr, remote_service_path.clone());

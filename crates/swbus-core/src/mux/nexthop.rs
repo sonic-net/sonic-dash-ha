@@ -73,7 +73,7 @@ impl SwbusNextHop {
                 self.conn_proxy
                     .as_ref()
                     .expect("conn_proxy shouldn't be None in remote nexthop")
-                    .queue_message(Ok(message))
+                    .try_queue(Ok(message))
                     .await
                     .unwrap();
                 Ok(None)
