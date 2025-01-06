@@ -214,7 +214,7 @@ fn container_start(feature: &String) {
     }
 }
 
-fn container_stop(feature: &String) {
+fn container_stop(feature: &String, timeout: Option<i64>) {
     let db_connections = initialize_connection();
 
     let feature_config = read_config(&db_connections, &feature);
@@ -224,11 +224,16 @@ fn container_stop(feature: &String) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     if !docker_id.is_empty() {
+        let stop_options : Option<StopContainerOptions>;
+        match timeout {
+            Some(timeout) => stop_options = Some(StopContainerOptions { t: timeout }),
+            None => stop_options = None,
+        }
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(docker.stop_container(&feature, None)).expect("Unable to communicate with Docker");
+        rt.block_on(docker.stop_container(&feature, stop_options)).expect("Unable to communicate with Docker");
     }
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
@@ -348,7 +353,7 @@ struct Cli {
 
     /// Timeout for the action to occur
     #[arg(short, long)]
-    timeout: Option<u32>,
+    timeout: Option<i64>,
 }
 
 fn main() {
@@ -357,7 +362,7 @@ fn main() {
     match cli.action {
         Action::Start => container_start(&cli.name),
         Action::Wait => container_wait(&cli.name),
-        Action::Stop => container_stop(&cli.name),
+        Action::Stop => container_stop(&cli.name, cli.timeout),
         Action::Kill => container_kill(&cli.name),
         Action::Id => container_id(&cli.name),
     };
