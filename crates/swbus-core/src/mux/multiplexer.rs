@@ -253,17 +253,17 @@ mod tests {
             ServicePath::from_string(nh_sp).unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
-        let conn = SwbusConn::new(&conn_info, message_queue_tx);
+        let (send_queue_tx, send_queue_rx) = mpsc::channel(16);
+        let conn = SwbusConn::new(&conn_info, send_queue_tx);
 
         let nexthop_nh1 = SwbusNextHop::new_remote(conn_info.clone(), conn.new_proxy(), hop_count);
         mux.update_route(route_key.to_string(), nexthop_nh1);
-        message_queue_rx
+        send_queue_rx
     }
 
     async fn route_message_and_compare(
         mux: &SwbusMultiplexer,
-        message_queue_rx: &mut mpsc::Receiver<Result<SwbusMessage, Status>>,
+        send_queue_rx: &mut mpsc::Receiver<Result<SwbusMessage, Status>>,
         request: &str,
         expected: &str,
     ) {
@@ -272,7 +272,7 @@ mod tests {
 
         let result = mux.route_message(request_msg).await;
         assert!(result.is_ok());
-        match time::timeout(Duration::from_secs(1), message_queue_rx.recv()).await {
+        match time::timeout(Duration::from_secs(1), send_queue_rx.recv()).await {
             Ok(Some(msg)) => {
                 let normalized_msg = swbus_proto::swbus::normalize_msg(&msg.ok().unwrap());
 
@@ -302,7 +302,7 @@ mod tests {
             "region-a.cluster-a.10.0.0.1-dpu0",
             ConnectionType::Cluster,
         );
-        let mut message_queue_rx3 = add_route(
+        let mut send_queue_rx3 = add_route(
             &mux,
             "region-a.cluster-a.10.0.0.3-dpu0",
             1,
@@ -340,7 +340,7 @@ mod tests {
                 }
             }
             "#;
-        route_message_and_compare(&mux, &mut message_queue_rx3, request, expected).await;
+        route_message_and_compare(&mux, &mut send_queue_rx3, request, expected).await;
     }
 
     #[tokio::test]
@@ -354,7 +354,7 @@ mod tests {
 
         mux.set_my_routes(vec![route_config.clone()]);
 
-        let mut message_queue_rx1 = add_route(
+        let mut send_queue_rx1 = add_route(
             &mux,
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
@@ -404,7 +404,7 @@ mod tests {
                 }
             }
             "#;
-        route_message_and_compare(&mux, &mut message_queue_rx1, request, expected).await;
+        route_message_and_compare(&mux, &mut send_queue_rx1, request, expected).await;
     }
 
     #[tokio::test]
@@ -418,7 +418,7 @@ mod tests {
 
         mux.set_my_routes(vec![route_config.clone()]);
 
-        let mut message_queue_rx1 = add_route(
+        let mut send_queue_rx1 = add_route(
             &mux,
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
@@ -461,7 +461,7 @@ mod tests {
                 }
             }
             "#;
-        route_message_and_compare(&mux, &mut message_queue_rx1, request, expected).await;
+        route_message_and_compare(&mux, &mut send_queue_rx1, request, expected).await;
     }
 
     #[tokio::test]
@@ -509,14 +509,14 @@ mod tests {
 
         mux.set_my_routes(vec![route_config.clone()]);
 
-        let mut _message_queue_rx1 = add_route(
+        let mut _send_queue_rx1 = add_route(
             &mux,
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
             "region-a.cluster-a.10.0.0.1-dpu0",
             ConnectionType::Cluster,
         );
-        let mut _message_queue_rx3 = add_route(
+        let mut _send_queue_rx3 = add_route(
             &mux,
             "region-a.cluster-b",
             1,

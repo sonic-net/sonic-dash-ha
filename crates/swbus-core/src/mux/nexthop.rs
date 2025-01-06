@@ -168,8 +168,8 @@ mod tests {
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (message_queue_tx, _) = mpsc::channel(16);
-        let conn = SwbusConn::new(&conn_info, message_queue_tx);
+        let (send_queue_tx, _) = mpsc::channel(16);
+        let conn = SwbusConn::new(&conn_info, send_queue_tx);
         let hop_count = 5;
         let nexthop = SwbusNextHop::new_remote(conn_info.clone(), conn.new_proxy(), hop_count);
 
@@ -253,8 +253,8 @@ mod tests {
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (message_queue_tx, _) = mpsc::channel(16);
-        let conn = SwbusConn::new(&conn_info, message_queue_tx);
+        let (send_queue_tx, _) = mpsc::channel(16);
+        let conn = SwbusConn::new(&conn_info, send_queue_tx);
         let hop_count = 5;
         let nexthop = SwbusNextHop::new_remote(conn_info.clone(), conn.new_proxy(), hop_count);
         let mux = Arc::new(SwbusMultiplexer::default());

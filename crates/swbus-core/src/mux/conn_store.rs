@@ -188,8 +188,8 @@ mod tests {
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (message_queue_tx, _) = mpsc::channel(16);
-        let conn = SwbusConn::new(&conn_info, message_queue_tx);
+        let (send_queue_tx, _) = mpsc::channel(16);
+        let conn = SwbusConn::new(&conn_info, send_queue_tx);
         conn_store.conn_established(conn);
 
         assert!(conn_store

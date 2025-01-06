@@ -7,16 +7,16 @@ use tonic::Status;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SwbusConnProxy {
-    pub message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
+    pub send_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
 }
 
 impl SwbusConnProxy {
-    pub fn new(message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>) -> Self {
-        SwbusConnProxy { message_queue_tx }
+    pub fn new(send_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>) -> Self {
+        SwbusConnProxy { send_queue_tx }
     }
 
     pub async fn try_queue(&self, message: Result<SwbusMessage, Status>) -> Result<()> {
-        let tx = self.message_queue_tx.clone();
+        let tx = self.send_queue_tx.clone();
 
         match tx.try_send(message) {
             Ok(_) => Ok(()),

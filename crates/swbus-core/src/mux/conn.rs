@@ -4,7 +4,6 @@ use super::SwbusConnProxy;
 use super::SwbusConnWorker;
 use super::SwbusMultiplexer;
 use std::io;
-use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use swbus_proto::result::*;
@@ -28,21 +27,21 @@ pub struct SwbusConn {
     worker_task: Option<tokio::task::JoinHandle<Result<()>>>,
     shutdown_ct: CancellationToken,
 
-    // Data message queue
-    message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
+    // Outgoing message queue
+    send_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
 }
 
 // Connection operations
 impl SwbusConn {
     pub(crate) fn new(
         conn_info: &Arc<SwbusConnInfo>,
-        message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
+        send_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
     ) -> SwbusConn {
         SwbusConn {
             info: conn_info.clone(),
             worker_task: None,
             shutdown_ct: CancellationToken::new(),
-            message_queue_tx,
+            send_queue_tx,
         }
     }
 
@@ -51,7 +50,7 @@ impl SwbusConn {
     }
 
     pub(crate) fn new_proxy(&self) -> SwbusConnProxy {
-        SwbusConnProxy::new(self.message_queue_tx.clone())
+        SwbusConnProxy::new(self.send_queue_tx.clone())
     }
 
     pub async fn shutdown(&self) -> Result<()> {
@@ -95,8 +94,8 @@ impl SwbusConn {
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
-        let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
-        let mut conn = SwbusConn::new(&conn_info, message_queue_tx);
+        let (send_queue_tx, send_queue_rx) = mpsc::channel(16);
+        let mut conn = SwbusConn::new(&conn_info, send_queue_tx);
 
         let conn_info_for_worker = conn.info().clone();
         let shutdown_ct_for_worker = conn.shutdown_ct.clone();
@@ -105,7 +104,7 @@ impl SwbusConn {
                 conn_info_for_worker,
                 client,
                 shutdown_ct_for_worker,
-                message_queue_rx,
+                send_queue_rx,
                 mux,
                 conn_store,
             )
@@ -124,16 +123,16 @@ impl SwbusConn {
     /// - conn_info: The connection information.
     /// - client: The SwbusServiceClient.
     /// - control_queue_rx: The control message queue
-    /// - message_queue_rx: The outgoing message queue rx end.
+    /// - send_queue_rx: The outgoing message queue rx end.
     async fn run_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         mut client: SwbusServiceClient<Channel>,
         shutdown_ct: CancellationToken,
-        message_queue_rx: mpsc::Receiver<Result<SwbusMessage, Status>>,
+        send_queue_rx: mpsc::Receiver<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<()> {
-        let request_stream = ReceiverStream::new(message_queue_rx)
+        let request_stream = ReceiverStream::new(send_queue_rx)
             .map(|result| result.expect("Not expecting grpc client adding messages with error status"));
 
         let mut stream_message_request = Request::new(request_stream);
@@ -178,30 +177,26 @@ impl SwbusConn {
     /// - conn_type: The connection type.
     /// - client_addr: The client address.
     /// - incoming_stream: The incoming message stream.
-    /// - message_queue_tx: The tx end of outgoing message queue
+    /// - send_queue_tx: The tx end of outgoing message queue
     /// - mux: The SwbusMultiplexer
     pub async fn from_incoming_stream(
-        conn_type: ConnectionType,
-        client_addr: SocketAddr,
-        remote_service_path: ServicePath,
+        conn_info: Arc<SwbusConnInfo>,
         incoming_stream: Streaming<SwbusMessage>,
-        message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
+        send_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> SwbusConn {
-        let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr, remote_service_path));
-
-        Self::start_server_worker_task(conn_info, incoming_stream, message_queue_tx, mux, conn_store).await
+        Self::start_server_worker_task(conn_info, incoming_stream, send_queue_tx, mux, conn_store).await
     }
 
     async fn start_server_worker_task(
         conn_info: Arc<SwbusConnInfo>,
         incoming_stream: Streaming<SwbusMessage>,
-        message_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
+        send_queue_tx: mpsc::Sender<Result<SwbusMessage, Status>>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> SwbusConn {
-        let mut conn = SwbusConn::new(&conn_info, message_queue_tx);
+        let mut conn = SwbusConn::new(&conn_info, send_queue_tx);
 
         let conn_info_for_worker = conn_info.clone();
         let shutdown_ct_for_worker = conn.shutdown_ct.clone();

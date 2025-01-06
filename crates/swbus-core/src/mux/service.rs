@@ -2,6 +2,7 @@ use super::SwbusConn;
 use super::SwbusMultiplexer;
 use crate::mux::conn_store::SwbusConnStore;
 use crate::mux::RoutesConfig;
+use crate::mux::SwbusConnInfo;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
+use tracing::error;
 use tracing::info;
 
 pub struct SwbusServiceHost {
@@ -89,12 +91,12 @@ impl SwbusService for SwbusServiceHost {
             Some(path) => match ServicePath::from_string(path.to_str().unwrap()) {
                 Ok(service_path) => service_path,
                 Err(e) => {
-                    info!("SwbusServiceServer::error parsing client service path: {:?}", e);
+                    error!("SwbusServiceServer::error parsing client service path: {:?}", e);
                     return Err(Status::invalid_argument("Invalid client service path"));
                 }
             },
             None => {
-                info!("SwbusServiceServer::client service path not found");
+                error!("SwbusServiceServer::client service path not found");
                 return Err(Status::invalid_argument("Client service path not found"));
             }
         };
@@ -110,27 +112,21 @@ impl SwbusService for SwbusServiceHost {
                 }
             },
             None => {
-                info!("SwbusServiceServer::service path scope not set");
+                error!("SwbusServiceServer::service path scope not set");
                 return Err(Status::invalid_argument("service path scope not set"));
             }
         };
 
         let in_stream = request.into_inner();
         // outgoing message queue
-        let (tx, rx) = mpsc::channel(16);
+        let (out_tx, out_rx) = mpsc::channel(16);
 
-        let conn = SwbusConn::from_incoming_stream(
-            conn_type,
-            client_addr,
-            service_path,
-            in_stream,
-            tx,
-            self.mux.clone(),
-            self.conn_store.clone(),
-        )
-        .await;
+        let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr, service_path));
+        let conn =
+            SwbusConn::from_incoming_stream(conn_info, in_stream, out_tx, self.mux.clone(), self.conn_store.clone())
+                .await;
         self.conn_store.conn_established(conn);
-        let out_stream = ReceiverStream::new(rx);
+        let out_stream = ReceiverStream::new(out_rx);
         Ok(Response::new(Box::pin(out_stream) as Self::StreamMessagesStream))
     }
 }
