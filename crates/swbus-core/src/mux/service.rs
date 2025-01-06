@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
+use tracing::info;
 
 pub struct SwbusServiceHost {
     swbus_server_addr: String,
@@ -83,17 +84,17 @@ impl SwbusService for SwbusServiceHost {
     ) -> SwbusMessageResult<SwbusMessageStream> {
         let client_addr = request.remote_addr().unwrap();
 
-        println!("SwbusServiceServer::connection from {} accepted", client_addr);
+        info!("SwbusServiceServer::connection from {} accepted", client_addr);
         let service_path = match request.metadata().get(SWBUS_CLIENT_SERVICE_PATH) {
             Some(path) => match ServicePath::from_string(path.to_str().unwrap()) {
                 Ok(service_path) => service_path,
                 Err(e) => {
-                    println!("SwbusServiceServer::error parsing client service path: {:?}", e);
+                    info!("SwbusServiceServer::error parsing client service path: {:?}", e);
                     return Err(Status::invalid_argument("Invalid client service path"));
                 }
             },
             None => {
-                println!("SwbusServiceServer::client service path not found");
+                info!("SwbusServiceServer::client service path not found");
                 return Err(Status::invalid_argument("Client service path not found"));
             }
         };
@@ -109,7 +110,7 @@ impl SwbusService for SwbusServiceHost {
                 }
             },
             None => {
-                println!("SwbusServiceServer::service path scope not set");
+                info!("SwbusServiceServer::service path scope not set");
                 return Err(Status::invalid_argument("service path scope not set"));
             }
         };

@@ -8,6 +8,7 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use tokio::time::{self, Duration, Instant};
+use tracing::info;
 
 #[derive(Parser, Debug)]
 #[command(name = "swbuscli")]
@@ -110,7 +111,7 @@ async fn main() {
     };
 
     if ctx.debug {
-        println!("Swbus-edge client started.");
+        info!("Swbus-edge client started.");
     }
 
     match args.subcommand {

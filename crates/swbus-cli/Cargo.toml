@@ -20,6 +20,9 @@ clap.workspace = true
 serde_yaml.workspace = true
 tabled.workspace = true
 
+# Log and error handling
+tracing.workspace = true
+
 # Internal dependencies
 swbus-edge.workspace = true
 swbus-core.workspace = true

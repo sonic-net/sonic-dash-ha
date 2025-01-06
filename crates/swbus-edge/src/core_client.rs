@@ -14,6 +14,7 @@ use tonic::transport::Endpoint;
 use tonic::Request;
 use tonic::Streaming;
 use tracing::error;
+use tracing::info;
 
 pub struct SwbusCoreClient {
     uri: String,
@@ -87,7 +88,7 @@ impl SwbusCoreClient {
                 ));
             }
         };
-        println!("Connected to the server");
+        info!("Connected to the server");
         let mut client = SwbusServiceClient::new(channel);
 
         let send_stream = ReceiverStream::new(send_queue_rx);

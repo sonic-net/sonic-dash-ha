@@ -6,6 +6,7 @@ use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
+use tracing::info;
 
 pub(crate) const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
@@ -30,7 +31,7 @@ impl SwbusEdgeRuntime {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        println!("Starting edge runtime with URI: {}", self.swbus_uri);
+        info!("Starting edge runtime with URI: {}", self.swbus_uri);
         self.message_router.start().await
     }
 

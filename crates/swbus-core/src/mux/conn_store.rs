@@ -7,7 +7,7 @@ use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(Debug)]
 enum ConnTracker {
@@ -43,7 +43,7 @@ impl SwbusConnStore {
             loop {
                 match SwbusConn::connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
                     Ok(conn) => {
-                        println!("Successfully connect to peer {}", conn_info.id());
+                        info!("Successfully connect to peer {}", conn_info.id());
                         // register the new connection and update the route table
                         conn_store.conn_established(conn);
                         break;

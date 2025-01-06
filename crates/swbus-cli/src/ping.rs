@@ -4,6 +4,7 @@ use clap::Parser;
 use std::time::Instant;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
+use tracing::info;
 
 #[derive(Parser, Debug)]
 pub struct PingCmd {
@@ -40,7 +41,7 @@ impl CmdHandler for PingCmd {
             .unwrap();
 
         // Send ping messages
-        println!("PING {}", self.dest.to_longest_path());
+        info!("PING {}", self.dest.to_longest_path());
         for i in 0..self.count {
             let header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
             let header_id = header.id;
@@ -56,7 +57,7 @@ impl CmdHandler for PingCmd {
             match result.error_code {
                 SwbusErrorCode::Ok => {
                     let elapsed = start.elapsed();
-                    println!(
+                    info!(
                         "Response received: ping_seq={}, ttl={}, time={:.3}ms",
                         i,
                         result
@@ -69,14 +70,14 @@ impl CmdHandler for PingCmd {
                     );
                 }
                 SwbusErrorCode::Timeout => {
-                    println!("ping_seq {}: request timeout", i);
+                    info!("ping_seq {}: request timeout", i);
                 }
                 _ => {
                     let src_sp = match result.msg {
                         Some(msg) => format!("{} => ", msg.header.unwrap().source.unwrap().to_longest_path()),
                         None => "".to_string(),
                     };
-                    println!(
+                    info!(
                         "ping_seq {}: {}{}:{}",
                         i,
                         src_sp,

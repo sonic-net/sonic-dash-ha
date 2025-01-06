@@ -3,6 +3,7 @@ use clap::Parser;
 use swbus_proto::swbus::*;
 use tabled::{Table, Tabled};
 use tokio::sync::mpsc;
+use tracing::info;
 
 const CMD_TIMEOUT: u32 = 10;
 
@@ -81,15 +82,15 @@ impl super::CmdHandler for ShowCmd {
                         sub_cmd.process_response(&response);
                     }
                     _ => {
-                        println!("Invalid response");
+                        info!("Invalid response");
                     }
                 }
             }
             SwbusErrorCode::Timeout => {
-                println!("Request timeout");
+                info!("Request timeout");
             }
             _ => {
-                println!("{}:{}", result.error_code.as_str_name(), result.error_message);
+                info!("{}:{}", result.error_code.as_str_name(), result.error_message);
             }
         }
     }
@@ -104,7 +105,7 @@ impl ShowCmdHandler for ShowRouteCmd {
         let routes = match &response.response_body {
             Some(request_response::ResponseBody::RouteQueryResult(route_result)) => route_result,
             _ => {
-                println!("Expecting RouteQueryResult but got something else: {:?}", response);
+                info!("Expecting RouteQueryResult but got something else: {:?}", response);
                 return;
             }
         };
@@ -129,7 +130,7 @@ impl ShowCmdHandler for ShowRouteCmd {
             })
             .collect();
         let table = Table::new(routes);
-        println!("{}", table)
+        info!("{}", table)
     }
 }
 
@@ -139,6 +140,6 @@ impl ShowCmdHandler for ShowConnectionsCmd {
     }
 
     fn process_response(&self, _response: &RequestResponse) {
-        println!("not implemented")
+        info!("not implemented")
     }
 }

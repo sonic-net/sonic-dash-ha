@@ -11,6 +11,7 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
+use tracing::{error, info};
 
 //3 seconds receive timeout
 pub const RECEIVE_TIMEOUT: u32 = 3;
@@ -121,7 +122,7 @@ impl TopoRuntime {
             .await;
         }
 
-        println!("Topo {} is up", self.name);
+        info!("Topo {} is up", self.name);
     }
 
     async fn start_server(&mut self, name: &str, node_addr: &str, route_config: RoutesConfig) {
@@ -133,7 +134,7 @@ impl TopoRuntime {
 
         self.server_jobs.push(server_task);
 
-        println!("Server {} started at {}", name, node_addr);
+        info!("Server {} started at {}", name, node_addr);
     }
 
     async fn start_client(&mut self, name: &str, node_addr: &str, client_sp: ServicePath) {
@@ -146,11 +147,11 @@ impl TopoRuntime {
                 Ok((_, send_queue_tx, _)) => {
                     self.client_receivers.insert(name.to_string(), receive_queue_rx);
                     self.client_senders.insert(name.to_string(), send_queue_tx);
-                    println!("Client {} connected to {}", name, node_addr);
+                    info!("Client {} connected to {}", name, node_addr);
                     return;
                 }
                 Err(e) => {
-                    eprintln!("Failed to connect to the server: {:?}", e);
+                    error!("Failed to connect to the server: {:?}", e);
                     time::sleep(Duration::from_secs(1)).await;
                 }
             }
@@ -173,7 +174,7 @@ pub async fn run_tests(topo: &mut TopoRuntime, test_json_file: &str, test_case_n
             }
         }
         if test.topo.is_some() && test.topo.as_ref().unwrap() != &topo.name {
-            println!(
+            info!(
                 "Skipping test {} due to mismatched topo: test.topo={}, running-topo={}",
                 test.name,
                 test.topo.as_ref().unwrap(),
@@ -181,17 +182,17 @@ pub async fn run_tests(topo: &mut TopoRuntime, test_json_file: &str, test_case_n
             );
             continue;
         }
-        println!("Running test: {}", test.name);
+        info!("Running test: {}", test.name);
         for (i, step) in test.steps.iter_mut().enumerate() {
-            println!("  ---  Step {}  ---", i);
+            info!("  ---  Step {}  ---", i);
             for req in &step.requests {
                 let sender = topo.client_senders.get(&req.client).unwrap();
                 match sender.send(req.message.clone()).await {
                     Ok(_) => {
-                        println!("Sent message from client {}", req.client);
+                        info!("Sent message from client {}", req.client);
                     }
                     Err(e) => {
-                        eprintln!("Failed to send message from client {}: {:?}", req.client, e);
+                        error!("Failed to send message from client {}: {:?}", req.client, e);
                     }
                 }
             }
@@ -199,7 +200,7 @@ pub async fn run_tests(topo: &mut TopoRuntime, test_json_file: &str, test_case_n
             if to_generate {
                 let responses = record_received_messages(topo, RECEIVE_TIMEOUT).await;
                 step.responses = responses;
-                println!("  ---  Recorded {} messages  ---", &step.responses.len());
+                info!("  ---  Recorded {} messages  ---", &step.responses.len());
             } else {
                 receive_and_compare(topo, &step.responses, RECEIVE_TIMEOUT).await;
             }

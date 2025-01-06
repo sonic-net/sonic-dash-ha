@@ -5,6 +5,7 @@ use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use swbus_proto::swbus::{swbus_message, SwbusMessage};
+use tracing::info;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum NextHopType {
@@ -105,7 +106,7 @@ impl SwbusNextHop {
 
     fn process_ping_request(&self, mux: &SwbusMultiplexer, message: SwbusMessage) -> Result<SwbusMessage> {
         // @todo: move to trace
-        // println!("Received ping request: {:?}", message);
+        // info!("Received ping request: {:?}", message);
         let id = mux.generate_message_id();
         Ok(SwbusMessage::new_response(
             &message,
@@ -145,7 +146,7 @@ impl SwbusNextHop {
 
     async fn drop_message(&self, message: SwbusMessage) -> Result<Option<SwbusMessage>> {
         // todo: change to trace
-        println!("Drop message: {:?}", message);
+        info!("Drop message: {:?}", message);
         // todo: increment drop counter
         Ok(None)
     }

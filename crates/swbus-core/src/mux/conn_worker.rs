@@ -119,7 +119,7 @@ where
         self.validate_message_common(&message)?;
         match message.body {
             Some(swbus_message::Body::TraceRouteRequest(_)) => {
-                println!("Received traceroute request: {:?}", message);
+                info!("Received traceroute request: {:?}", message);
                 // self.process_ping_request(&message);
             }
             _ => {
