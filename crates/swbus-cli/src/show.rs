@@ -9,11 +9,11 @@ const CMD_TIMEOUT: u32 = 10;
 #[derive(Parser, Debug)]
 pub struct ShowCmd {
     #[command(subcommand)]
-    subcommand: ShowSub,
+    subcommand: ShowSubCmd,
 }
 
 #[derive(Parser, Debug)]
-enum ShowSub {
+enum ShowSubCmd {
     Route(ShowRouteCmd),
     Connections(ShowConnectionsCmd),
 }
@@ -40,14 +40,14 @@ struct RouteDisplay {
 
 impl super::CmdHandler for ShowCmd {
     async fn handle(&self, ctx: &super::CommandContext) {
-        //Create a channel to receive response
+        // Create a channel to receive response
         let (recv_queue_tx, mut recv_queue_rx) = mpsc::channel::<SwbusMessage>(1);
         let mut src_sp = ctx.sp.clone();
         src_sp.resource_type = "show".to_string();
         src_sp.resource_id = "0".to_string();
         let dst_sp = ctx.sp.clone_for_local_mgmt();
 
-        //Register the channel to the runtime to receive response
+        // Register the channel to the runtime to receive response
         ctx.runtime
             .lock()
             .await
@@ -56,8 +56,8 @@ impl super::CmdHandler for ShowCmd {
             .unwrap();
 
         let sub_cmd: &dyn ShowCmdHandler = match &self.subcommand {
-            ShowSub::Route(show_route_args) => show_route_args,
-            ShowSub::Connections(show_connections_args) => show_connections_args,
+            ShowSubCmd::Route(show_route_args) => show_route_args,
+            ShowSubCmd::Connections(show_connections_args) => show_connections_args,
         };
 
         let mgmt_request = sub_cmd.create_request();
@@ -68,10 +68,10 @@ impl super::CmdHandler for ShowCmd {
             body: Some(swbus_message::Body::ManagementRequest(mgmt_request)),
         };
 
-        //Send request
+        // Send request
         ctx.runtime.lock().await.send(request_msg).await.unwrap();
 
-        //wait on the channel to receive response
+        // wait on the channel to receive response
         let result = wait_for_response(&mut recv_queue_rx, request_id, CMD_TIMEOUT).await;
         match result.error_code {
             SwbusErrorCode::Ok => {

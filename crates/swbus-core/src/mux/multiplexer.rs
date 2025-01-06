@@ -92,12 +92,12 @@ impl SwbusMultiplexer {
         for route in routes {
             let sr = route.key.clone_for_local_mgmt();
 
-            //Create local service route
+            // Create local service route
             let route_key = sr.to_service_prefix();
             let local_nh = SwbusNextHop::new_local();
             self.update_route(route_key, local_nh);
 
-            //Create catch-all route
+            // Create catch-all route
             let route_key = sr.to_node_prefix();
             let drop_nh = SwbusNextHop::new_drop();
             self.update_route(route_key, drop_nh);
@@ -168,7 +168,7 @@ impl SwbusMultiplexer {
             self.id_generator.generate(),
             None,
         );
-        //there is a risk of loop if no route to the source of request.
+        // there is a risk of loop if no route to the source of request.
         // A receives a request from B to C but A doesn't have route to C. It sends response[1] to B
         // but B is also unreachable.
         // Here it will send 'no-route' response[2] for response[1]. response[1] has source SP of A

@@ -51,7 +51,7 @@ where
     pub async fn run(&mut self) -> Result<()> {
         self.register_to_mux()?;
         let result = self.run_worker_loop().await;
-        //unregister from mux
+        // unregister from mux
         self.unregister_from_mux()?;
         if result.is_err() {
             self.conn_store.conn_lost(self.info.clone());
@@ -120,7 +120,7 @@ where
         match message.body {
             Some(swbus_message::Body::TraceRouteRequest(_)) => {
                 println!("Received traceroute request: {:?}", message);
-                //self.process_ping_request(&message);
+                // self.process_ping_request(&message);
             }
             _ => {
                 self.mux.route_message(message).await?;

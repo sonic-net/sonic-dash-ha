@@ -32,7 +32,7 @@ impl RoutesConfig {
 
         // Parse the YAML data
         let routes_config: RoutesConfig = serde_yaml::from_reader(reader)?;
-        //let routes_config = RoutesConfig::from_routes_config_serde(&route_config_serde);
+        // let routes_config = RoutesConfig::from_routes_config_serde(&route_config_serde);
         Ok(routes_config)
     }
 }

@@ -75,7 +75,7 @@ impl SwbusServiceHost {
             self.conn_store.add_peer(peer);
         }
 
-        //Wait for server to finish
+        // Wait for server to finish
         match server_handle.await {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(e),

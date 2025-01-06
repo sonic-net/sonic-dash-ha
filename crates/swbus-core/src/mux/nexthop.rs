@@ -86,7 +86,7 @@ impl SwbusNextHop {
         mux: &SwbusMultiplexer,
         message: SwbusMessage,
     ) -> Result<Option<SwbusMessage>> {
-        //@todo: move to trace
+        // @todo: move to trace
         // process message locally
         let response = match message.body.as_ref() {
             Some(swbus_message::Body::PingRequest(_)) => self.process_ping_request(mux, message).unwrap(),
@@ -104,8 +104,8 @@ impl SwbusNextHop {
     }
 
     fn process_ping_request(&self, mux: &SwbusMultiplexer, message: SwbusMessage) -> Result<SwbusMessage> {
-        //@todo: move to trace
-        //println!("Received ping request: {:?}", message);
+        // @todo: move to trace
+        // println!("Received ping request: {:?}", message);
         let id = mux.generate_message_id();
         Ok(SwbusMessage::new_response(
             &message,
@@ -144,9 +144,9 @@ impl SwbusNextHop {
     }
 
     async fn drop_message(&self, message: SwbusMessage) -> Result<Option<SwbusMessage>> {
-        //todo: change to trace
+        // todo: change to trace
         println!("Drop message: {:?}", message);
-        //todo: increment drop counter
+        // todo: increment drop counter
         Ok(None)
     }
 }

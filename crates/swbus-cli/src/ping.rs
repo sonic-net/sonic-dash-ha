@@ -25,12 +25,12 @@ pub struct PingCmd {
 
 impl super::CmdHandler for PingCmd {
     async fn handle(&self, ctx: &super::CommandContext) {
-        //Create a channel to receive response
+        // Create a channel to receive response
         let (recv_queue_tx, mut recv_queue_rx) = mpsc::channel::<SwbusMessage>(1);
         let mut src_sp = ctx.sp.clone();
         src_sp.resource_type = "ping".to_string();
         src_sp.resource_id = "0".to_string();
-        //Register the channel to the runtime to receive response
+        // Register the channel to the runtime to receive response
         ctx.runtime
             .lock()
             .await
@@ -38,7 +38,7 @@ impl super::CmdHandler for PingCmd {
             .await
             .unwrap();
 
-        //Send ping messages
+        // Send ping messages
         println!("PING {}", self.dest.to_longest_path());
         for i in 0..self.count {
             let header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
@@ -50,7 +50,7 @@ impl super::CmdHandler for PingCmd {
             let start = Instant::now();
             ctx.runtime.lock().await.send(ping_msg).await.unwrap();
 
-            //wait on the channel to receive response or timeout
+            // wait on the channel to receive response or timeout
             let result = wait_for_response(&mut recv_queue_rx, header_id, self.timeout).await;
             match result.error_code {
                 SwbusErrorCode::Ok => {

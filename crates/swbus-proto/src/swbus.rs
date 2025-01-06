@@ -74,9 +74,9 @@ impl ServicePath {
     ///   [region_id[.cluster_id[.node_id]][/service_type/service_id[/resource_type/resource_id]]
     pub fn from_string(service_path: &str) -> Result<Self> {
         let mut parts: Vec<&str> = service_path.split('/').collect();
-        //fill up service and resource with empty string
+        // fill up service and resource with empty string
         parts.resize(5, "");
-        //parts[0] is locator region.cluster.node
+        // parts[0] is locator region.cluster.node
         let mut loc_parts: Vec<&str> = parts[0].splitn(3, '.').collect();
         loc_parts.resize(3, "");
         Ok(ServicePath {
@@ -592,6 +592,6 @@ mod tests {
         };
         assert_eq!(response.request_id, request_id);
 
-        //assert_eq!(response.body.as_ref().unwrap().request_, true);
+        // assert_eq!(response.body.as_ref().unwrap().request_, true);
     }
 }

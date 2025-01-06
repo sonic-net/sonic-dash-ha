@@ -62,7 +62,7 @@ impl SwbusConnStore {
     }
 
     pub fn add_peer(self: &Arc<SwbusConnStore>, peer: PeerConfig) {
-        //todo: assuming only one route for now. Will be improved to send routes in route update message and remove this
+        // todo: assuming only one route for now. Will be improved to send routes in route update message and remove this
         let my_route = self.my_routes.iter().next().expect("My service path is not set");
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             peer.conn_type,
