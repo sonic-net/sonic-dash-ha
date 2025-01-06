@@ -112,6 +112,7 @@ mod tests {
     use swbus_proto::swbus::ConnectionType;
     use swbus_proto::swbus::RouteScope;
     use swbus_proto::swbus::ServicePath;
+    use tokio::sync::mpsc;
     #[tokio::test]
     async fn test_add_peer() {
         let mux = Arc::new(SwbusMultiplexer::new());
@@ -187,7 +188,8 @@ mod tests {
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (conn, _) = SwbusConn::new_for_test(&conn_info);
+        let (message_queue_tx, _) = mpsc::channel(16);
+        let conn = SwbusConn::new(&conn_info, message_queue_tx);
         conn_store.conn_established(conn);
 
         assert!(conn_store

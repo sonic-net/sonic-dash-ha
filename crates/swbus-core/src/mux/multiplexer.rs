@@ -253,7 +253,8 @@ mod tests {
             ServicePath::from_string(nh_sp).unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
-        let (conn, message_queue_rx) = SwbusConn::new_for_test(&conn_info);
+        let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
+        let conn = SwbusConn::new(&conn_info, message_queue_tx);
 
         let nexthop_nh1 = SwbusNextHop::new_remote(conn_info.clone(), conn.new_proxy(), hop_count);
         mux.update_route(route_key.to_string(), nexthop_nh1);

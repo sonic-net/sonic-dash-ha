@@ -58,15 +58,6 @@ impl SwbusConn {
         self.shutdown_ct.cancel();
         Ok(())
     }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_test(
-        conn_info: &Arc<SwbusConnInfo>,
-    ) -> (SwbusConn, mpsc::Receiver<Result<SwbusMessage, Status>>) {
-        let (message_queue_tx, message_queue_rx) = mpsc::channel(1);
-        let conn = SwbusConn::new(conn_info, message_queue_tx);
-        (conn, message_queue_rx)
-    }
 }
 
 // Client-side connection factory and task entry
@@ -105,7 +96,6 @@ impl SwbusConn {
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
         let (message_queue_tx, message_queue_rx) = mpsc::channel(16);
-
         let mut conn = SwbusConn::new(&conn_info, message_queue_tx);
 
         let conn_info_for_worker = conn.info().clone();
