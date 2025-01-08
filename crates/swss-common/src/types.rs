@@ -34,11 +34,17 @@ use std::{
 };
 
 pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
-    CString::new(s.as_ref()).unwrap()
+    CString::new(s.as_ref()).expect("Bytes being converted to a C string already contains a null byte")
 }
 
-pub(crate) unsafe fn str(p: *const i8) -> String {
-    CStr::from_ptr(p).to_str().unwrap().to_string()
+/// Take a malloc'd c string and convert it to a native String
+pub(crate) unsafe fn take_cstr(p: *const i8) -> String {
+    let s = CStr::from_ptr(p)
+        .to_str()
+        .expect("C string being converted to Rust String contains invalid UTF-8")
+        .to_string();
+    libc::free(p as *mut libc::c_void);
+    s
 }
 
 /// Rust version of the return type from `swss::Select::select`.
@@ -158,7 +164,7 @@ pub(crate) unsafe fn take_field_value_array(arr: SWSSFieldValueArray) -> HashMap
     if !arr.data.is_null() {
         let entries = slice::from_raw_parts_mut(arr.data, arr.len as usize);
         for fv in entries {
-            let field = str(fv.field);
+            let field = take_cstr(fv.field);
             let value = CxxString::take_raw(&mut fv.value).unwrap();
             out.insert(field, value);
         }
@@ -174,7 +180,7 @@ pub(crate) unsafe fn take_key_op_field_values_array(kfvs: SWSSKeyOpFieldValuesAr
         unsafe {
             let entries = slice::from_raw_parts_mut(kfvs.data, kfvs.len as usize);
             for kfv in entries {
-                let key = str(kfv.key);
+                let key = take_cstr(kfv.key);
                 let operation = KeyOperation::from_raw(kfv.operation);
                 let field_values = take_field_value_array(kfv.fieldValues);
                 out.push(KeyOpFieldValues {
