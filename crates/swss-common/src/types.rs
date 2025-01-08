@@ -6,6 +6,7 @@ mod cxxstring;
 mod dbconnector;
 mod producerstatetable;
 mod subscriberstatetable;
+mod table;
 mod zmqclient;
 mod zmqconsumerstatetable;
 mod zmqproducerstatetable;
@@ -16,6 +17,7 @@ pub use cxxstring::{CxxStr, CxxString};
 pub use dbconnector::{DbConnectionInfo, DbConnector};
 pub use producerstatetable::ProducerStateTable;
 pub use subscriberstatetable::SubscriberStateTable;
+pub use table::Table;
 pub use zmqclient::ZmqClient;
 pub use zmqconsumerstatetable::ZmqConsumerStateTable;
 pub use zmqproducerstatetable::ZmqProducerStateTable;
@@ -136,12 +138,15 @@ impl Display for InvalidKeyOperationString {
 
 impl Error for InvalidKeyOperationString {}
 
+/// Rust version of `vector<swss::FieldValueTuple>`.
+pub type FieldValues = HashMap<String, CxxString>;
+
 /// Rust version of `swss::KeyOpFieldsValuesTuple`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyOpFieldValues {
     pub key: String,
     pub operation: KeyOperation,
-    pub field_values: HashMap<String, CxxString>,
+    pub field_values: FieldValues,
 }
 
 /// Intended for testing, ordered by key.
@@ -159,7 +164,7 @@ impl Ord for KeyOpFieldValues {
 }
 
 /// Takes ownership of an `SWSSFieldValueArray` and turns it into a native representation.
-pub(crate) unsafe fn take_field_value_array(arr: SWSSFieldValueArray) -> HashMap<String, CxxString> {
+pub(crate) unsafe fn take_field_value_array(arr: SWSSFieldValueArray) -> FieldValues {
     let mut out = HashMap::with_capacity(arr.len as usize);
     if !arr.data.is_null() {
         let entries = slice::from_raw_parts_mut(arr.data, arr.len as usize);
@@ -193,6 +198,16 @@ pub(crate) unsafe fn take_key_op_field_values_array(kfvs: SWSSKeyOpFieldValuesAr
         };
     }
     out
+}
+
+/// Takes ownership of an `SWSSStringArray` and turns it into a native representation.
+pub(crate) unsafe fn take_string_array(arr: SWSSStringArray) -> Vec<String> {
+    if !arr.data.is_null() {
+        let entries = slice::from_raw_parts(arr.data, arr.len as usize);
+        Vec::from_iter(entries.iter().map(|&s| take_cstr(s)))
+    } else {
+        Vec::new()
+    }
 }
 
 pub(crate) fn make_field_value_array<I, F, V>(fvs: I) -> (SWSSFieldValueArray, KeepAlive)

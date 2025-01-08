@@ -181,3 +181,28 @@ fn zmq_consumer_producer_state_tables_sync_api_basic_test() {
     }
     assert_eq!(kfvs, kfvs_seen);
 }
+
+#[test]
+fn table_sync_api_basic_test() {
+    let redis = Redis::start();
+    let table = Table::new(redis.db_connector(), "mytable");
+    assert!(table.get_keys().is_empty());
+    assert!(table.get("mykey").is_none());
+
+    let fvs = random_fvs();
+    table.set("mykey", fvs.clone());
+    assert_eq!(table.get_keys(), &["mykey"]);
+    assert_eq!(table.get("mykey").as_ref(), Some(&fvs));
+
+    let (field, value) = fvs.iter().next().unwrap();
+    assert_eq!(table.hget("mykey", field).as_ref(), Some(value));
+    table.hdel("mykey", field);
+    assert_eq!(table.hget("mykey", field), None);
+
+    table.hset("mykey", field, &CxxString::from("my special value"));
+    assert_eq!(table.hget("mykey", field).unwrap().as_bytes(), b"my special value");
+
+    table.del("mykey");
+    assert!(table.get_keys().is_empty());
+    assert!(table.get("mykey").is_none());
+}
