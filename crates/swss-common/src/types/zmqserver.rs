@@ -1,5 +1,5 @@
 use super::*;
-use crate::*;
+use crate::bindings::*;
 use std::sync::Arc;
 
 /// Rust wrapper around `swss::ZmqServer`.

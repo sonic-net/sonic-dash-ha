@@ -1,5 +1,5 @@
 use super::*;
-use crate::*;
+use crate::bindings::*;
 use std::collections::HashMap;
 
 /// Rust wrapper around `swss::DBConnector`.

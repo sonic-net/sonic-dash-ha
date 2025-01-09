@@ -1,7 +1,6 @@
-use std::ptr;
-
 use super::*;
-use crate::*;
+use crate::bindings::*;
+use std::ptr;
 
 #[derive(Debug)]
 pub struct Table {
