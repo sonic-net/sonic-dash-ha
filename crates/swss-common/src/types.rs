@@ -202,12 +202,14 @@ pub(crate) unsafe fn take_key_op_field_values_array(kfvs: SWSSKeyOpFieldValuesAr
 
 /// Takes ownership of an `SWSSStringArray` and turns it into a native representation.
 pub(crate) unsafe fn take_string_array(arr: SWSSStringArray) -> Vec<String> {
-    if !arr.data.is_null() {
+    let out = if !arr.data.is_null() {
         let entries = slice::from_raw_parts(arr.data, arr.len as usize);
         Vec::from_iter(entries.iter().map(|&s| take_cstr(s)))
     } else {
         Vec::new()
-    }
+    };
+    SWSSStringArray_free(arr);
+    out
 }
 
 pub(crate) fn make_field_value_array<I, F, V>(fvs: I) -> (SWSSFieldValueArray, KeepAlive)
