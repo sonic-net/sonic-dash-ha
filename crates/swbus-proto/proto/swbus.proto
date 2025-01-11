@@ -143,23 +143,22 @@ enum SwbusErrorCode {
 
 message RequestResponse {
   uint64 request_id = 10;
-  SwbusErrorCode error_code = 110;
-  string error_message = 120;
+  SwbusErrorCode error_code = 20;
+  string error_message = 30;
+  oneof ResponseBody {
+    RouteQueryResult route_query_result = 100;
+  }
 }
 
 //
-// Registration connection request
+// Connection Type
 //
 enum ConnectionType {
   CONNECTION_TYPE_CLIENT = 0;
-  CONNECTION_TYPE_NODE = 1;
+  CONNECTION_TYPE_LOCAL = 1;
   CONNECTION_TYPE_CLUSTER = 2;
-  CONNECTION_TYPE_REGIONAL = 3;
+  CONNECTION_TYPE_REGION = 3;
   CONNECTION_TYPE_GLOBAL = 4;
-}
-
-message UpdateConnectionInfoRequest {
-  ConnectionType connection_type = 10;
 }
 
 //
@@ -168,8 +167,8 @@ message UpdateConnectionInfoRequest {
 enum RouteScope {
   ROUTE_SCOPE_CLIENT = 0;
   ROUTE_SCOPE_LOCAL = 1;
-  ROUTE_SCOPE_REGION = 2;
-  ROUTE_SCOPE_CLUSTER = 3;
+  ROUTE_SCOPE_CLUSTER = 2;
+  ROUTE_SCOPE_REGION = 3;
   ROUTE_SCOPE_GLOBAL = 4;
 }
 
@@ -177,6 +176,18 @@ message RegistrationQueryRequest {
 }
 
 message RegistrationQueryResponse {
+}
+
+message RouteQueryResult {
+  repeated RouteQueryResultEntry entries = 10;
+}
+
+message RouteQueryResultEntry {
+  ServicePath service_path = 10;
+  string nh_id = 20;
+  ServicePath nh_service_path = 30;
+  RouteScope nh_scope = 40;
+  uint32 hop_count = 50;
 }
 
 //
@@ -193,6 +204,19 @@ message TraceRouteRequest {
 
 message TraceRouteResponse {
   string trace_id = 10;
+}
+
+message ManagementRequestArg {
+  string name = 10;
+  string value = 20;
+}
+
+//
+// Management requests for debugging purpose
+//
+message ManagementRequest {
+  string request = 10;
+  repeated ManagementRequestArg arguments = 20;
 }
 
 //
@@ -221,6 +245,9 @@ message SwbusMessage {
     // Trace route
     TraceRouteRequest trace_route_request = 410;
     TraceRouteResponse trace_route_response = 420;
+
+    // Management request
+    ManagementRequest management_request = 510;
 
     // General purpose request.
     // Send a binary payload to another node.
