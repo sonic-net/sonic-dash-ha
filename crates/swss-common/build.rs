@@ -48,7 +48,7 @@ fn find_headers_in_dir(path: impl AsRef<Path>) -> Vec<String> {
     fs::read_dir(path)
         .unwrap()
         .map(|res_entry| res_entry.unwrap().path())
-        .filter(|p| p.extension().map_or(false, |ext| ext == "h"))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "h"))
         .map(|p| p.to_str().unwrap().to_string())
         .collect::<Vec<_>>()
 }
