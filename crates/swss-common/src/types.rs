@@ -31,6 +31,7 @@ use std::{
     error::Error,
     ffi::{CStr, CString},
     fmt::Display,
+    mem::MaybeUninit,
     slice,
     str::FromStr,
 };
@@ -48,6 +49,67 @@ pub(crate) unsafe fn take_cstr(p: *const i8) -> String {
     libc::free(p as *mut libc::c_void);
     s
 }
+
+pub type Result<T, E = Exception> = std::result::Result<T, E>;
+
+/// Rust version of a failed `SWSSResult`.
+///
+/// When an `SWSSResult` is success/`SWSSException_None`, the rust function will return `Ok(..)`.
+/// Otherwise, the rust function will return `Err(Exception)`
+#[derive(Debug, Clone)]
+pub struct Exception {
+    message: String,
+    location: String,
+}
+
+impl Exception {
+    pub(crate) unsafe fn take_raw(res: &mut SWSSResult) -> Self {
+        Self {
+            message: CxxString::take_raw(&mut res.message)
+                .expect("SWSSResult missing message")
+                .to_string_lossy()
+                .into_owned(),
+            location: CxxString::take_raw(&mut res.location)
+                .expect("SWSSResult missing location")
+                .to_string_lossy()
+                .into_owned(),
+        }
+    }
+
+    /// Call an SWSS function that takes one output pointer `*mut T` and returns an `SWSSResult`, and transform that into `Result<T, Exception>`.
+    pub(crate) unsafe fn try1<T, F: FnOnce(*mut T) -> SWSSResult>(f: F) -> Result<T, Exception> {
+        let mut t: MaybeUninit<T> = MaybeUninit::uninit();
+        let mut result: SWSSResult = f(t.as_mut_ptr());
+        if result.exception == SWSSException_SWSSException_None {
+            Ok(t.assume_init())
+        } else {
+            Err(Exception::take_raw(&mut result))
+        }
+    }
+
+    /// Transform an `SWSSResult` into `Result<(), Exception>`, for SWSS functions that take no output pointer.
+    pub(crate) unsafe fn try0(res: SWSSResult) -> Result<(), Exception> {
+        Exception::try1(|_| res)
+    }
+
+    /// Get an informational string about the error that occurred.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Get an informational string about the where in the code the error occurred.
+    pub fn location(&self) -> &str {
+        &self.location
+    }
+}
+
+impl Display for Exception {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.location, self.message)
+    }
+}
+
+impl Error for Exception {}
 
 /// Rust version of the return type from `swss::Select::select`.
 ///

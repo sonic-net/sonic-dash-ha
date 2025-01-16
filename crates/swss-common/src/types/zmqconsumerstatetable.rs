@@ -19,39 +19,49 @@ impl ZmqConsumerStateTable {
         zmqs: &mut ZmqServer,
         pop_batch_size: Option<i32>,
         pri: Option<i32>,
-    ) -> Self {
+    ) -> Result<Self> {
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
-        let ptr = unsafe { SWSSZmqConsumerStateTable_new(db.ptr, table_name.as_ptr(), zmqs.ptr, pop_batch_size, pri) };
+        let ptr = unsafe {
+            Exception::try1(|p_zs| {
+                SWSSZmqConsumerStateTable_new(db.ptr, table_name.as_ptr(), zmqs.ptr, pop_batch_size, pri, p_zs)
+            })?
+        };
         let drop_guard = Arc::new(DropGuard(ptr));
         zmqs.register_consumer_state_table(drop_guard.clone());
-        Self {
+        Ok(Self {
             ptr,
             _db: db,
             _drop_guard: drop_guard,
-        }
+        })
     }
 
-    pub fn pops(&self) -> Vec<KeyOpFieldValues> {
+    pub fn pops(&self) -> Result<Vec<KeyOpFieldValues>> {
         unsafe {
-            let ans = SWSSZmqConsumerStateTable_pops(self.ptr);
-            take_key_op_field_values_array(ans)
+            let arr = Exception::try1(|p_arr| SWSSZmqConsumerStateTable_pops(self.ptr, p_arr))?;
+            Ok(take_key_op_field_values_array(arr))
         }
     }
 
-    pub fn get_fd(&self) -> BorrowedFd {
-        let fd = unsafe { SWSSZmqConsumerStateTable_getFd(self.ptr) };
-
+    pub fn get_fd(&self) -> Result<BorrowedFd> {
         // SAFETY: This fd represents the underlying zmq socket, which should remain alive as long as there
         // is a listener (i.e. a ZmqConsumerStateTable)
-        unsafe { BorrowedFd::borrow_raw(fd.try_into().unwrap()) }
+        unsafe {
+            let fd = Exception::try1(|p_fd| SWSSZmqConsumerStateTable_getFd(self.ptr, p_fd))?;
+            let fd = BorrowedFd::borrow_raw(fd.try_into().unwrap());
+            Ok(fd)
+        }
     }
 
-    pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> SelectResult {
+    pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> Result<SelectResult> {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
-        let res = unsafe { SWSSZmqConsumerStateTable_readData(self.ptr, timeout_ms, interrupt_on_signal as u8) };
-        SelectResult::from_raw(res)
+        let res = unsafe {
+            Exception::try1(|p_res| {
+                SWSSZmqConsumerStateTable_readData(self.ptr, timeout_ms, interrupt_on_signal as u8, p_res)
+            })?
+        };
+        Ok(SelectResult::from_raw(res))
     }
 }
 
@@ -64,7 +74,7 @@ pub(crate) struct DropGuard(SWSSZmqConsumerStateTable);
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        unsafe { SWSSZmqConsumerStateTable_free(self.0) };
+        unsafe { Exception::try0(SWSSZmqConsumerStateTable_free(self.0)).expect("Dropping ZmqConsumerStateTable") };
     }
 }
 
