@@ -1,5 +1,5 @@
 use super::*;
-use crate::*;
+use crate::bindings::*;
 use std::{os::fd::BorrowedFd, ptr::null, time::Duration};
 
 /// Rust wrapper around `swss::SubscriberStateTable`.

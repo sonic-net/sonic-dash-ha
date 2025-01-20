@@ -4,7 +4,6 @@ mod bindings {
 }
 mod types;
 
-use bindings::*;
 pub use types::*;
 
 /// Rust wrapper around `swss::SonicDBConfig::initialize`.

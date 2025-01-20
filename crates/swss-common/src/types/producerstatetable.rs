@@ -1,5 +1,5 @@
 use super::*;
-use crate::*;
+use crate::bindings::*;
 
 /// Rust wrapper around `swss::ProducerStateTable`.
 #[derive(Debug)]

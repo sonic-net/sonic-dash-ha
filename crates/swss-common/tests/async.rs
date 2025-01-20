@@ -180,3 +180,33 @@ async fn zmq_consumer_producer_state_table_async_api_basic_test() {
     }
     assert_eq!(kfvs, kfvs_seen);
 }
+
+define_tokio_test_fns!(table_async_api_basic_test);
+async fn table_async_api_basic_test() {
+    let redis = Redis::start();
+    let mut table = Table::new_async(redis.db_connector(), "mytable").await;
+    assert!(table.get_keys_async().await.is_empty());
+    assert!(table.get_async("mykey").await.is_none());
+
+    let fvs = random_fvs();
+    table.set_async("mykey", fvs.clone()).await;
+    assert_eq!(table.get_keys_async().await, &["mykey"]);
+    assert_eq!(table.get_async("mykey").await.as_ref(), Some(&fvs));
+
+    let (field, value) = fvs.iter().next().unwrap();
+    assert_eq!(table.hget_async("mykey", field).await.as_ref(), Some(value));
+    table.hdel_async("mykey", field).await;
+    assert_eq!(table.hget_async("mykey", field).await, None);
+
+    table
+        .hset_async("mykey", field, &CxxString::from("my special value"))
+        .await;
+    assert_eq!(
+        table.hget_async("mykey", field).await.unwrap().as_bytes(),
+        b"my special value"
+    );
+
+    table.del_async("mykey").await;
+    assert!(table.get_keys_async().await.is_empty());
+    assert!(table.get_async("mykey").await.is_none());
+}

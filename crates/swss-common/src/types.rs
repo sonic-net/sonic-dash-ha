@@ -6,6 +6,7 @@ mod cxxstring;
 mod dbconnector;
 mod producerstatetable;
 mod subscriberstatetable;
+mod table;
 mod zmqclient;
 mod zmqconsumerstatetable;
 mod zmqproducerstatetable;
@@ -16,12 +17,13 @@ pub use cxxstring::{CxxStr, CxxString};
 pub use dbconnector::{DbConnectionInfo, DbConnector};
 pub use producerstatetable::ProducerStateTable;
 pub use subscriberstatetable::SubscriberStateTable;
+pub use table::Table;
 pub use zmqclient::ZmqClient;
 pub use zmqconsumerstatetable::ZmqConsumerStateTable;
 pub use zmqproducerstatetable::ZmqProducerStateTable;
 pub use zmqserver::ZmqServer;
 
-use crate::*;
+use crate::bindings::*;
 use cxxstring::RawMutableSWSSString;
 use std::{
     any::Any,
@@ -34,11 +36,17 @@ use std::{
 };
 
 pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
-    CString::new(s.as_ref()).unwrap()
+    CString::new(s.as_ref()).expect("Bytes being converted to a C string already contains a null byte")
 }
 
-pub(crate) unsafe fn str(p: *const i8) -> String {
-    CStr::from_ptr(p).to_str().unwrap().to_string()
+/// Take a malloc'd c string and convert it to a native String
+pub(crate) unsafe fn take_cstr(p: *const i8) -> String {
+    let s = CStr::from_ptr(p)
+        .to_str()
+        .expect("C string being converted to Rust String contains invalid UTF-8")
+        .to_string();
+    libc::free(p as *mut libc::c_void);
+    s
 }
 
 /// Rust version of the return type from `swss::Select::select`.
@@ -130,12 +138,15 @@ impl Display for InvalidKeyOperationString {
 
 impl Error for InvalidKeyOperationString {}
 
+/// Rust version of `vector<swss::FieldValueTuple>`.
+pub type FieldValues = HashMap<String, CxxString>;
+
 /// Rust version of `swss::KeyOpFieldsValuesTuple`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyOpFieldValues {
     pub key: String,
     pub operation: KeyOperation,
-    pub field_values: HashMap<String, CxxString>,
+    pub field_values: FieldValues,
 }
 
 /// Intended for testing, ordered by key.
@@ -153,12 +164,12 @@ impl Ord for KeyOpFieldValues {
 }
 
 /// Takes ownership of an `SWSSFieldValueArray` and turns it into a native representation.
-pub(crate) unsafe fn take_field_value_array(arr: SWSSFieldValueArray) -> HashMap<String, CxxString> {
+pub(crate) unsafe fn take_field_value_array(arr: SWSSFieldValueArray) -> FieldValues {
     let mut out = HashMap::with_capacity(arr.len as usize);
     if !arr.data.is_null() {
         let entries = slice::from_raw_parts_mut(arr.data, arr.len as usize);
         for fv in entries {
-            let field = str(fv.field);
+            let field = take_cstr(fv.field);
             let value = CxxString::take_raw(&mut fv.value).unwrap();
             out.insert(field, value);
         }
@@ -174,7 +185,7 @@ pub(crate) unsafe fn take_key_op_field_values_array(kfvs: SWSSKeyOpFieldValuesAr
         unsafe {
             let entries = slice::from_raw_parts_mut(kfvs.data, kfvs.len as usize);
             for kfv in entries {
-                let key = str(kfv.key);
+                let key = take_cstr(kfv.key);
                 let operation = KeyOperation::from_raw(kfv.operation);
                 let field_values = take_field_value_array(kfv.fieldValues);
                 out.push(KeyOpFieldValues {
@@ -186,6 +197,18 @@ pub(crate) unsafe fn take_key_op_field_values_array(kfvs: SWSSKeyOpFieldValuesAr
             SWSSKeyOpFieldValuesArray_free(kfvs);
         };
     }
+    out
+}
+
+/// Takes ownership of an `SWSSStringArray` and turns it into a native representation.
+pub(crate) unsafe fn take_string_array(arr: SWSSStringArray) -> Vec<String> {
+    let out = if !arr.data.is_null() {
+        let entries = slice::from_raw_parts(arr.data, arr.len as usize);
+        Vec::from_iter(entries.iter().map(|&s| take_cstr(s)))
+    } else {
+        Vec::new()
+    };
+    SWSSStringArray_free(arr);
     out
 }
 
