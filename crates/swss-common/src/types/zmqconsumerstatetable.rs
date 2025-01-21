@@ -24,7 +24,7 @@ impl ZmqConsumerStateTable {
         let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let ptr = unsafe {
-            Exception::try1(|p_zs| {
+            swss_try!(p_zs => {
                 SWSSZmqConsumerStateTable_new(db.ptr, table_name.as_ptr(), zmqs.ptr, pop_batch_size, pri, p_zs)
             })?
         };
@@ -39,7 +39,7 @@ impl ZmqConsumerStateTable {
 
     pub fn pops(&self) -> Result<Vec<KeyOpFieldValues>> {
         unsafe {
-            let arr = Exception::try1(|p_arr| SWSSZmqConsumerStateTable_pops(self.ptr, p_arr))?;
+            let arr = swss_try!(p_arr => SWSSZmqConsumerStateTable_pops(self.ptr, p_arr))?;
             Ok(take_key_op_field_values_array(arr))
         }
     }
@@ -48,7 +48,7 @@ impl ZmqConsumerStateTable {
         // SAFETY: This fd represents the underlying zmq socket, which should remain alive as long as there
         // is a listener (i.e. a ZmqConsumerStateTable)
         unsafe {
-            let fd = Exception::try1(|p_fd| SWSSZmqConsumerStateTable_getFd(self.ptr, p_fd))?;
+            let fd = swss_try!(p_fd => SWSSZmqConsumerStateTable_getFd(self.ptr, p_fd))?;
             let fd = BorrowedFd::borrow_raw(fd.try_into().unwrap());
             Ok(fd)
         }
@@ -57,9 +57,9 @@ impl ZmqConsumerStateTable {
     pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> Result<SelectResult> {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
         let res = unsafe {
-            Exception::try1(|p_res| {
+            swss_try!(p_res =>
                 SWSSZmqConsumerStateTable_readData(self.ptr, timeout_ms, interrupt_on_signal as u8, p_res)
-            })?
+            )?
         };
         Ok(SelectResult::from_raw(res))
     }
@@ -74,7 +74,7 @@ pub(crate) struct DropGuard(SWSSZmqConsumerStateTable);
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        unsafe { Exception::try0(SWSSZmqConsumerStateTable_free(self.0)).expect("Dropping ZmqConsumerStateTable") };
+        unsafe { swss_try!(SWSSZmqConsumerStateTable_free(self.0)).expect("Dropping ZmqConsumerStateTable") };
     }
 }
 

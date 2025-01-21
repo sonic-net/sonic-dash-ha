@@ -11,7 +11,7 @@ pub struct Table {
 impl Table {
     pub fn new(db: DbConnector, table_name: &str) -> Result<Self> {
         let table_name = cstr(table_name);
-        let ptr = unsafe { Exception::try1(|p_tbl| SWSSTable_new(db.ptr, table_name.as_ptr(), p_tbl))? };
+        let ptr = unsafe { swss_try!(p_tbl => SWSSTable_new(db.ptr, table_name.as_ptr(), p_tbl))? };
         Ok(Self { ptr, _db: db })
     }
 
@@ -21,7 +21,7 @@ impl Table {
             len: 0,
             data: ptr::null_mut(),
         };
-        let exists = unsafe { Exception::try1(|p_exists| SWSSTable_get(self.ptr, key.as_ptr(), &mut arr, p_exists))? };
+        let exists = unsafe { swss_try!(p_exists => SWSSTable_get(self.ptr, key.as_ptr(), &mut arr, p_exists))? };
         let maybe_fvs = if exists == 1 {
             Some(unsafe { take_field_value_array(arr) })
         } else {
@@ -35,10 +35,10 @@ impl Table {
         let field = cstr(field);
         let mut val: SWSSString = ptr::null_mut();
         let exists = unsafe {
-            Exception::try1(|p_exists| SWSSTable_hget(self.ptr, key.as_ptr(), field.as_ptr(), &mut val, p_exists))?
+            swss_try!(p_exists => SWSSTable_hget(self.ptr, key.as_ptr(), field.as_ptr(), &mut val, p_exists))?
         };
         let maybe_fvs = if exists == 1 {
-            Some(unsafe { CxxString::take_raw(&mut val).unwrap() })
+            Some(unsafe { CxxString::take(val).unwrap() })
         } else {
             None
         };
@@ -53,29 +53,29 @@ impl Table {
     {
         let key = cstr(key);
         let (arr, _k) = make_field_value_array(fvs);
-        unsafe { Exception::try0(SWSSTable_set(self.ptr, key.as_ptr(), arr)) }
+        unsafe { swss_try!(SWSSTable_set(self.ptr, key.as_ptr(), arr)) }
     }
 
     pub fn hset(&self, key: &str, field: &str, val: &CxxStr) -> Result<()> {
         let key = cstr(key);
         let field = cstr(field);
-        unsafe { Exception::try0(SWSSTable_hset(self.ptr, key.as_ptr(), field.as_ptr(), val.as_raw())) }
+        unsafe { swss_try!(SWSSTable_hset(self.ptr, key.as_ptr(), field.as_ptr(), val.as_raw())) }
     }
 
     pub fn del(&self, key: &str) -> Result<()> {
         let key = cstr(key);
-        unsafe { Exception::try0(SWSSTable_del(self.ptr, key.as_ptr())) }
+        unsafe { swss_try!(SWSSTable_del(self.ptr, key.as_ptr())) }
     }
 
     pub fn hdel(&self, key: &str, field: &str) -> Result<()> {
         let key = cstr(key);
         let field = cstr(field);
-        unsafe { Exception::try0(SWSSTable_hdel(self.ptr, key.as_ptr(), field.as_ptr())) }
+        unsafe { swss_try!(SWSSTable_hdel(self.ptr, key.as_ptr(), field.as_ptr())) }
     }
 
     pub fn get_keys(&self) -> Result<Vec<String>> {
         unsafe {
-            let arr = Exception::try1(|p_arr| SWSSTable_getKeys(self.ptr, p_arr))?;
+            let arr = swss_try!(p_arr => SWSSTable_getKeys(self.ptr, p_arr))?;
             Ok(take_string_array(arr))
         }
     }
@@ -83,7 +83,7 @@ impl Table {
 
 impl Drop for Table {
     fn drop(&mut self) {
-        unsafe { Exception::try0(SWSSTable_free(self.ptr)).expect("Dropping Table") };
+        unsafe { swss_try!(SWSSTable_free(self.ptr)).expect("Dropping Table") };
     }
 }
 

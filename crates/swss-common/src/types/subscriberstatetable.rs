@@ -15,7 +15,7 @@ impl SubscriberStateTable {
         let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let ptr = unsafe {
-            Exception::try1(|p_sst| {
+            swss_try!(p_sst => {
                 SWSSSubscriberStateTable_new(db.ptr, table_name.as_ptr(), pop_batch_size, pri, p_sst)
             })?
         };
@@ -24,7 +24,7 @@ impl SubscriberStateTable {
 
     pub fn pops(&self) -> Result<Vec<KeyOpFieldValues>> {
         unsafe {
-            let arr = Exception::try1(|p_arr| SWSSSubscriberStateTable_pops(self.ptr, p_arr))?;
+            let arr = swss_try!(p_arr => SWSSSubscriberStateTable_pops(self.ptr, p_arr))?;
             Ok(take_key_op_field_values_array(arr))
         }
     }
@@ -32,7 +32,7 @@ impl SubscriberStateTable {
     pub fn read_data(&self, timeout: Duration, interrupt_on_signal: bool) -> Result<SelectResult> {
         let timeout_ms = timeout.as_millis().try_into().unwrap();
         let res = unsafe {
-            Exception::try1(|p_res| {
+            swss_try!(p_res => {
                 SWSSSubscriberStateTable_readData(self.ptr, timeout_ms, interrupt_on_signal as u8, p_res)
             })?
         };
@@ -43,7 +43,7 @@ impl SubscriberStateTable {
         // SAFETY: This fd represents the underlying redis connection, which should stay alive
         // as long as the DbConnector does.
         unsafe {
-            let fd = Exception::try1(|p_fd| SWSSSubscriberStateTable_getFd(self.ptr, p_fd))?;
+            let fd = swss_try!(p_fd => SWSSSubscriberStateTable_getFd(self.ptr, p_fd))?;
             let fd = BorrowedFd::borrow_raw(fd.try_into().unwrap());
             Ok(fd)
         }
@@ -52,7 +52,7 @@ impl SubscriberStateTable {
 
 impl Drop for SubscriberStateTable {
     fn drop(&mut self) {
-        unsafe { Exception::try0(SWSSSubscriberStateTable_free(self.ptr)).expect("Dropping SubscriberStateTable") };
+        unsafe { swss_try!(SWSSSubscriberStateTable_free(self.ptr)).expect("Dropping SubscriberStateTable") };
     }
 }
 

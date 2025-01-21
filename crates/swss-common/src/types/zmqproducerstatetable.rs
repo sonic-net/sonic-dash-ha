@@ -14,9 +14,9 @@ impl ZmqProducerStateTable {
         let table_name = cstr(table_name);
         let db_persistence = db_persistence as u8;
         let ptr = unsafe {
-            Exception::try1(|p_zpst| {
+            swss_try!(p_zpst =>
                 SWSSZmqProducerStateTable_new(db.ptr, table_name.as_ptr(), zmqc.ptr, db_persistence, p_zpst)
-            })?
+            )?
         };
         Ok(Self {
             ptr,
@@ -33,16 +33,16 @@ impl ZmqProducerStateTable {
     {
         let key = cstr(key);
         let (arr, _k) = make_field_value_array(fvs);
-        unsafe { Exception::try0(SWSSZmqProducerStateTable_set(self.ptr, key.as_ptr(), arr)) }
+        unsafe { swss_try!(SWSSZmqProducerStateTable_set(self.ptr, key.as_ptr(), arr)) }
     }
 
     pub fn del(&self, key: &str) -> Result<()> {
         let key = cstr(key);
-        unsafe { Exception::try0(SWSSZmqProducerStateTable_del(self.ptr, key.as_ptr())) }
+        unsafe { swss_try!(SWSSZmqProducerStateTable_del(self.ptr, key.as_ptr())) }
     }
 
     pub fn db_updater_queue_size(&self) -> Result<u64> {
-        unsafe { Exception::try1(|p_size| SWSSZmqProducerStateTable_dbUpdaterQueueSize(self.ptr, p_size)) }
+        unsafe { swss_try!(p_size => SWSSZmqProducerStateTable_dbUpdaterQueueSize(self.ptr, p_size)) }
     }
 }
 

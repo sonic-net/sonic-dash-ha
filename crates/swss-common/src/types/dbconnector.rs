@@ -27,14 +27,12 @@ impl DbConnector {
             DbConnectionInfo::Tcp { hostname, port } => {
                 let hostname = cstr(hostname);
                 unsafe {
-                    Exception::try1(|p_db| SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), *port, timeout_ms, p_db))?
+                    swss_try!(p_db => SWSSDBConnector_new_tcp(db_id, hostname.as_ptr(), *port, timeout_ms, p_db))?
                 }
             }
             DbConnectionInfo::Unix { sock_path } => {
                 let sock_path = cstr(sock_path);
-                unsafe {
-                    Exception::try1(|p_db| SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout_ms, p_db))?
-                }
+                unsafe { swss_try!(p_db => SWSSDBConnector_new_unix(db_id, sock_path.as_ptr(), timeout_ms, p_db))? }
             }
         };
 
@@ -74,35 +72,34 @@ impl DbConnector {
 
     pub fn del(&self, key: &str) -> Result<bool> {
         let key = cstr(key);
-        let status = unsafe { Exception::try1(|p_status| SWSSDBConnector_del(self.ptr, key.as_ptr(), p_status))? };
+        let status = unsafe { swss_try!(p_status => SWSSDBConnector_del(self.ptr, key.as_ptr(), p_status))? };
         Ok(status == 1)
     }
 
     pub fn set(&self, key: &str, val: &CxxStr) -> Result<()> {
         let key = cstr(key);
-        unsafe { Exception::try0(SWSSDBConnector_set(self.ptr, key.as_ptr(), val.as_raw())) }
+        unsafe { swss_try!(SWSSDBConnector_set(self.ptr, key.as_ptr(), val.as_raw())) }
     }
 
     pub fn get(&self, key: &str) -> Result<Option<CxxString>> {
         let key = cstr(key);
         unsafe {
-            let mut ans = Exception::try1(|p_ans| SWSSDBConnector_get(self.ptr, key.as_ptr(), p_ans))?;
-            Ok(CxxString::take_raw(&mut ans))
+            let ans = swss_try!(p_ans => SWSSDBConnector_get(self.ptr, key.as_ptr(), p_ans))?;
+            Ok(CxxString::take(ans))
         }
     }
 
     pub fn exists(&self, key: &str) -> Result<bool> {
         let key = cstr(key);
-        let status = unsafe { Exception::try1(|p_status| SWSSDBConnector_exists(self.ptr, key.as_ptr(), p_status))? };
+        let status = unsafe { swss_try!(p_status => SWSSDBConnector_exists(self.ptr, key.as_ptr(), p_status))? };
         Ok(status == 1)
     }
 
     pub fn hdel(&self, key: &str, field: &str) -> Result<bool> {
         let key = cstr(key);
         let field = cstr(field);
-        let status = unsafe {
-            Exception::try1(|p_status| SWSSDBConnector_hdel(self.ptr, key.as_ptr(), field.as_ptr(), p_status))?
-        };
+        let status =
+            unsafe { swss_try!(p_status => SWSSDBConnector_hdel(self.ptr, key.as_ptr(), field.as_ptr(), p_status))? };
         Ok(status == 1)
     }
 
@@ -110,7 +107,7 @@ impl DbConnector {
         let key = cstr(key);
         let field = cstr(field);
         unsafe {
-            Exception::try0(SWSSDBConnector_hset(
+            swss_try!(SWSSDBConnector_hset(
                 self.ptr,
                 key.as_ptr(),
                 field.as_ptr(),
@@ -123,15 +120,15 @@ impl DbConnector {
         let key = cstr(key);
         let field = cstr(field);
         unsafe {
-            let mut ans = Exception::try1(|p_ans| SWSSDBConnector_hget(self.ptr, key.as_ptr(), field.as_ptr(), p_ans))?;
-            Ok(CxxString::take_raw(&mut ans))
+            let ans = swss_try!(p_ans => SWSSDBConnector_hget(self.ptr, key.as_ptr(), field.as_ptr(), p_ans))?;
+            Ok(CxxString::take(ans))
         }
     }
 
     pub fn hgetall(&self, key: &str) -> Result<HashMap<String, CxxString>> {
         let key = cstr(key);
         unsafe {
-            let arr = Exception::try1(|p_arr| SWSSDBConnector_hgetall(self.ptr, key.as_ptr(), p_arr))?;
+            let arr = swss_try!(p_arr => SWSSDBConnector_hgetall(self.ptr, key.as_ptr(), p_arr))?;
             Ok(take_field_value_array(arr))
         }
     }
@@ -140,20 +137,20 @@ impl DbConnector {
         let key = cstr(key);
         let field = cstr(field);
         let status = unsafe {
-            Exception::try1(|p_status| SWSSDBConnector_hexists(self.ptr, key.as_ptr(), field.as_ptr(), p_status))?
+            swss_try!(p_status => SWSSDBConnector_hexists(self.ptr, key.as_ptr(), field.as_ptr(), p_status))?
         };
         Ok(status == 1)
     }
 
     pub fn flush_db(&self) -> Result<bool> {
-        let status = unsafe { Exception::try1(|p_status| SWSSDBConnector_flushdb(self.ptr, p_status))? };
+        let status = unsafe { swss_try!(p_status => SWSSDBConnector_flushdb(self.ptr, p_status))? };
         Ok(status == 1)
     }
 }
 
 impl Drop for DbConnector {
     fn drop(&mut self) {
-        unsafe { Exception::try0(SWSSDBConnector_free(self.ptr)).expect("Dropping DbConnector") };
+        unsafe { swss_try!(SWSSDBConnector_free(self.ptr)).expect("Dropping DbConnector") };
     }
 }
 
