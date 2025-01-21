@@ -35,10 +35,10 @@ macro_rules! impl_read_data_async {
         pub async fn read_data_async(&mut self) -> ::std::io::Result<()> {
             use ::tokio::io::{unix::AsyncFd, Interest};
 
-            let _ready_guard = AsyncFd::with_interest(self.get_fd(), Interest::READABLE)?
-                .readable()
-                .await?;
-            self.read_data(Duration::from_secs(0), false);
+            let fd = self.get_fd().map_err(::std::io::Error::other)?;
+            let _ready_guard = AsyncFd::with_interest(fd, Interest::READABLE)?.readable().await?;
+            self.read_data(Duration::from_secs(0), false)
+                .map_err(::std::io::Error::other)?;
             Ok(())
         }
     };
