@@ -52,7 +52,7 @@ impl Redis {
     }
 
     pub fn db_connector(&self) -> DbConnector {
-        DbConnector::new_unix(0, &self.sock, 0)
+        DbConnector::new_unix(0, &self.sock, 0).unwrap()
     }
 }
 

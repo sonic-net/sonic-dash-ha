@@ -3,9 +3,8 @@ use std::{
     borrow::{Borrow, Cow},
     fmt::Debug,
     hash::Hash,
-    mem,
     ops::Deref,
-    ptr::{self, NonNull},
+    ptr::NonNull,
     slice,
     str::Utf8Error,
 };
@@ -18,11 +17,10 @@ pub struct CxxString {
 }
 
 impl CxxString {
-    /// Take the object and replace the argument with null.
-    /// This is to avoid copying the pointer and later double-freeing it.
-    /// This takes advantage of the fact that SWSSString_free specifically permits freeing a null SWSSString.
-    pub(crate) unsafe fn take_raw(s: &mut SWSSString) -> Option<CxxString> {
-        let s = mem::replace(s, ptr::null_mut());
+    /// Construct a CxxString from an SWSSString.
+    /// The `CxxString` is now responsible for freeing the string, so it should not be freed manually.
+    /// Returns `None` if `s` is null.
+    pub(crate) unsafe fn take(s: SWSSString) -> Option<CxxString> {
         NonNull::new(s).map(|ptr| CxxString { ptr })
     }
 
@@ -36,8 +34,7 @@ impl CxxString {
         unsafe {
             let ptr = data.as_ref().as_ptr() as *const i8;
             let len = data.as_ref().len().try_into().unwrap();
-            let mut obj = SWSSString_new(ptr, len);
-            CxxString::take_raw(&mut obj).unwrap()
+            CxxString::take(SWSSString_new(ptr, len)).unwrap()
         }
     }
 

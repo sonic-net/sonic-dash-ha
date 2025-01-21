@@ -4,6 +4,7 @@ mod async_util;
 mod consumerstatetable;
 mod cxxstring;
 mod dbconnector;
+mod exception;
 mod producerstatetable;
 mod subscriberstatetable;
 mod table;
@@ -15,6 +16,7 @@ mod zmqserver;
 pub use consumerstatetable::ConsumerStateTable;
 pub use cxxstring::{CxxStr, CxxString};
 pub use dbconnector::{DbConnectionInfo, DbConnector};
+pub use exception::{Exception, Result};
 pub use producerstatetable::ProducerStateTable;
 pub use subscriberstatetable::SubscriberStateTable;
 pub use table::Table;
@@ -22,6 +24,8 @@ pub use zmqclient::ZmqClient;
 pub use zmqconsumerstatetable::ZmqConsumerStateTable;
 pub use zmqproducerstatetable::ZmqProducerStateTable;
 pub use zmqserver::ZmqServer;
+
+pub(crate) use exception::swss_try;
 
 use crate::bindings::*;
 use cxxstring::RawMutableSWSSString;
@@ -167,10 +171,10 @@ impl Ord for KeyOpFieldValues {
 pub(crate) unsafe fn take_field_value_array(arr: SWSSFieldValueArray) -> FieldValues {
     let mut out = HashMap::with_capacity(arr.len as usize);
     if !arr.data.is_null() {
-        let entries = slice::from_raw_parts_mut(arr.data, arr.len as usize);
+        let entries = slice::from_raw_parts(arr.data, arr.len as usize);
         for fv in entries {
             let field = take_cstr(fv.field);
-            let value = CxxString::take_raw(&mut fv.value).unwrap();
+            let value = CxxString::take(fv.value).unwrap();
             out.insert(field, value);
         }
         SWSSFieldValueArray_free(arr);
@@ -183,7 +187,7 @@ pub(crate) unsafe fn take_key_op_field_values_array(kfvs: SWSSKeyOpFieldValuesAr
     let mut out = Vec::with_capacity(kfvs.len as usize);
     if !kfvs.data.is_null() {
         unsafe {
-            let entries = slice::from_raw_parts_mut(kfvs.data, kfvs.len as usize);
+            let entries = slice::from_raw_parts(kfvs.data, kfvs.len as usize);
             for kfv in entries {
                 let key = take_cstr(kfv.key);
                 let operation = KeyOperation::from_raw(kfv.operation);
