@@ -1,0 +1,24 @@
+[package]
+name = "sonicdb-macro"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+syn = "2.0"         # For parsing Rust code
+quote = "1.0"       # For generating Rust code
+proc-macro2 = "1.0" # For working with procedural macros
+swss-common.workspace = true
+sonicdb-serde.workspace = true
+[lib]
+proc-macro = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+rand = "0.8.5"
