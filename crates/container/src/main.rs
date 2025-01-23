@@ -68,7 +68,9 @@ fn read_data(db_connector: &DbConnector, feature: &str, fields: &mut HashMap<&st
         table_name = "FEATURE";
     }
 
-    let data = db_connector.hgetall(&format!("{}|{}", table_name, feature)).expect("Unable to get data");
+    let data = db_connector
+        .hgetall(&format!("{}|{}", table_name, feature))
+        .expect("Unable to get data");
     for (field, default) in fields.iter_mut() {
         match data.get(field as &str) {
             Some(value) => *default = value.to_str().unwrap().to_string(),
@@ -146,7 +148,10 @@ fn initialize_connection() -> DbConnections {
 }
 
 fn get_container_id<'a>(feature: &'a str, db_connections: &DbConnections) -> Cow<'a, str> {
-    let data = db_connections.state_db.hgetall(&format!("FEATURE|{}", feature)).expect("Unable to get data");
+    let data = db_connections
+        .state_db
+        .hgetall(&format!("FEATURE|{}", feature))
+        .expect("Unable to get data");
     if data.get(CURRENT_OWNER).map_or("", |value| value.to_str().unwrap()) == "local" {
         return Cow::Borrowed(feature);
     } else {
