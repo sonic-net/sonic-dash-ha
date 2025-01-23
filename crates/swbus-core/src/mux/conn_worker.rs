@@ -10,7 +10,7 @@ use swbus_proto::swbus::*;
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
-use tracing::{error, info};
+use tracing::*;
 
 pub struct SwbusConnWorker<T>
 where
@@ -49,12 +49,16 @@ where
         self.shutdown_ct.cancel();
     }
 
+    #[instrument(name="ConnWorker", skip(self), fields(conn_id=self.info.id()))]
     pub async fn run(&mut self) -> Result<()> {
+        info!("Starting connection worker");
         self.register_to_mux()?;
         let result = self.run_worker_loop().await;
         // unregister from mux
+        info!("Unregistering from mux.");
         self.unregister_from_mux()?;
         if result.is_err() {
+            info!("Reporting connection lost.");
             self.conn_store.conn_lost(self.info.clone());
         }
         result
@@ -115,7 +119,9 @@ where
         Ok(())
     }
 
+    #[instrument(name="receive_msg", level="debug", skip_all, fields(message.id=message.header.as_ref().unwrap().id))]
     async fn process_data_message(&mut self, message: SwbusMessage) -> Result<()> {
+        debug!("{:?}", &message);
         self.validate_message_common(&message)?;
         match message.body {
             Some(swbus_message::Body::TraceRouteRequest(_)) => {

@@ -1447,6 +1447,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1514,10 +1515,12 @@ name = "swbusd"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "sonic-common",
  "swbus-core",
  "tokio",
  "tokio-stream",
  "tonic",
+ "tracing",
 ]
 
 [[package]]

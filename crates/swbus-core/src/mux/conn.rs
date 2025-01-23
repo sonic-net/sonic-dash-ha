@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status, Streaming};
-use tracing::error;
+use tracing::*;
 
 #[derive(Debug)]
 pub struct SwbusConn {
@@ -76,7 +76,7 @@ impl SwbusConn {
         let channel = match endpoint.connect().await {
             Ok(c) => c,
             Err(e) => {
-                error!("Failed to connect: {}.", e);
+                debug!("Failed to connect: {}.", e);
                 return Err(SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
                     io::Error::new(io::ErrorKind::ConnectionReset, e.to_string()),
