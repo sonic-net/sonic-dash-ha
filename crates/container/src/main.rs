@@ -163,7 +163,7 @@ fn get_container_id<'a>(feature: &'a str, db_connections: &DbConnections) -> Cow
 
 fn container_id(feature: &str) {
     let db_connections = initialize_connection();
-    println!("{}\n", get_container_id(feature, &db_connections));
+    println!("{}", get_container_id(feature, &db_connections));
 }
 
 #[derive(enumset::EnumSetType, Debug)]
