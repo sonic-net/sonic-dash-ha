@@ -89,6 +89,14 @@ impl DbConnector {
         }
     }
 
+    pub fn keys(&self, key: &str) -> Result<Vec<String>> {
+        let key = cstr(key);
+        unsafe {
+            let arr = Exception::try1(|p_arr| SWSSDBConnector_keys(self.ptr, key.as_ptr(), p_arr))?;
+            Ok(take_string_array(arr))
+        }
+    }
+
     pub fn exists(&self, key: &str) -> Result<bool> {
         let key = cstr(key);
         let status = unsafe { swss_try!(p_status => SWSSDBConnector_exists(self.ptr, key.as_ptr(), p_status))? };

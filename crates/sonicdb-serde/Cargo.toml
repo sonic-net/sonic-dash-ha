@@ -1,0 +1,16 @@
+[package]
+name = "sonicdb-serde"
+description = "SONiC DB Serializer/Deserializer"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+swss-common.workspace = true
+
+[lints]
+workspace = true
