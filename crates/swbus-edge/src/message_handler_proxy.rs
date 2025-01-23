@@ -5,17 +5,12 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc::Sender;
 
 pub struct SwbusMessageHandlerProxy {
-    scope: RouteScope,
     tx: Sender<SwbusMessage>,
 }
 
 impl SwbusMessageHandlerProxy {
-    pub fn new(tx: Sender<SwbusMessage>, scope: RouteScope) -> Self {
-        Self { tx, scope }
-    }
-
-    pub fn scope(&self) -> RouteScope {
-        self.scope
+    pub fn new(tx: Sender<SwbusMessage>) -> Self {
+        Self { tx }
     }
 
     pub async fn send(&self, message: SwbusMessage) -> Result<()> {

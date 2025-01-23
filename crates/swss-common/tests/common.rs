@@ -45,14 +45,14 @@ impl Redis {
             if stdout.read_line(&mut buf).unwrap() == 0 {
                 panic!("Redis didn't start");
             }
-            if buf.contains("ready to accept connections") {
+            if buf.contains("eady to accept connections") {
                 break Self { proc: child, sock };
             }
         }
     }
 
     pub fn db_connector(&self) -> DbConnector {
-        DbConnector::new_unix(0, &self.sock, 0)
+        DbConnector::new_unix(0, &self.sock, 0).unwrap()
     }
 }
 
@@ -119,18 +119,24 @@ pub fn random_cxx_string() -> CxxString {
     CxxString::new(random_string())
 }
 
+pub fn random_fvs() -> FieldValues {
+    let mut field_values = HashMap::new();
+    for _ in 0..rand::thread_rng().gen_range(100..1000) {
+        field_values.insert(random_string(), random_cxx_string());
+    }
+    field_values
+}
+
 pub fn random_kfv() -> KeyOpFieldValues {
     let key = random_string();
     let operation = if random() { KeyOperation::Set } else { KeyOperation::Del };
-    let mut field_values = HashMap::new();
-
-    if operation == KeyOperation::Set {
+    let field_values = if operation == KeyOperation::Set {
         // We need at least one field-value pair, otherwise swss::BinarySerializer infers that
         // the operation is DEL even if the .operation field is SET
-        for _ in 0..rand::thread_rng().gen_range(100..1000) {
-            field_values.insert(random_string(), random_cxx_string());
-        }
-    }
+        random_fvs()
+    } else {
+        HashMap::new()
+    };
 
     KeyOpFieldValues {
         key,

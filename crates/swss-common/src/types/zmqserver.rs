@@ -1,5 +1,5 @@
 use super::*;
-use crate::*;
+use crate::bindings::*;
 use std::sync::Arc;
 
 /// Rust wrapper around `swss::ZmqServer`.
@@ -16,13 +16,13 @@ pub struct ZmqServer {
 }
 
 impl ZmqServer {
-    pub fn new(endpoint: &str) -> Self {
+    pub fn new(endpoint: &str) -> Result<Self> {
         let endpoint = cstr(endpoint);
-        let obj = unsafe { SWSSZmqServer_new(endpoint.as_ptr()) };
-        Self {
-            ptr: obj,
+        let ptr = unsafe { swss_try!(p_zs => SWSSZmqServer_new(endpoint.as_ptr(), p_zs))? };
+        Ok(Self {
+            ptr,
             message_handler_guards: Vec::new(),
-        }
+        })
     }
 
     pub(crate) fn register_consumer_state_table(&mut self, tbl_dg: Arc<zmqconsumerstatetable::DropGuard>) {

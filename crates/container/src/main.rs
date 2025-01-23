@@ -27,7 +27,6 @@ const CURRENT_OWNER: &str = "current_owner";
 const UPD_TIMESTAMP: &str = "update_time";
 const CONTAINER_ID: &str = "container_id";
 const REMOTE_STATE: &str = "remote_state";
-const VERSION: &str = "container_version";
 const SYSTEM_STATE: &str = "system_state";
 const STATE: &str = "state";
 const ST_FEAT_CTR_STABLE_VER: &str = "container_stable_version";
@@ -61,7 +60,7 @@ fn get_config_data(field: &str) -> Option<serde_json::Value> {
         .and_then(|value| Some(value.clone()))
 }
 
-fn read_data(db_connector: &DbConnector, feature: &String, fields: &mut HashMap<&str, String>) {
+fn read_data(db_connector: &DbConnector, feature: &str, fields: &mut HashMap<&str, String>) {
     let table_name: &str;
     if feature == SERVER_KEY {
         table_name = "KUBERNETES_MASTER";
@@ -69,7 +68,7 @@ fn read_data(db_connector: &DbConnector, feature: &String, fields: &mut HashMap<
         table_name = "FEATURE";
     }
 
-    let data = db_connector.hgetall(&format!("{}|{}", table_name, feature));
+    let data = db_connector.hgetall(&format!("{}|{}", table_name, feature)).expect("Unable to get data");
     for (field, default) in fields.iter_mut() {
         match data.get(field as &str) {
             Some(value) => *default = value.to_str().unwrap().to_string(),
@@ -78,7 +77,7 @@ fn read_data(db_connector: &DbConnector, feature: &String, fields: &mut HashMap<
     }
 }
 
-fn read_config(db_connections: &DbConnections, feature: &String) -> HashMap<&'static str, String> {
+fn read_config(db_connections: &DbConnections, feature: &str) -> HashMap<&'static str, String> {
     let mut fields: HashMap<&str, String> = HashMap::from([
         (SET_OWNER, "local".to_string()),
         (NO_FALLBACK, "False".to_string()),
@@ -88,7 +87,7 @@ fn read_config(db_connections: &DbConnections, feature: &String) -> HashMap<&'st
     fields
 }
 
-fn read_state(db_connections: &DbConnections, feature: &String) -> HashMap<&'static str, String> {
+fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static str, String> {
     let mut fields: HashMap<&str, String> = HashMap::from([
         (CURRENT_OWNER, "local".to_string()),
         (REMOTE_STATE, "none".to_string()),
@@ -98,19 +97,19 @@ fn read_state(db_connections: &DbConnections, feature: &String) -> HashMap<&'sta
     fields
 }
 
-fn set_label(db_connections: &DbConnections, feature: &String, create: bool) {
+fn set_label(db_connections: &DbConnections, feature: &str, create: bool) {
     if db_connections.remote_ctr_enabled {
         todo!();
     }
 }
 
-fn update_data(db_connections: &DbConnections, feature: &String, data: &HashMap<&str, String>) {
+fn update_data(db_connections: &DbConnections, feature: &str, data: &HashMap<&str, String>) {
     if db_connections.remote_ctr_enabled {
         todo!();
     }
 }
 
-fn container_version(docker: &Docker, feature: &String) -> String {
+fn container_version(docker: &Docker, feature: &str) -> String {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -140,14 +139,14 @@ fn container_version(docker: &Docker, feature: &String) -> String {
 
 fn initialize_connection() -> DbConnections {
     DbConnections {
-        config_db: DbConnector::new_tcp(4, "localhost", 6379, 0),
-        state_db: DbConnector::new_tcp(6, "localhost", 6379, 0),
+        config_db: DbConnector::new_tcp(4, "localhost", 6379, 0).expect("Unable to connect to Redis DB"),
+        state_db: DbConnector::new_tcp(6, "localhost", 6379, 0).expect("Unable to connect to Redis DB"),
         remote_ctr_enabled: false,
     }
 }
 
-fn get_container_id<'a>(feature: &'a String, db_connections: &DbConnections) -> Cow<'a, String> {
-    let data = db_connections.state_db.hgetall(&format!("FEATURE|{}", feature));
+fn get_container_id<'a>(feature: &'a str, db_connections: &DbConnections) -> Cow<'a, str> {
+    let data = db_connections.state_db.hgetall(&format!("FEATURE|{}", feature)).expect("Unable to get data");
     if data.get(CURRENT_OWNER).map_or("", |value| value.to_str().unwrap()) == "local" {
         return Cow::Borrowed(feature);
     } else {
@@ -157,7 +156,7 @@ fn get_container_id<'a>(feature: &'a String, db_connections: &DbConnections) -> 
     }
 }
 
-fn container_id(feature: &String) {
+fn container_id(feature: &str) {
     let db_connections = initialize_connection();
     println!("{}\n", get_container_id(feature, &db_connections));
 }
@@ -168,11 +167,11 @@ enum StartFlags {
     StartKube,
 }
 
-fn container_start(feature: &String) {
+fn container_start(feature: &str) {
     let db_connections = initialize_connection();
 
-    let feature_config = read_config(&db_connections, &feature);
-    let feature_state = read_state(&db_connections, &feature);
+    let feature_config = read_config(&db_connections, feature);
+    let feature_state = read_state(&db_connections, feature);
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     let mut data: HashMap<&str, String> = HashMap::from([(SYSTEM_STATE, "up".to_string()), (UPD_TIMESTAMP, timestamp)]);
@@ -190,7 +189,7 @@ fn container_start(feature: &String) {
 
     if start_val & StartFlags::StartLocal != enumset::EnumSet::empty() {
         data.insert(CURRENT_OWNER, "local".to_string());
-        data.insert(CONTAINER_ID, feature.clone());
+        data.insert(CONTAINER_ID, feature.to_string());
         if start_val == StartFlags::StartLocal {
             set_label(&db_connections, &feature, false);
             data.insert(REMOTE_STATE, "none".to_string());
@@ -217,8 +216,8 @@ fn container_start(feature: &String) {
 fn container_stop(feature: &String, timeout: Option<i64>) {
     let db_connections = initialize_connection();
 
-    let feature_config = read_config(&db_connections, &feature);
-    let feature_state = read_state(&db_connections, &feature);
+    let feature_config = read_config(&db_connections, feature);
+    let feature_state = read_state(&db_connections, feature);
     let docker_id = get_container_id(feature, &db_connections);
 
     let docker = Docker::connect_with_local_defaults().unwrap();
@@ -251,11 +250,11 @@ fn container_stop(feature: &String, timeout: Option<i64>) {
     update_data(&db_connections, &feature, &data);
 }
 
-fn container_kill(feature: &String) {
+fn container_kill(feature: &str) {
     let db_connections = initialize_connection();
 
-    let feature_config = read_config(&db_connections, &feature);
-    let feature_state = read_state(&db_connections, &feature);
+    let feature_config = read_config(&db_connections, feature);
+    let feature_state = read_state(&db_connections, feature);
     let docker_id = get_container_id(feature, &db_connections);
     let remove_label =
         (feature_config.get(SET_OWNER).unwrap() != "local") || (feature_state.get(CURRENT_OWNER).unwrap() != "local");
@@ -284,11 +283,11 @@ fn container_kill(feature: &String) {
     }
 }
 
-fn container_wait(feature: &String) {
+fn container_wait(feature: &str) {
     let db_connections = initialize_connection();
 
-    let feature_config = read_config(&db_connections, &feature);
-    let mut feature_state = read_state(&db_connections, &feature);
+    let feature_config = read_config(&db_connections, feature);
+    let mut feature_state = read_state(&db_connections, feature);
     let mut docker_id = get_container_id(feature, &db_connections);
     let mut pend_wait_seconds: u32 = 0;
 

@@ -1,6 +1,6 @@
 [package]
-name = "swbusd"
-description = "SONiC Switch Bus Daemon"
+name = "swbus-cli"
+description = "SONiC Switch Bus CLI"
 categories = ["command-line-utilities", "network-programming"]
 version.workspace = true
 authors.workspace = true
@@ -16,8 +16,17 @@ edition.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
+clap.workspace = true
+serde_yaml.workspace = true
+tabled.workspace = true
+
+# Log and error handling
+tracing.workspace = true
+
+# Internal dependencies
+swbus-edge.workspace = true
 swbus-core.workspace = true
-clap = { version = "4.0", features = ["derive"] }
+swbus-proto.workspace = true
 
 [lints]
 workspace = true
