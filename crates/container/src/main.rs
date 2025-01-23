@@ -19,7 +19,7 @@ struct DbConnections {
 }
 
 // DB field names
-const FEATURE_TABLE: &str = "FEATURE";
+//const FEATURE_TABLE: &str = "FEATURE";
 const SET_OWNER: &str = "set_owner";
 const NO_FALLBACK: &str = "no_fallback_to_local";
 
@@ -31,12 +31,12 @@ const SYSTEM_STATE: &str = "system_state";
 const STATE: &str = "state";
 const ST_FEAT_CTR_STABLE_VER: &str = "container_stable_version";
 
-const KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
-const KUBE_LABEL_SET_KEY: &str = "SET";
-const SERVER_TABLE: &str = "KUBERNETES_MASTER";
+//const KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
+//const KUBE_LABEL_SET_KEY: &str = "SET";
+//const SERVER_TABLE: &str = "KUBERNETES_MASTER";
 const SERVER_KEY: &str = "SERVER";
-const ST_SER_CONNECTED: &str = "connected";
-const ST_SER_UPDATE_TS: &str = "update_time";
+//const ST_SER_CONNECTED: &str = "connected";
+//const ST_SER_UPDATE_TS: &str = "update_time";
 
 // Get seconds to wait for remote docker to start.
 // If not, revert to local
@@ -99,13 +99,13 @@ fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static
     fields
 }
 
-fn set_label(db_connections: &DbConnections, feature: &str, create: bool) {
+fn set_label(db_connections: &DbConnections, _feature: &str, _create: bool) {
     if db_connections.remote_ctr_enabled {
         todo!();
     }
 }
 
-fn update_data(db_connections: &DbConnections, feature: &str, data: &HashMap<&str, String>) {
+fn update_data(db_connections: &DbConnections, _feature: &str, _data: &HashMap<&str, String>) {
     if db_connections.remote_ctr_enabled {
         todo!();
     }
@@ -221,7 +221,7 @@ fn container_start(feature: &str) {
 fn container_stop(feature: &String, timeout: Option<i64>) {
     let db_connections = initialize_connection();
 
-    let feature_config = read_config(&db_connections, feature);
+    //let feature_config = read_config(&db_connections, feature);
     let feature_state = read_state(&db_connections, feature);
     let docker_id = get_container_id(feature, &db_connections);
 
@@ -292,7 +292,8 @@ fn container_wait(feature: &str) {
     let db_connections = initialize_connection();
 
     let feature_config = read_config(&db_connections, feature);
-    let mut feature_state = read_state(&db_connections, feature);
+    //let mut feature_state = read_state(&db_connections, feature);
+    let mut feature_state;
     let mut docker_id = get_container_id(feature, &db_connections);
     let mut pend_wait_seconds: u32 = 0;
 
