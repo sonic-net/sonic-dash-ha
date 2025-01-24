@@ -1,8 +1,4 @@
-use std::{
-    fmt::Display,
-    num::{ParseFloatError, ParseIntError},
-    str::Utf8Error,
-};
+use std::fmt::Display;
 
 #[derive(Debug)]
 pub struct Error {
@@ -32,23 +28,5 @@ impl serde::ser::Error for Error {
 impl serde::de::Error for Error {
     fn custom<T: Display>(msg: T) -> Self {
         Self::new(msg)
-    }
-}
-
-impl From<Utf8Error> for Error {
-    fn from(value: Utf8Error) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<ParseIntError> for Error {
-    fn from(value: ParseIntError) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<ParseFloatError> for Error {
-    fn from(value: ParseFloatError) -> Self {
-        Self::new(value)
     }
 }
