@@ -1,3 +1,6 @@
+// Ignore this lint in serializer_unsupported! macro
+#![allow(clippy::multiple_bound_locations)]
+
 mod error;
 mod field_value;
 mod field_values;

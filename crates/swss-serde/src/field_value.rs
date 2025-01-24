@@ -83,10 +83,7 @@ impl Serializer for FieldValueSerializer {
         Ok(CxxString::new("none"))
     }
 
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error>
-    where
-        T: Serialize,
-    {
+    fn serialize_some<T: Serialize + ?Sized>(self, value: &T) -> Result<Self::Ok, Self::Error> {
         value.serialize(Self)
     }
 
