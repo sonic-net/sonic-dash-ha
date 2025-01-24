@@ -9,17 +9,18 @@ use serde_serializer_quick_unsupported::serializer_unsupported;
 use std::{any::type_name, str, str::FromStr};
 use swss_common::CxxString;
 
-pub fn serialize_field_value<T: Serialize + ?Sized>(value: &T) -> Result<CxxString, Error> {
+pub(crate) fn serialize_field_value<T: Serialize + ?Sized>(value: &T) -> Result<CxxString, Error> {
     value.serialize(FieldValueSerializer)
 }
 
-pub fn deserialize_field_value<'a, T: Deserialize<'a>>(fv: Option<&'a CxxString>) -> Result<T, Error> {
+#[cfg_attr(not(test), allow(dead_code))] // used in tests
+pub(crate) fn deserialize_field_value<'a, T: Deserialize<'a>>(fv: Option<&'a CxxString>) -> Result<T, Error> {
     T::deserialize(FieldValueDeserializer {
         data: fv.map(|s| s.as_bytes()),
     })
 }
 
-pub struct FieldValueSerializer;
+struct FieldValueSerializer;
 
 impl Serializer for FieldValueSerializer {
     type Ok = CxxString;
@@ -114,7 +115,7 @@ impl Serializer for FieldValueSerializer {
 }
 
 #[derive(Default)]
-pub struct FieldValueSeqSerializer {
+struct FieldValueSeqSerializer {
     elements: Vec<CxxString>,
 }
 
@@ -140,12 +141,12 @@ impl SerializeSeq for FieldValueSeqSerializer {
     }
 }
 
-pub struct FieldValueDeserializer<'a> {
+pub(crate) struct FieldValueDeserializer<'a> {
     data: Option<&'a [u8]>,
 }
 
 impl<'a> FieldValueDeserializer<'a> {
-    pub fn new(fv: Option<&'a CxxString>) -> Self {
+    pub(crate) fn new(fv: Option<&'a CxxString>) -> Self {
         Self {
             data: fv.map(|s| s.as_bytes()),
         }
@@ -299,34 +300,4 @@ impl<'de, T: Iterator<Item = &'de [u8]>> SeqAccess<'de> for FieldValueSeqDeseria
             None => Ok(None),
         }
     }
-}
-
-#[test]
-fn field_value_serde() {
-    #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-    #[serde(rename_all = "lowercase")]
-    enum E {
-        A,
-        SomeLongNameHere,
-    }
-
-    macro_rules! round_trip {
-        ($val:expr, $ty:ty) => {{
-            let val1: $ty = $val;
-            let fv = serialize_field_value(&val1).unwrap();
-            println!("{} => {fv:?}", stringify!($val));
-            let val2: $ty = deserialize_field_value(Some(&fv)).unwrap();
-            assert_eq!(val1, val2);
-        }};
-    }
-
-    round_trip!(123456789, i32);
-    round_trip!(String::from("hello!"), String);
-    round_trip!("X", &str);
-    round_trip!(E::A, E);
-    round_trip!(E::SomeLongNameHere, E);
-    round_trip!(vec![], Vec<E>);
-    round_trip!(vec![E::A, E::A, E::SomeLongNameHere], Vec<E>);
-    round_trip!(Some(123), Option<i32>);
-    round_trip!(None, Option<i32>);
 }
