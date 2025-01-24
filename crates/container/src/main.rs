@@ -2,7 +2,6 @@ use bollard::container::*;
 use bollard::Docker;
 use chrono::Local;
 use clap::{Parser, ValueEnum};
-use enumset;
 use futures_util::stream::TryStreamExt;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -54,27 +53,22 @@ fn get_config_data(field: &str) -> Option<serde_json::Value> {
     let mut file_contents = String::new();
     file.read_to_string(&mut file_contents).unwrap();
     let data: serde_json::Value = serde_json::from_str(&file_contents).unwrap();
-    data.as_object()
-        .unwrap()
-        .get(field)
-        .and_then(|value| Some(value.clone()))
+    data.as_object().unwrap().get(field).cloned()
 }
 
 fn read_data(db_connector: &DbConnector, feature: &str, fields: &mut HashMap<&str, String>) {
-    let table_name: &str;
-    if feature == SERVER_KEY {
-        table_name = "KUBERNETES_MASTER";
+    let table_name = if feature == SERVER_KEY {
+        "KUBERNETES_MASTER"
     } else {
-        table_name = "FEATURE";
-    }
+        "FEATURE"
+    };
 
     let data = db_connector
         .hgetall(&format!("{}|{}", table_name, feature))
         .expect("Unable to get data");
     for (field, default) in fields.iter_mut() {
-        match data.get(field as &str) {
-            Some(value) => *default = value.to_str().unwrap().to_string(),
-            None => {}
+        if let Some(value) = data.get(field as &str) {
+            *default = value.to_str().unwrap().to_string()
         }
     }
 }
@@ -117,7 +111,7 @@ fn container_version(docker: &Docker, feature: &str) -> String {
         .build()
         .unwrap();
     let container_options = rt
-        .block_on(docker.inspect_container(&feature, None))
+        .block_on(docker.inspect_container(feature, None))
         .expect("Unable to communicate with Docker");
     match container_options.config {
         Some(config) => match config.env {
@@ -127,16 +121,12 @@ fn container_version(docker: &Docker, feature: &str) -> String {
                         return env.split('=').collect::<Vec<&str>>()[1].to_string();
                     }
                 }
-                return "".to_string();
+                String::new()
             }
-            None => {
-                return "".to_string();
-            }
+            None => String::new(),
         },
-        None => {
-            return "".to_string();
-        }
-    };
+        None => String::new(),
+    }
 }
 
 fn initialize_connection() -> DbConnections {
@@ -196,12 +186,12 @@ fn container_start(feature: &str) {
         data.insert(CURRENT_OWNER, "local".to_string());
         data.insert(CONTAINER_ID, feature.to_string());
         if start_val == StartFlags::StartLocal {
-            set_label(&db_connections, &feature, false);
+            set_label(&db_connections, feature, false);
             data.insert(REMOTE_STATE, "none".to_string());
         }
     }
 
-    update_data(&db_connections, &feature, &data);
+    update_data(&db_connections, feature, &data);
 
     if start_val & StartFlags::StartLocal != enumset::EnumSet::empty() {
         let docker = Docker::connect_with_local_defaults().unwrap();
@@ -209,16 +199,16 @@ fn container_start(feature: &str) {
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(docker.start_container(&feature, None::<StartContainerOptions<String>>))
+        rt.block_on(docker.start_container(feature, None::<StartContainerOptions<String>>))
             .expect("Unable to communicate with Docker");
     }
 
     if start_val & StartFlags::StartKube != enumset::EnumSet::empty() {
-        set_label(&db_connections, &feature, true);
+        set_label(&db_connections, feature, true);
     }
 }
 
-fn container_stop(feature: &String, timeout: Option<i64>) {
+fn container_stop(feature: &str, timeout: Option<i64>) {
     let db_connections = initialize_connection();
 
     //let feature_config = read_config(&db_connections, feature);
@@ -228,16 +218,12 @@ fn container_stop(feature: &String, timeout: Option<i64>) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     if !docker_id.is_empty() {
-        let stop_options: Option<StopContainerOptions>;
-        match timeout {
-            Some(timeout) => stop_options = Some(StopContainerOptions { t: timeout }),
-            None => stop_options = None,
-        }
+        let stop_options = timeout.map(|timeout| StopContainerOptions { t: timeout });
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(docker.stop_container(&feature, stop_options))
+        rt.block_on(docker.stop_container(feature, stop_options))
             .expect("Unable to communicate with Docker");
     }
 
@@ -252,7 +238,7 @@ fn container_stop(feature: &String, timeout: Option<i64>) {
         data.insert(REMOTE_STATE, "stopped".to_string());
     }
 
-    update_data(&db_connections, &feature, &data);
+    update_data(&db_connections, feature, &data);
 }
 
 fn container_kill(feature: &str) {
@@ -265,7 +251,7 @@ fn container_kill(feature: &str) {
         (feature_config.get(SET_OWNER).unwrap() != "local") || (feature_state.get(CURRENT_OWNER).unwrap() != "local");
 
     if remove_label {
-        set_label(&db_connections, &feature, false);
+        set_label(&db_connections, feature, false);
     }
 
     if feature_config.get(SET_OWNER).unwrap() == "local" {
@@ -283,7 +269,7 @@ fn container_kill(feature: &str) {
             .enable_all()
             .build()
             .unwrap();
-        rt.block_on(docker.kill_container(&feature, Some(KillContainerOptions { signal: "SIGINT" })))
+        rt.block_on(docker.kill_container(feature, Some(KillContainerOptions { signal: "SIGINT" })))
             .expect("Unable to communicate with Docker");
     }
 }
@@ -300,11 +286,11 @@ fn container_wait(feature: &str) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     if *docker_id == *feature {
-        let version = container_version(&docker, &feature);
+        let version = container_version(&docker, feature);
         if !version.is_empty() {
             update_data(
                 &db_connections,
-                &feature,
+                feature,
                 &HashMap::from([(ST_FEAT_CTR_STABLE_VER, version)]),
             );
         }
@@ -313,7 +299,7 @@ fn container_wait(feature: &str) {
     if docker_id.is_empty() && feature_config.get(NO_FALLBACK).unwrap() == "False" {
         pend_wait_seconds = get_config_data(SONIC_CTR_CONFIG_PEND_SECS)
             .and_then(|value| value.as_u64())
-            .and_then(|value| Some(value as u32))
+            .map(|value| value as u32)
             .unwrap_or(DEFAULT_PEND_SECS);
     }
 
@@ -322,18 +308,18 @@ fn container_wait(feature: &str) {
             if pend_wait_seconds < WAIT_POLL_SECS {
                 break;
             }
-            pend_wait_seconds = pend_wait_seconds - WAIT_POLL_SECS;
+            pend_wait_seconds -= WAIT_POLL_SECS;
         }
 
         sleep(Duration::from_secs(WAIT_POLL_SECS as u64));
-        feature_state = read_state(&db_connections, &feature);
+        feature_state = read_state(&db_connections, feature);
 
         docker_id = Cow::Borrowed(feature_state.get(CONTAINER_ID).unwrap());
 
         if feature_state.get(REMOTE_STATE).unwrap() == "pending" {
             update_data(
                 &db_connections,
-                &feature,
+                feature,
                 &HashMap::from([(REMOTE_STATE, "ready".to_string())]),
             );
         }
@@ -346,7 +332,7 @@ fn container_wait(feature: &str) {
     rt.block_on(
         docker
             .wait_container(
-                &feature,
+                feature,
                 Some(WaitContainerOptions {
                     condition: "not-running",
                 }),
