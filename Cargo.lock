@@ -1399,6 +1399,7 @@ dependencies = [
  "lazy_static",
  "pretty_assertions",
  "signal-hook",
+ "swss-common",
  "syslog-tracing",
  "tracing",
  "tracing-error",
@@ -1528,10 +1529,13 @@ name = "swss-common"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "getset",
+ "lazy_static",
  "libc",
  "paste",
  "rand",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]
