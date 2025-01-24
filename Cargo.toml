@@ -6,6 +6,7 @@ members = [
     "crates/swbusd",
     "crates/hamgrd",
     "crates/swss-common", 
+    "crates/swss-serde",
     "crates/swbus-edge", 
     "crates/swbus-proto",
     "crates/swbus-cli",
