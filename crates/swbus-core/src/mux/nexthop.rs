@@ -7,7 +7,7 @@ use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use swbus_proto::swbus::{swbus_message, SwbusMessage};
-use tracing::info;
+use tracing::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum NextHopType {
@@ -58,19 +58,26 @@ impl SwbusNextHop {
             hop_count: 0,
         }
     }
-
+    #[instrument(name="queue_message", parent=None, level="debug", skip_all, fields(nh_type=?self.nh_type, conn_info=self.conn_info.as_ref().map(|x| x.id()).unwrap_or(&"None".to_string()), message.id=?message.header.as_ref().unwrap().id))]
     pub async fn queue_message(
         &self,
         mux: &SwbusMultiplexer,
         mut message: SwbusMessage,
     ) -> Result<Option<SwbusMessage>> {
+        let current_span = tracing::Span::current();
+        debug!("Queue message");
         match self.nh_type {
-            NextHopType::Drop => self.drop_message(message).await,
-            NextHopType::Local => self.process_local_message(mux, message).await,
+            NextHopType::Drop => self.drop_message(message).instrument(current_span.clone()).await,
+            NextHopType::Local => {
+                self.process_local_message(mux, message)
+                    .instrument(current_span.clone())
+                    .await
+            }
             NextHopType::Remote => {
-                let header: &mut SwbusMessageHeader = message.header.as_mut().expect("missing header"); //should not happen otherwise it won't reach here
+                let header: &mut SwbusMessageHeader = message.header.as_mut().expect("missing header"); // should not happen otherwise it won't reach here
                 header.ttl -= 1;
                 if header.ttl == 0 {
+                    debug!("TTL expired");
                     let response = SwbusMessage::new_response(
                         &message,
                         Some(&mux.get_my_service_path()),
@@ -81,6 +88,7 @@ impl SwbusNextHop {
                     );
                     return Ok(Some(response));
                 }
+                debug!("Sending to the remote endpoint");
                 self.conn_proxy
                     .as_ref()
                     .expect("conn_proxy shouldn't be None in remote nexthop")
@@ -97,7 +105,6 @@ impl SwbusNextHop {
         mux: &SwbusMultiplexer,
         message: SwbusMessage,
     ) -> Result<Option<SwbusMessage>> {
-        // @todo: move to trace
         // process message locally
         let response = match message.body.as_ref() {
             Some(swbus_message::Body::PingRequest(_)) => self.process_ping_request(mux, message).unwrap(),
@@ -105,6 +112,7 @@ impl SwbusNextHop {
                 self.process_mgmt_request(mux, &message, mgmt_request).unwrap()
             }
             _ => {
+                debug!("Invalid message type to a local endpoint");
                 return Err(SwbusError::input(
                     SwbusErrorCode::ServiceNotFound,
                     format!("Invalid message type to a local endpoint: {:?}", message),
@@ -115,8 +123,7 @@ impl SwbusNextHop {
     }
 
     fn process_ping_request(&self, mux: &SwbusMultiplexer, message: SwbusMessage) -> Result<SwbusMessage> {
-        // @todo: move to trace
-        // info!("Received ping request: {:?}", message);
+        debug!("Received ping request");
         let id = mux.generate_message_id();
         Ok(SwbusMessage::new_response(
             &message,
@@ -136,6 +143,7 @@ impl SwbusNextHop {
     ) -> Result<SwbusMessage> {
         match mgmt_request.request.as_str() {
             "show_route" => {
+                debug!("Received show_route request");
                 let routes = mux.export_routes(None);
                 let response_msg = SwbusMessage::new_response(
                     message,
@@ -154,9 +162,8 @@ impl SwbusNextHop {
         }
     }
 
-    async fn drop_message(&self, message: SwbusMessage) -> Result<Option<SwbusMessage>> {
-        // todo: change to trace
-        info!("Drop message: {:?}", message);
+    async fn drop_message(&self, _: SwbusMessage) -> Result<Option<SwbusMessage>> {
+        debug!("Drop message");
         // todo: increment drop counter
         Ok(None)
     }
@@ -213,8 +220,14 @@ mod tests {
     async fn test_queue_message_drop() {
         let nexthop = SwbusNextHop::new_drop();
         let mux = SwbusMultiplexer::default();
-        let message = SwbusMessage::default();
-
+        let message = SwbusMessage {
+            header: Some(SwbusMessageHeader::new(
+                ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+                ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
+                1,
+            )),
+            body: None,
+        };
         let result = nexthop.queue_message(&mux, message).await.unwrap();
         assert!(result.is_none());
     }

@@ -13,7 +13,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
 use tracing::{error, info};
 
-//3 seconds receive timeout
+// 3 seconds receive timeout
 pub const RECEIVE_TIMEOUT: u32 = 3;
 
 /// The Topo struct contains the server jobs and clients' TX and RX of its message queues.

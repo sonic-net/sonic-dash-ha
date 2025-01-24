@@ -6,6 +6,7 @@ use std::sync::Arc;
 use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
+use tracing::*;
 
 enum RouteStage {
     Global,
@@ -68,13 +69,17 @@ impl SwbusMultiplexer {
         self.routes.remove(&route_key);
     }
 
+    #[instrument(name = "update_route", level = "info", skip(self, nexthop), fields(nh_type=?nexthop.nh_type(), hop_count=nexthop.hop_count(), conn_info=nexthop.conn_info().as_ref().map(|x| x.id()).unwrap_or(&"None".to_string())))]
     pub(crate) fn update_route(&self, route_key: String, nexthop: SwbusNextHop) {
         // If route entry doesn't exist, we insert the next hop as a new one.
+        info!("Update route entry");
         match self.routes.entry(route_key) {
             Entry::Occupied(mut existing) => {
                 let route_entry = existing.get();
                 if route_entry.hop_count() > nexthop.hop_count() {
                     existing.insert(nexthop);
+                } else {
+                    info!("Route entry already exists with smaller hop count");
                 }
             }
             Entry::Vacant(entry) => {
@@ -116,8 +121,19 @@ impl SwbusMultiplexer {
             .key
             .clone()
     }
-
+    #[instrument(name="route_message", parent=None, level="debug", skip_all, fields(message_id=?message.header.as_ref().unwrap().id))]
     pub async fn route_message(&self, message: SwbusMessage) -> Result<()> {
+        debug!(
+            destination = message
+                .header
+                .as_ref()
+                .unwrap()
+                .destination
+                .as_ref()
+                .unwrap()
+                .to_longest_path(),
+            "Routing message"
+        );
         let header = match message.header {
             Some(ref header) => header,
             None => {
@@ -162,6 +178,7 @@ impl SwbusMultiplexer {
             return Ok(());
         }
 
+        info!("No route found for destination: {}", destination.to_longest_path());
         let response = SwbusMessage::new_response(
             &message,
             Some(&self.get_my_service_path()),
