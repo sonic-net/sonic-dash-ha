@@ -22,6 +22,7 @@ impl Redis {
 
         let sock = random_unix_sock();
         #[rustfmt::skip]
+        #[allow(clippy::zombie_processes)]
         let mut child = Command::new("timeout")
             .args([
                 "--signal=KILL",
