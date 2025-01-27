@@ -1,9 +1,9 @@
 use crate::error::Error;
 use serde::{
-    de::{value::StrDeserializer, Error as _, SeqAccess, Unexpected, Visitor},
+    de::{value::StrDeserializer, DeserializeOwned, DeserializeSeed, Error as _, SeqAccess, Unexpected, Visitor},
     forward_to_deserialize_any,
     ser::SerializeSeq,
-    Deserialize, Deserializer, Serialize, Serializer,
+    Deserializer, Serialize, Serializer,
 };
 use serde_serializer_quick_unsupported::serializer_unsupported;
 use std::{any::type_name, str, str::FromStr};
@@ -14,12 +14,13 @@ pub(crate) fn serialize_field_value<T: Serialize + ?Sized>(value: &T) -> Result<
 }
 
 #[cfg_attr(not(test), allow(dead_code))] // used in tests
-pub(crate) fn deserialize_field_value<'a, T: Deserialize<'a>>(fv: Option<&'a CxxString>) -> Result<T, Error> {
+pub(crate) fn deserialize_field_value<T: DeserializeOwned>(fv: Option<&CxxString>) -> Result<T, Error> {
     T::deserialize(FieldValueDeserializer {
         data: fv.map(|s| s.as_bytes()),
     })
 }
 
+/// A serializer that produces a single CxxString intended to match the format of swss DB field values.
 struct FieldValueSerializer;
 
 impl Serializer for FieldValueSerializer {
@@ -106,7 +107,7 @@ impl Serializer for FieldValueSerializer {
 
     // Unsupported types
     serializer_unsupported! {
-        err = (Error::custom("unsupported field value type"));
+        err = (Error::new("unsupported field value type"));
         char struct unit unit_struct newtype_struct newtype_variant tuple tuple_struct tuple_variant map struct_variant
     }
 }
@@ -121,7 +122,7 @@ impl SerializeSeq for FieldValueSeqSerializer {
     type Error = Error;
 
     fn serialize_element<T: Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Self::Error> {
-        self.elements.push(value.serialize(FieldValueSerializer)?);
+        self.elements.push(serialize_field_value(value)?);
         Ok(())
     }
 
@@ -138,6 +139,8 @@ impl SerializeSeq for FieldValueSeqSerializer {
     }
 }
 
+/// Deserializer that takes a (potentially not present) field of an swss DB field value and produces
+/// a rust type from it.
 pub(crate) struct FieldValueDeserializer<'a> {
     data: Option<&'a [u8]>,
 }
@@ -148,13 +151,11 @@ impl<'a> FieldValueDeserializer<'a> {
             data: fv.map(|s| s.as_bytes()),
         }
     }
-}
 
-impl<'a> FieldValueDeserializer<'a> {
     fn data(&self) -> Result<&'a [u8], Error> {
         match self.data {
             Some(s) => Ok(s),
-            None => Err(Error::custom("field is missing")),
+            None => Err(Error::new("field is missing")),
         }
     }
 
@@ -173,7 +174,7 @@ impl<'a> FieldValueDeserializer<'a> {
     }
 }
 
-impl<'de> Deserializer<'de> for FieldValueDeserializer<'de> {
+impl<'a, 'de> Deserializer<'de> for FieldValueDeserializer<'a> {
     type Error = Error;
 
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -221,7 +222,7 @@ impl<'de> Deserializer<'de> for FieldValueDeserializer<'de> {
     }
 
     fn deserialize_str<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_borrowed_str(self.to_str()?)
+        visitor.visit_str(self.to_str()?)
     }
 
     fn deserialize_string<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -229,7 +230,7 @@ impl<'de> Deserializer<'de> for FieldValueDeserializer<'de> {
     }
 
     fn deserialize_bytes<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
-        visitor.visit_borrowed_bytes(self.data()?)
+        visitor.visit_bytes(self.data()?)
     }
 
     fn deserialize_byte_buf<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -290,7 +291,7 @@ impl<'de> Deserializer<'de> for FieldValueDeserializer<'de> {
     }
 
     fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
-        Err(Error::custom("deserializing an unsupported type"))
+        Err(Error::new("deserializing an unsupported type"))
     }
 }
 
@@ -298,13 +299,10 @@ struct FieldValueSeqDeserializer<T> {
     iter: T,
 }
 
-impl<'de, T: Iterator<Item = &'de [u8]>> SeqAccess<'de> for FieldValueSeqDeserializer<T> {
+impl<'a, 'de, T: Iterator<Item = &'a [u8]>> SeqAccess<'de> for FieldValueSeqDeserializer<T> {
     type Error = Error;
 
-    fn next_element_seed<S>(&mut self, seed: S) -> Result<Option<S::Value>, Self::Error>
-    where
-        S: serde::de::DeserializeSeed<'de>,
-    {
+    fn next_element_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<Option<S::Value>, Self::Error> {
         match self.iter.next() {
             Some(bytes) => seed.deserialize(FieldValueDeserializer { data: Some(bytes) }).map(Some),
             None => Ok(None),

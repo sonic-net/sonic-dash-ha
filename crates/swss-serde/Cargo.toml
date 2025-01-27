@@ -15,3 +15,6 @@ serde_serializer_quick_unsupported = "0.1"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+swss-common-testing = { path = "../swss-common-testing" }

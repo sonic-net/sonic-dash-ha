@@ -1555,6 +1555,7 @@ dependencies = [
  "serde",
  "serde_serializer_quick_unsupported",
  "swss-common",
+ "swss-common-testing",
 ]
 
 [[package]]

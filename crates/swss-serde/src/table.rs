@@ -1,6 +1,6 @@
 use crate::{
-    error::Error,
     field_value::{serialize_field_value, FieldValueDeserializer},
+    Error,
 };
 use serde::{
     de::{DeserializeOwned, DeserializeSeed, SeqAccess, Visitor},
@@ -9,25 +9,28 @@ use serde::{
     Deserializer, Serialize, Serializer,
 };
 use serde_serializer_quick_unsupported::serializer_unsupported;
-use swss_common::FieldValues;
+use swss_common::Table;
 
-pub(crate) fn serialize_field_values<T: Serialize + ?Sized>(value: &T) -> Result<FieldValues, Error> {
-    value.serialize(FieldValuesSerializer)
+pub(crate) fn serialize_to_table<T: Serialize + ?Sized>(value: &T, table: &Table, key: &str) -> Result<(), Error> {
+    value.serialize(TableSerializer { table, key })
 }
 
-pub(crate) fn deserialize_field_values<T: DeserializeOwned>(fvs: &FieldValues) -> Result<T, Error> {
-    T::deserialize(FieldValuesDeserializer { fvs })
+pub(crate) fn deserialize_from_table<T: DeserializeOwned>(table: &Table, key: &str) -> Result<T, Error> {
+    T::deserialize(TableDeserializer { table, key })
 }
 
-struct FieldValuesSerializer;
+struct TableSerializer<'a, 'b> {
+    table: &'a Table,
+    key: &'b str,
+}
 
-impl Serializer for FieldValuesSerializer {
-    type Ok = FieldValues;
+impl<'a, 'b> Serializer for TableSerializer<'a, 'b> {
+    type Ok = ();
     type Error = Error;
-    type SerializeStruct = FieldValuesStructSerializer;
+    type SerializeStruct = Self;
 
     fn serialize_struct(self, _name: &'static str, _len: usize) -> Result<Self::SerializeStruct, Self::Error> {
-        Ok(FieldValuesStructSerializer::default())
+        Ok(self)
     }
 
     // Unsupported types
@@ -39,35 +42,27 @@ impl Serializer for FieldValuesSerializer {
     }
 }
 
-#[derive(Default)]
-struct FieldValuesStructSerializer {
-    fvs: FieldValues,
-}
-
-impl SerializeStruct for FieldValuesStructSerializer {
-    type Ok = FieldValues;
+impl<'a, 'b> SerializeStruct for TableSerializer<'a, 'b> {
+    type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T: Serialize + ?Sized>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error> {
-        match serialize_field_value(value) {
-            Ok(s) => {
-                self.fvs.insert(key.to_string(), s);
-                Ok(())
-            }
-            Err(e) => Err(Error::new(format!("serializing field '{key}': {e}"))),
-        }
+    fn serialize_field<T: Serialize + ?Sized>(&mut self, field: &'static str, value: &T) -> Result<(), Self::Error> {
+        let fv = serialize_field_value(value)?;
+        self.table.hset(self.key, field, &fv).map_err(|e| Error::new(e))?;
+        Ok(())
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(self.fvs)
+        Ok(())
     }
 }
 
-struct FieldValuesDeserializer<'a> {
-    fvs: &'a FieldValues,
+struct TableDeserializer<'a, 'b> {
+    table: &'a Table,
+    key: &'b str,
 }
 
-impl<'de> Deserializer<'de> for FieldValuesDeserializer<'de> {
+impl<'a, 'b, 'de> Deserializer<'de> for TableDeserializer<'a, 'b> {
     type Error = Error;
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -76,7 +71,11 @@ impl<'de> Deserializer<'de> for FieldValuesDeserializer<'de> {
         fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        visitor.visit_seq(FieldValuesSeqDeserializer { fields, fvs: self.fvs })
+        visitor.visit_seq(TableSeqDeserializer {
+            table: self.table,
+            key: self.key,
+            fields,
+        })
     }
 
     // Unsupported types
@@ -86,24 +85,25 @@ impl<'de> Deserializer<'de> for FieldValuesDeserializer<'de> {
     }
 
     fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
-        Err(Error::new("FieldValues can only be deserialized into a struct"))
+        Err(Error::new("a Table can only be deserialized into a struct"))
     }
 }
 
-struct FieldValuesSeqDeserializer<'a> {
-    fvs: &'a FieldValues,
+struct TableSeqDeserializer<'a, 'b> {
+    table: &'a Table,
+    key: &'b str,
     fields: &'static [&'static str],
 }
 
-impl<'de> SeqAccess<'de> for FieldValuesSeqDeserializer<'de> {
+impl<'a, 'b, 'de> SeqAccess<'de> for TableSeqDeserializer<'a, 'b> {
     type Error = Error;
 
     fn next_element_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error> {
         match self.fields.first() {
             Some(field) => {
                 self.fields = &self.fields[1..];
-                seed.deserialize(FieldValueDeserializer::new(self.fvs.get(*field)))
-                    .map(Some)
+                let value = self.table.hget(self.key, field).map_err(|e| Error::new(e))?;
+                seed.deserialize(FieldValueDeserializer::new(value.as_ref())).map(Some)
             }
             None => Ok(None),
         }
