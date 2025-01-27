@@ -1309,6 +1309,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_serializer_quick_unsupported"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "deb65c5dbc9079c6913d2120b1b4112cce4e2295b7f152ca52d7f48e19ad5396"
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1530,8 +1536,26 @@ dependencies = [
  "bindgen",
  "libc",
  "paste",
- "rand",
+ "swss-common-testing",
  "tokio",
+]
+
+[[package]]
+name = "swss-common-testing"
+version = "0.1.0"
+dependencies = [
+ "rand",
+ "swss-common",
+]
+
+[[package]]
+name = "swss-serde"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_serializer_quick_unsupported",
+ "swss-common",
+ "swss-common-testing",
 ]
 
 [[package]]

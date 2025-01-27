@@ -1,10 +1,8 @@
 #![cfg(feature = "async")]
-mod common;
-
-use common::*;
 use paste::paste;
 use std::{collections::HashMap, time::Duration};
 use swss_common::*;
+use swss_common_testing::*;
 
 async fn timeout<F: std::future::Future>(timeout_ms: u32, fut: F) -> F::Output {
     tokio::time::timeout(Duration::from_millis(timeout_ms.into()), fut)
