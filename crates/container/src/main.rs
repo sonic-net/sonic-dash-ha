@@ -143,11 +143,11 @@ fn get_container_id<'a>(feature: &'a str, db_connections: &DbConnections) -> Cow
         .hgetall(&format!("FEATURE|{}", feature))
         .expect("Unable to get data");
     if data.get(CURRENT_OWNER).map_or("", |value| value.to_str().unwrap()) == "local" {
-        return Cow::Borrowed(feature);
+        Cow::Borrowed(feature)
     } else {
-        return data.get(CONTAINER_ID).map_or(Cow::Borrowed(feature), |value| {
+        data.get(CONTAINER_ID).map_or(Cow::Borrowed(feature), |value| {
             Cow::Owned(value.to_str().unwrap().to_string())
-        });
+        })
     }
 }
 
