@@ -1536,8 +1536,16 @@ dependencies = [
  "bindgen",
  "libc",
  "paste",
- "rand",
+ "swss-common-testing",
  "tokio",
+]
+
+[[package]]
+name = "swss-common-testing"
+version = "0.1.0"
+dependencies = [
+ "rand",
+ "swss-common",
 ]
 
 [[package]]

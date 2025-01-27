@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::{
     collections::HashMap,
     fs::{self, remove_file},
@@ -45,6 +43,7 @@ impl Redis {
             if stdout.read_line(&mut buf).unwrap() == 0 {
                 panic!("Redis didn't start");
             }
+            // Some redis version capitalize "Ready", others have lowercase "ready" :P
             if buf.contains("eady to accept connections") {
                 break Self { proc: child, sock };
             }
@@ -67,12 +66,6 @@ impl Drop for Redis {
 }
 
 pub struct Defer<F: FnOnce()>(Option<F>);
-
-impl<F: FnOnce()> Defer<F> {
-    fn new(f: F) -> Self {
-        Self(Some(f))
-    }
-}
 
 impl<F: FnOnce()> Drop for Defer<F> {
     fn drop(&mut self) {
@@ -103,8 +96,8 @@ pub fn sonic_db_config_init_for_test() {
     if !*is_init {
         fs::write("/tmp/db_config_test.json", DB_CONFIG_JSON).unwrap();
         fs::write("/tmp/db_global_config_test.json", DB_GLOBAL_CONFIG_JSON).unwrap();
-        sonic_db_config_initialize("/tmp/db_config_test.json");
-        sonic_db_config_initialize_global("/tmp/db_global_config_test.json");
+        sonic_db_config_initialize("/tmp/db_config_test.json").unwrap();
+        sonic_db_config_initialize_global("/tmp/db_global_config_test.json").unwrap();
         fs::remove_file("/tmp/db_config_test.json").unwrap();
         fs::remove_file("/tmp/db_global_config_test.json").unwrap();
         *is_init = true;
@@ -150,12 +143,12 @@ pub fn random_kfvs() -> Vec<KeyOpFieldValues> {
 }
 
 pub fn random_unix_sock() -> String {
-    format!("/tmp/{}.sock", random_string())
+    format!("/tmp/swss-common-testing-{}.sock", random_string())
 }
 
 // zmq doesn't clean up its own ipc sockets, so we include a deferred operation for that
 pub fn random_zmq_endpoint() -> (String, impl Drop) {
     let sock = random_unix_sock();
     let endpoint = format!("ipc://{sock}");
-    (endpoint, Defer::new(|| remove_file(sock).unwrap()))
+    (endpoint, Defer(Some(|| remove_file(sock).unwrap())))
 }
