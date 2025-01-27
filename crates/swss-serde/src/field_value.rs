@@ -174,7 +174,7 @@ impl<'a> FieldValueDeserializer<'a> {
     }
 }
 
-impl<'a, 'de> Deserializer<'de> for FieldValueDeserializer<'a> {
+impl<'de> Deserializer<'de> for FieldValueDeserializer<'_> {
     type Error = Error;
 
     fn deserialize_bool<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
@@ -252,9 +252,7 @@ impl<'a, 'de> Deserializer<'de> for FieldValueDeserializer<'a> {
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
         fn streq_case_insensitive(a: &str, b: &str) -> bool {
-            a.chars()
-                .zip(b.chars())
-                .all(|(ca, cb)| ca.to_ascii_lowercase() == cb.to_ascii_lowercase())
+            a.chars().zip(b.chars()).all(|(a, b)| a.eq_ignore_ascii_case(&b))
         }
 
         // Find the variant which matches (SomeLongName == "somelongname"), or give the data str directly as a failsafe

@@ -24,7 +24,7 @@ struct TableSerializer<'a, 'b> {
     key: &'b str,
 }
 
-impl<'a, 'b> Serializer for TableSerializer<'a, 'b> {
+impl Serializer for TableSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
     type SerializeStruct = Self;
@@ -42,13 +42,13 @@ impl<'a, 'b> Serializer for TableSerializer<'a, 'b> {
     }
 }
 
-impl<'a, 'b> SerializeStruct for TableSerializer<'a, 'b> {
+impl SerializeStruct for TableSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
 
     fn serialize_field<T: Serialize + ?Sized>(&mut self, field: &'static str, value: &T) -> Result<(), Self::Error> {
         let fv = serialize_field_value(value)?;
-        self.table.hset(self.key, field, &fv).map_err(|e| Error::new(e))?;
+        self.table.hset(self.key, field, &fv).map_err(Error::new)?;
         Ok(())
     }
 
@@ -62,7 +62,7 @@ struct TableDeserializer<'a, 'b> {
     key: &'b str,
 }
 
-impl<'a, 'b, 'de> Deserializer<'de> for TableDeserializer<'a, 'b> {
+impl<'de> Deserializer<'de> for TableDeserializer<'_, '_> {
     type Error = Error;
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -95,14 +95,14 @@ struct TableSeqDeserializer<'a, 'b> {
     fields: &'static [&'static str],
 }
 
-impl<'a, 'b, 'de> SeqAccess<'de> for TableSeqDeserializer<'a, 'b> {
+impl<'de> SeqAccess<'de> for TableSeqDeserializer<'_, '_> {
     type Error = Error;
 
     fn next_element_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error> {
         match self.fields.first() {
             Some(field) => {
                 self.fields = &self.fields[1..];
-                let value = self.table.hget(self.key, field).map_err(|e| Error::new(e))?;
+                let value = self.table.hget(self.key, field).map_err(Error::new)?;
                 seed.deserialize(FieldValueDeserializer::new(value.as_ref())).map(Some)
             }
             None => Ok(None),
