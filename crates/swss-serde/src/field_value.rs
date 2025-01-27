@@ -247,10 +247,23 @@ impl<'de> Deserializer<'de> for FieldValueDeserializer<'de> {
     fn deserialize_enum<V: Visitor<'de>>(
         self,
         _name: &'static str,
-        _variants: &'static [&'static str],
+        variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value, Self::Error> {
-        visitor.visit_enum(StrDeserializer::new(self.to_str()?))
+        fn streq_case_insensitive(a: &str, b: &str) -> bool {
+            a.chars()
+                .zip(b.chars())
+                .all(|(ca, cb)| ca.to_ascii_lowercase() == cb.to_ascii_lowercase())
+        }
+
+        // Find the variant which matches (SomeLongName == "somelongname"), or give the data str directly as a failsafe
+        let str = self.to_str()?;
+        let variant = variants
+            .iter()
+            .copied()
+            .find(|v| streq_case_insensitive(str, v))
+            .unwrap_or(str);
+        visitor.visit_enum(StrDeserializer::new(variant))
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {

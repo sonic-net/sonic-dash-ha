@@ -1,12 +1,10 @@
 use crate::{
     field_value::{deserialize_field_value, serialize_field_value},
-    from_field_values, to_field_values,
+    from_field_values, to_field_values, FieldValues,
 };
 use serde::{Deserialize, Serialize};
-use swss_common::FieldValues;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
 enum E {
     A,
     SomeLongName,
