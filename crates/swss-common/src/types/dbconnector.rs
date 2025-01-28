@@ -22,7 +22,7 @@ impl DbConnector {
     /// Create a new DbConnector from [`DbConnectionInfo`].
     ///
     /// Timeout of 0 means block indefinitely.
-    fn new(db_id: i32, connection: DbConnectionInfo, timeout_ms: u32) -> Result<DbConnector> {
+    pub fn new(db_id: i32, connection: DbConnectionInfo, timeout_ms: u32) -> Result<DbConnector> {
         let ptr = match &connection {
             DbConnectionInfo::Tcp { hostname, port } => {
                 let hostname = cstr(hostname);
