@@ -33,7 +33,6 @@ impl SwbusMessageRouter {
         let routes = self.routes.clone();
         let mut recv_rx = self.recv_rx.take().unwrap();
         let mut swbus_client = self.swbus_client.take().unwrap();
-        swbus_client.start().await?;
 
         let route_task = task::spawn(async move {
             while let Some(message) = recv_rx.recv().await {
