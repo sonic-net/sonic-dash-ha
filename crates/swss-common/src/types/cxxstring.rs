@@ -217,7 +217,7 @@ impl ToOwned for CxxStr {
 
 impl Debug for CxxStr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.to_string_lossy())
+        write!(f, "\"{}\"", self.to_string_lossy())
     }
 }
 
