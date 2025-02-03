@@ -95,32 +95,33 @@ fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static
 
 fn set_label(db_connections: &DbConnections, feature: &str, create: bool) {
     if db_connections.remote_ctr_enabled {
-        let _ = db_connections.state_db.hset(
-            KUBE_LABEL_TABLE,
-            &format!("{}|{}_enabled", KUBE_LABEL_SET_KEY, feature),
-            &CxxString::new(if create { "true" } else { "false" }),
-        );
+        db_connections
+            .state_db
+            .hset(
+                KUBE_LABEL_TABLE,
+                &format!("{}|{}_enabled", KUBE_LABEL_SET_KEY, feature),
+                &CxxString::new(if create { "true" } else { "false" }),
+            )
+            .expect("Unable to set label of container in Redis");
     }
 }
 
 fn update_data(db_connections: &DbConnections, feature: &str, data: &HashMap<&str, &str>) {
     if db_connections.remote_ctr_enabled {
         for (key, value) in data.iter() {
-            let _ = db_connections
-                .state_db
-                .hset(FEATURE_TABLE, &format!("{}|{}", feature, key), &CxxString::new(value));
+            let _ =
+                db_connections
+                    .state_db
+                    .hset(FEATURE_TABLE, &format!("{}|{}", feature, key), &CxxString::new(value));
         }
     }
 }
 
-fn container_version(docker: &Docker, feature: &str) -> Option<String> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let container_options = rt
-        .block_on(docker.inspect_container(feature, None))
-        .expect("Unable to communicate with Docker");
+async fn container_version(docker: &Docker, feature: &str) -> Option<String> {
+    let container_options = docker
+        .inspect_container(feature, None)
+        .await
+        .expect("Error getting the version of container");
     if let Some(config) = container_options.config {
         if let Some(envs) = config.env {
             for env in envs {
@@ -166,7 +167,7 @@ enum StartFlags {
     StartKube,
 }
 
-fn container_start(feature: &str) {
+async fn container_start(feature: &str) {
     let db_connections = initialize_connection();
 
     let feature_config = read_config(&db_connections, feature);
@@ -199,12 +200,10 @@ fn container_start(feature: &str) {
 
     if start_val & StartFlags::StartLocal != enumset::EnumSet::empty() {
         let docker = Docker::connect_with_local_defaults().unwrap();
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(docker.start_container(feature, None::<StartContainerOptions<String>>))
-            .expect("Unable to communicate with Docker");
+        docker
+            .start_container(feature, None::<StartContainerOptions<String>>)
+            .await
+            .expect("Unable to start container");
     }
 
     if start_val & StartFlags::StartKube != enumset::EnumSet::empty() {
@@ -212,7 +211,7 @@ fn container_start(feature: &str) {
     }
 }
 
-fn container_stop(feature: &str, timeout: Option<i64>) {
+async fn container_stop(feature: &str, timeout: Option<i64>) {
     let db_connections = initialize_connection();
 
     //let feature_config = read_config(&db_connections, feature);
@@ -223,12 +222,10 @@ fn container_stop(feature: &str, timeout: Option<i64>) {
 
     if !docker_id.is_empty() {
         let stop_options = timeout.map(|timeout| StopContainerOptions { t: timeout });
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(docker.stop_container(feature, stop_options))
-            .expect("Unable to communicate with Docker");
+        docker
+            .stop_container(feature, stop_options)
+            .await
+            .expect("Unable to stop container");
     }
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
@@ -245,7 +242,7 @@ fn container_stop(feature: &str, timeout: Option<i64>) {
     update_data(&db_connections, feature, &data);
 }
 
-fn container_kill(feature: &str) {
+async fn container_kill(feature: &str) {
     let db_connections = initialize_connection();
 
     let feature_config = read_config(&db_connections, feature);
@@ -269,16 +266,14 @@ fn container_kill(feature: &str) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     if !docker_id.is_empty() {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(docker.kill_container(feature, Some(KillContainerOptions { signal: "SIGINT" })))
-            .expect("Unable to communicate with Docker");
+        docker
+            .kill_container(feature, Some(KillContainerOptions { signal: "SIGINT" }))
+            .await
+            .expect("Unable to kill container");
     }
 }
 
-fn container_wait(feature: &str) {
+async fn container_wait(feature: &str) {
     let db_connections = initialize_connection();
 
     let feature_config = read_config(&db_connections, feature);
@@ -290,7 +285,7 @@ fn container_wait(feature: &str) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     if *docker_id == *feature {
-        let version_option = container_version(&docker, feature);
+        let version_option = container_version(&docker, feature).await;
         if let Some(version) = version_option {
             update_data(
                 &db_connections,
@@ -325,21 +320,16 @@ fn container_wait(feature: &str) {
         }
     }
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(
-        docker
-            .wait_container(
-                feature,
-                Some(WaitContainerOptions {
-                    condition: "not-running",
-                }),
-            )
-            .try_collect::<Vec<_>>(),
-    )
-    .expect("Unable to communicate with Docker");
+    docker
+        .wait_container(
+            feature,
+            Some(WaitContainerOptions {
+                condition: "not-running",
+            }),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("Unable to wait for container");
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -366,14 +356,15 @@ struct Cli {
     timeout: Option<i64>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
     match cli.action {
-        Action::Start => container_start(&cli.name),
-        Action::Wait => container_wait(&cli.name),
-        Action::Stop => container_stop(&cli.name, cli.timeout),
-        Action::Kill => container_kill(&cli.name),
+        Action::Start => container_start(&cli.name).await,
+        Action::Wait => container_wait(&cli.name).await,
+        Action::Stop => container_stop(&cli.name, cli.timeout).await,
+        Action::Kill => container_kill(&cli.name).await,
         Action::Id => container_id(&cli.name),
     };
 }
