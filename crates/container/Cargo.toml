@@ -9,12 +9,12 @@ keywords.workspace = true
 edition.workspace = true
 
 [dependencies]
-bollard = { version = "0.17.1", features = ["chrono"] }
-chrono = "0.4.38"
-enumset = "1.1.5"
-futures-util = "0.3.30"
+bollard = { workspace = true }
+chrono = { workspace = true }
+enumset = { workspace = true }
+futures-util = { workspace = true }
 clap = { workspace = true }
-swss-common = { version = "0.1.0", path = "../swss-common" }
+swss-common = { path = "../swss-common" }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 
