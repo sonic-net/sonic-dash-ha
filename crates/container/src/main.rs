@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::Read;
 use std::thread::sleep;
 use std::time::Duration;
-use swss_common::DbConnector;
+use swss_common::{CxxString, DbConnector};
 
 struct DbConnections {
     config_db: DbConnector,
@@ -18,7 +18,7 @@ struct DbConnections {
 }
 
 // DB field names
-//const FEATURE_TABLE: &str = "FEATURE";
+const FEATURE_TABLE: &str = "FEATURE";
 const SET_OWNER: &str = "set_owner";
 const NO_FALLBACK: &str = "no_fallback_to_local";
 
@@ -30,9 +30,9 @@ const SYSTEM_STATE: &str = "system_state";
 const STATE: &str = "state";
 const ST_FEAT_CTR_STABLE_VER: &str = "container_stable_version";
 
-//const KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
-//const KUBE_LABEL_SET_KEY: &str = "SET";
-//const SERVER_TABLE: &str = "KUBERNETES_MASTER";
+const KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
+const KUBE_LABEL_SET_KEY: &str = "SET";
+const SERVER_TABLE: &str = "KUBERNETES_MASTER";
 const SERVER_KEY: &str = "SERVER";
 //const ST_SER_CONNECTED: &str = "connected";
 //const ST_SER_UPDATE_TS: &str = "update_time";
@@ -58,9 +58,9 @@ fn get_config_data(field: &str) -> Option<serde_json::Value> {
 
 fn read_data(db_connector: &DbConnector, feature: &str, fields: &mut HashMap<&str, String>) {
     let table_name = if feature == SERVER_KEY {
-        "KUBERNETES_MASTER"
+        SERVER_TABLE
     } else {
-        "FEATURE"
+        FEATURE_TABLE
     };
 
     let data = db_connector
@@ -93,15 +93,23 @@ fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static
     fields
 }
 
-fn set_label(db_connections: &DbConnections, _feature: &str, _create: bool) {
+fn set_label(db_connections: &DbConnections, feature: &str, create: bool) {
     if db_connections.remote_ctr_enabled {
-        todo!();
+        let _ = db_connections.state_db.hset(
+            KUBE_LABEL_TABLE,
+            &format!("{}|{}_enabled", KUBE_LABEL_SET_KEY, feature),
+            &CxxString::new(if create { "true" } else { "false" }),
+        );
     }
 }
 
-fn update_data(db_connections: &DbConnections, _feature: &str, _data: &HashMap<&str, String>) {
+fn update_data(db_connections: &DbConnections, feature: &str, data: &HashMap<&str, &str>) {
     if db_connections.remote_ctr_enabled {
-        todo!();
+        for (key, value) in data.iter() {
+            let _ = db_connections
+                .state_db
+                .hset(FEATURE_TABLE, &format!("{}|{}", feature, key), &CxxString::new(value));
+        }
     }
 }
 
@@ -169,7 +177,7 @@ fn container_start(feature: &str) {
     let feature_state = read_state(&db_connections, feature);
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    let mut data: HashMap<&str, String> = HashMap::from([(SYSTEM_STATE, "up".to_string()), (UPD_TIMESTAMP, timestamp)]);
+    let mut data: HashMap<&str, &str> = HashMap::from([(SYSTEM_STATE, "up"), (UPD_TIMESTAMP, &timestamp)]);
 
     let mut start_val = enumset::EnumSet::new();
     if feature_config.get(SET_OWNER).unwrap() == "local" {
@@ -178,16 +186,16 @@ fn container_start(feature: &str) {
         start_val |= StartFlags::StartKube;
         if feature_config.get(NO_FALLBACK).unwrap() == "False" && feature_state.get(REMOTE_STATE).unwrap() == "none" {
             start_val |= StartFlags::StartLocal;
-            data.insert(REMOTE_STATE, "none".to_string());
+            data.insert(REMOTE_STATE, "none");
         }
     }
 
     if start_val & StartFlags::StartLocal != enumset::EnumSet::empty() {
-        data.insert(CURRENT_OWNER, "local".to_string());
-        data.insert(CONTAINER_ID, feature.to_string());
+        data.insert(CURRENT_OWNER, "local");
+        data.insert(CONTAINER_ID, feature);
         if start_val == StartFlags::StartLocal {
             set_label(&db_connections, feature, false);
-            data.insert(REMOTE_STATE, "none".to_string());
+            data.insert(REMOTE_STATE, "none");
         }
     }
 
@@ -228,14 +236,14 @@ fn container_stop(feature: &str, timeout: Option<i64>) {
     }
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    let mut data: HashMap<&str, String> = HashMap::from([
-        (CURRENT_OWNER, "none".to_string()),
-        (SYSTEM_STATE, "down".to_string()),
-        (CONTAINER_ID, "".to_string()),
-        (UPD_TIMESTAMP, timestamp),
+    let mut data: HashMap<&str, &str> = HashMap::from([
+        (CURRENT_OWNER, "none"),
+        (SYSTEM_STATE, "down"),
+        (CONTAINER_ID, ""),
+        (UPD_TIMESTAMP, &timestamp),
     ]);
     if feature_state.get(REMOTE_STATE).unwrap() == "running" {
-        data.insert(REMOTE_STATE, "stopped".to_string());
+        data.insert(REMOTE_STATE, "stopped");
     }
 
     update_data(&db_connections, feature, &data);
@@ -291,7 +299,7 @@ fn container_wait(feature: &str) {
             update_data(
                 &db_connections,
                 feature,
-                &HashMap::from([(ST_FEAT_CTR_STABLE_VER, version)]),
+                &HashMap::from([(ST_FEAT_CTR_STABLE_VER, version.as_str())]),
             );
         }
     }
@@ -317,11 +325,7 @@ fn container_wait(feature: &str) {
         docker_id = Cow::Borrowed(feature_state.get(CONTAINER_ID).unwrap());
 
         if feature_state.get(REMOTE_STATE).unwrap() == "pending" {
-            update_data(
-                &db_connections,
-                feature,
-                &HashMap::from([(REMOTE_STATE, "ready".to_string())]),
-            );
+            update_data(&db_connections, feature, &HashMap::from([(REMOTE_STATE, "ready")]));
         }
     }
 
