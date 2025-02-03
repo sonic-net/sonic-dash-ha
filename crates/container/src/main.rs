@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use std::thread::sleep;
 use std::time::Duration;
 use swss_common::{CxxString, DbConnector};
@@ -138,7 +139,7 @@ fn initialize_connection() -> DbConnections {
     DbConnections {
         config_db: DbConnector::new_tcp(4, "localhost", 6379, 0).expect("Unable to connect to Redis DB"),
         state_db: DbConnector::new_tcp(6, "localhost", 6379, 0).expect("Unable to connect to Redis DB"),
-        remote_ctr_enabled: false,
+        remote_ctr_enabled: Path::new("/lib/systemd/system/ctrmgrd.service").exists(),
     }
 }
 
