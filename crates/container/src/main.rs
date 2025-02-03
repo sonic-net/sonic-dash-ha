@@ -113,7 +113,7 @@ fn update_data(db_connections: &DbConnections, feature: &str, data: &HashMap<&st
     }
 }
 
-fn container_version(docker: &Docker, feature: &str) -> String {
+fn container_version(docker: &Docker, feature: &str) -> Option<String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -121,20 +121,16 @@ fn container_version(docker: &Docker, feature: &str) -> String {
     let container_options = rt
         .block_on(docker.inspect_container(feature, None))
         .expect("Unable to communicate with Docker");
-    match container_options.config {
-        Some(config) => match config.env {
-            Some(envs) => {
-                for env in envs {
-                    if env.starts_with("IMAGE_VERSION=") {
-                        return env.split('=').collect::<Vec<&str>>()[1].to_string();
-                    }
+    if let Some(config) = container_options.config {
+        if let Some(envs) = config.env {
+            for env in envs {
+                if env.starts_with("IMAGE_VERSION=") {
+                    return Some(env.split('=').collect::<Vec<&str>>()[1].to_string());
                 }
-                String::new()
             }
-            None => String::new(),
-        },
-        None => String::new(),
+        }
     }
+    None
 }
 
 fn initialize_connection() -> DbConnections {
@@ -294,8 +290,8 @@ fn container_wait(feature: &str) {
     let docker = Docker::connect_with_local_defaults().unwrap();
 
     if *docker_id == *feature {
-        let version = container_version(&docker, feature);
-        if !version.is_empty() {
+        let version_option = container_version(&docker, feature);
+        if let Some(version) = version_option {
             update_data(
                 &db_connections,
                 feature,
