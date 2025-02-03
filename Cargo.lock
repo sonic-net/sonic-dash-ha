@@ -1476,6 +1476,9 @@ dependencies = [
  "strum",
  "swbus-edge",
  "swbus-proto",
+ "swss-common",
+ "swss-common-testing",
+ "swss-serde",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -1483,6 +1486,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1544,6 +1548,7 @@ dependencies = [
 name = "swss-common-testing"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "rand",
  "swss-common",
 ]

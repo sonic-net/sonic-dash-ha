@@ -7,9 +7,16 @@ use std::{
     sync::Mutex,
 };
 
+use lazy_static::lazy_static;
+use std::sync::Arc;
+
 use rand::{random, Rng};
 
 use swss_common::*;
+
+lazy_static! {
+    static ref CONFIG_DB: Mutex<Option<Arc<Redis>>> = Mutex::new(None);
+}
 
 pub struct Redis {
     pub proc: Child,
@@ -17,10 +24,28 @@ pub struct Redis {
 }
 
 impl Redis {
+    /// Start a Redis instance with a random unix socket. Multiple instances can be started.
+    /// It is mutually exclusive with start_config_db().
     pub fn start() -> Self {
         sonic_db_config_init_for_test();
+        Redis::start_with_sock(random_unix_sock())
+    }
 
-        let sock = random_unix_sock();
+    /// Start a Redis with config_db. Only one instance can be started at a time.
+    /// It is mutually exclusive with start().
+    pub fn start_config_db() -> Arc<Redis> {
+        CONFIG_DB
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| {
+                let sock_str = random_unix_sock();
+                config_db_config_init_for_test(&sock_str);
+                Arc::new(Redis::start_with_sock(sock_str))
+            })
+            .clone()
+    }
+
+    fn start_with_sock(sock: String) -> Self {
         #[rustfmt::skip]
         #[allow(clippy::zombie_processes)]
         let mut child = Command::new("timeout")
@@ -58,11 +83,11 @@ impl Redis {
 
 impl Drop for Redis {
     fn drop(&mut self) {
-        Command::new("kill")
-            .args(["-s", "TERM", &self.proc.id().to_string()])
-            .status()
-            .unwrap();
-        self.proc.wait().unwrap();
+        // Command::new("kill")
+        //     .args(["-s", "TERM", &self.proc.id().to_string()])
+        //     .status()
+        //     .unwrap();
+        // self.proc.wait().unwrap();
     }
 }
 
@@ -86,22 +111,72 @@ const DB_CONFIG_JSON: &str = r#"
         }
     "#;
 
+const CONFIG_DB_REDIS_CONFIG_JSON: &str = r#"
+    {
+        "INSTANCES": {
+            "redis": {
+                "hostname": "127.0.0.1",
+                "port": {port},
+                "unix_socket_path": "{path}",
+                "persistence_for_warm_boot": "yes"
+            }
+        },
+        "DATABASES": {
+            "CONFIG_DB": {
+                "id": 1,
+                "separator": "|",
+                "instance": "redis"
+            }
+        }
+    }
+"#;
+
 const DB_GLOBAL_CONFIG_JSON: &str = "{}";
+
+static SONIC_DB_INITIALIZED: Mutex<bool> = Mutex::new(false);
+static CONIFG_DB_INITIALIZED: Mutex<bool> = Mutex::new(false);
 
 pub fn sonic_db_config_init_for_test() {
     // HACK
     // We need to do our own locking here because locking is not correctly implemented in
     // swss::SonicDBConfig :/
-    static INITIALIZED: Mutex<bool> = Mutex::new(false);
-    let mut is_init = INITIALIZED.lock().unwrap();
-    if !*is_init {
+    let config_db_init = CONIFG_DB_INITIALIZED.lock().unwrap();
+    // config_db and sonic_db are mutually exclusive because the lock in swss::SonicDBConfig
+    assert!(!*config_db_init);
+
+    let mut sonic_db_init = SONIC_DB_INITIALIZED.lock().unwrap();
+    if !*sonic_db_init {
         fs::write("/tmp/db_config_test.json", DB_CONFIG_JSON).unwrap();
         fs::write("/tmp/db_global_config_test.json", DB_GLOBAL_CONFIG_JSON).unwrap();
         sonic_db_config_initialize("/tmp/db_config_test.json").unwrap();
         sonic_db_config_initialize_global("/tmp/db_global_config_test.json").unwrap();
         fs::remove_file("/tmp/db_config_test.json").unwrap();
         fs::remove_file("/tmp/db_global_config_test.json").unwrap();
-        *is_init = true;
+        *sonic_db_init = true;
+    }
+}
+
+fn config_db_config_init_for_test(sock_str: &str) {
+    // HACK
+    // We need to do our own locking here because locking is not correctly implemented in
+    // swss::SonicDBConfig :/
+    let sonic_db_init = SONIC_DB_INITIALIZED.lock().unwrap();
+    // config_db and sonic_db are mutually exclusive because the lock in swss::SonicDBConfig
+    assert!(!*sonic_db_init);
+
+    let mut config_db_init = CONIFG_DB_INITIALIZED.lock().unwrap();
+    if !*config_db_init {
+        let port = random_port();
+        let db_config_json = CONFIG_DB_REDIS_CONFIG_JSON
+            .replace("{port}", &port.to_string())
+            .replace("{path}", sock_str);
+        fs::write("/tmp/db_config_test.json", db_config_json).unwrap();
+        fs::write("/tmp/db_global_config_test.json", DB_GLOBAL_CONFIG_JSON).unwrap();
+        sonic_db_config_initialize("/tmp/db_config_test.json");
+        sonic_db_config_initialize_global("/tmp/db_global_config_test.json");
+        fs::remove_file("/tmp/db_config_test.json").unwrap();
+        fs::remove_file("/tmp/db_global_config_test.json").unwrap();
+        *config_db_init = true;
     }
 }
 
@@ -145,6 +220,11 @@ pub fn random_kfvs() -> Vec<KeyOpFieldValues> {
 
 pub fn random_unix_sock() -> String {
     format!("/tmp/swss-common-testing-{}.sock", random_string())
+}
+
+pub fn random_port() -> u16 {
+    let mut rng = rand::thread_rng();
+    rng.gen_range(1000..65535)
 }
 
 // zmq doesn't clean up its own ipc sockets, so we include a deferred operation for that
