@@ -1,0 +1,21 @@
+[package]
+name = "swss-common-bridge"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+swss-common = { path = "../swss-common", features = ["async", "serde"] }
+swbus-actor = { path = "../swbus-actor" }
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+replace_with = "0.1"
+
+[lints]
+workspace = true
