@@ -30,14 +30,14 @@ impl SwbusServiceHost {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         // populate the mux with the routes
         Self {
-            swbus_server_addr: swbus_server_addr.clone(),
+            swbus_server_addr: *swbus_server_addr,
             mux,
             conn_store,
         }
     }
 
     pub async fn start(self: SwbusServiceHost, config: SwbusdConfig) -> Result<()> {
-        let addr = self.swbus_server_addr.clone();
+        let addr = self.swbus_server_addr;
 
         if config.routes.is_empty() {
             return Err(SwbusError::input(

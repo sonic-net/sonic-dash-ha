@@ -196,9 +196,9 @@ impl SwbusdConfig {
                 continue;
             }
             if dpu.dpu_type == DpuType::Local && dpu.slot_id == slot_id {
-                myroutes = Some(RouteConfig::from_dpu_table(&dpu, &region, &cluster).or_else(|e| {
+                myroutes = Some(RouteConfig::from_dpu_table(&dpu, &region, &cluster).map_err(|e| {
                     error!("Failed to collect routes for {}: {}", slot_id, e);
-                    Err(e)
+                    e
                 })?);
 
                 if let Some(npu_ipv4) = dpu.npu_ipv4 {
@@ -217,9 +217,9 @@ impl SwbusdConfig {
             }
 
             let dpu: ConfigDBDPUEntry = from_table(&table, &key)?;
-            let peer = PeerConfig::from_dpu_table(&key, dpu, &region, &cluster).or_else(|e| {
+            let peer = PeerConfig::from_dpu_table(&key, dpu, &region, &cluster).map_err(|e| {
                 error!("Failed to collect peers from {}: {}", key, e);
-                Err(e)
+                e
             })?;
             peers.extend(peer);
         }
