@@ -4,8 +4,8 @@ use swbus_proto::{
     message_id_generator::MessageIdGenerator,
     result::Result,
     swbus::{
-        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusMessage, SwbusMessageHeader,
-        TraceRouteRequest, TraceRouteResponse,
+        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage,
+        SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse,
     },
 };
 use tokio::sync::{
@@ -143,4 +143,36 @@ pub struct IncomingMessage {
 pub struct OutgoingMessage {
     pub destination: ServicePath,
     pub body: MessageBody,
+}
+
+impl OutgoingMessage {
+    pub fn request(destination: ServicePath, payload: Vec<u8>) -> Self {
+        Self {
+            destination,
+            body: MessageBody::Request(DataRequest::new(payload)),
+        }
+    }
+
+    pub fn ok_response(response_to: IncomingMessage) -> Self {
+        Self {
+            destination: response_to.source,
+            body: MessageBody::Response(RequestResponse::ok(response_to.id)),
+        }
+    }
+
+    pub fn error_response(
+        response_to: IncomingMessage,
+        code: SwbusErrorCode,
+        error_message: impl Into<String>,
+    ) -> Self {
+        Self {
+            destination: response_to.source,
+            body: MessageBody::Response(RequestResponse {
+                request_id: response_to.id,
+                error_code: code as i32,
+                error_message: error_message.into(),
+                response_body: None,
+            }),
+        }
+    }
 }
