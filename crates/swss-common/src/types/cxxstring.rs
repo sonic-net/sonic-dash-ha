@@ -32,7 +32,7 @@ impl CxxString {
     /// Copies the given data into a new C++ string.
     pub fn new(data: impl AsRef<[u8]>) -> CxxString {
         unsafe {
-            let ptr = data.as_ref().as_ptr() as *const i8;
+            let ptr = data.as_ref().as_ptr() as *const libc::c_char;
             let len = data.as_ref().len().try_into().unwrap();
             CxxString::take(SWSSString_new(ptr, len)).unwrap()
         }

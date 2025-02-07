@@ -44,7 +44,7 @@ pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
 }
 
 /// Take a malloc'd c string and convert it to a native String
-pub(crate) unsafe fn take_cstr(p: *const i8) -> String {
+pub(crate) unsafe fn take_cstr(p: *const libc::c_char) -> String {
     let s = CStr::from_ptr(p)
         .to_str()
         .expect("C string being converted to Rust String contains invalid UTF-8")
