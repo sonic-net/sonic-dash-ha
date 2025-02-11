@@ -1476,9 +1476,6 @@ dependencies = [
  "strum",
  "swbus-edge",
  "swbus-proto",
- "swss-common",
- "swss-common-testing",
- "swss-serde",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -1524,9 +1521,18 @@ dependencies = [
 name = "swbusd"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml",
  "sonic-common",
  "swbus-core",
+ "swbus-proto",
+ "swss-common",
+ "swss-common-testing",
+ "swss-serde",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",

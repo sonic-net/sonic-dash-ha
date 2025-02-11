@@ -4,8 +4,8 @@ use std::env;
 use std::fs::{self, File};
 use std::io::BufReader;
 use std::net::SocketAddr;
-use swbus_core::mux::route_config::*;
 use swbus_core::mux::service::SwbusServiceHost;
+use swbus_core::mux::swbus_config::*;
 use swbus_edge::core_client::SwbusCoreClient;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
@@ -54,7 +54,7 @@ struct MessageClientPair {
 /// The topology definition including servers and clients.
 #[derive(Deserialize, Debug)]
 struct TopoData {
-    pub servers: HashMap<String, SwbusdConfig>,
+    pub servers: HashMap<String, SwbusConfig>,
     pub clients: HashMap<String, SwbusClientConfig>,
 }
 
@@ -113,7 +113,7 @@ impl TopoRuntime {
         info!("Topo {} is up", self.name);
     }
 
-    async fn start_server(&mut self, name: &str, route_config: &SwbusdConfig) {
+    async fn start_server(&mut self, name: &str, route_config: &SwbusConfig) {
         let service_host = SwbusServiceHost::new(&route_config.endpoint);
         let config_clone = route_config.clone();
         let server_task = tokio::spawn(async move {

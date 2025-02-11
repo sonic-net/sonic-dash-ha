@@ -83,11 +83,11 @@ impl Redis {
 
 impl Drop for Redis {
     fn drop(&mut self) {
-        // Command::new("kill")
-        //     .args(["-s", "TERM", &self.proc.id().to_string()])
-        //     .status()
-        //     .unwrap();
-        // self.proc.wait().unwrap();
+        Command::new("kill")
+            .args(["-s", "TERM", &self.proc.id().to_string()])
+            .status()
+            .unwrap();
+        self.proc.wait().unwrap();
     }
 }
 

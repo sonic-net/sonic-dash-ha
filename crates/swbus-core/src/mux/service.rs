@@ -1,8 +1,8 @@
 use super::SwbusConn;
 use super::SwbusMultiplexer;
 use crate::mux::conn_store::SwbusConnStore;
+use crate::mux::SwbusConfig;
 use crate::mux::SwbusConnInfo;
-use crate::mux::SwbusdConfig;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -36,7 +36,7 @@ impl SwbusServiceHost {
         }
     }
 
-    pub async fn start(self: SwbusServiceHost, config: SwbusdConfig) -> Result<()> {
+    pub async fn start(self: SwbusServiceHost, config: SwbusConfig) -> Result<()> {
         let addr = self.swbus_server_addr;
 
         if config.routes.is_empty() {
