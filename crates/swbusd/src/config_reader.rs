@@ -11,7 +11,7 @@ use swss_serde::from_table;
 use tracing::*;
 
 const CONFIG_DB: &str = "CONFIG_DB";
-const SWBUSD_PORT: u16 = 51000;
+const SWBUSD_PORT: u16 = 23606;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct ConfigDBDPUEntry {
