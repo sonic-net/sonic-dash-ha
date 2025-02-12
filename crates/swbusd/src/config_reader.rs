@@ -14,20 +14,9 @@ const CONFIG_DB: &str = "CONFIG_DB";
 const SWBUSD_PORT: u16 = 51000;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-enum DpuType {
-    // DPU is local to the switch
-    Local,
-    // DPU is in a different switch but same cluster
-    Cluster,
-    // External DPU, not for DASH smartswitch
-    External,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct ConfigDBDPUEntry {
     #[serde(rename = "type")]
-    dpu_type: DpuType,
+    dpu_type: Option<String>,
     state: Option<String>,
     slot_id: u32,
     pa_ipv4: Option<String>,
@@ -55,9 +44,10 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     let slot_id = dpu_entry.slot_id;
 
     debug!("Collecting routes for local dpu{}", slot_id);
-    if dpu_entry.dpu_type == DpuType::External {
+    let dpu_type = dpu_entry.dpu_type.as_ref().ok_or(anyhow!("DPU type not found"))?;
+    if dpu_type != "local" && dpu_type != "cluster" {
         // ignore external DPUs, not for DASH smartswitch
-        bail!("External DPU, not for DASH smartswitch".to_string());
+        bail!(format!("Unsupported DPU type: {}", dpu_type));
     }
 
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4.as_ref() {
@@ -102,9 +92,10 @@ fn peer_config_from_dpu_entry(
     let mut peers = Vec::new();
 
     debug!("Collecting peer info for DPU: {}", dpu_id);
-    if dpu_entry.dpu_type == DpuType::External {
+    let dpu_type = dpu_entry.dpu_type.as_ref().ok_or(anyhow!("DPU type not found"))?;
+    if dpu_type != "local" && dpu_type != "cluster" {
         // ignore external DPUs, not for DASH smartswitch
-        return Ok(peers);
+        bail!(format!("Unsupported DPU type: {}", dpu_type));
     }
 
     let slot_id = dpu_entry.slot_id;
@@ -175,13 +166,19 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
     let keys = table.get_keys()?;
     for key in keys {
         let dpu: ConfigDBDPUEntry = from_table(&table, &key)?;
-        if dpu.dpu_type == DpuType::External {
+        if dpu.dpu_type.as_ref().is_none() {
+            error!("Missing type in DPU entry {}", key);
+            continue;
+        }
+        let dpu_type = dpu.dpu_type.as_ref().unwrap();
+        if dpu_type != "local" && dpu_type != "cluster" {
             // ignore external DPUs, not for DASH smartswitch
+            debug!("Unsupported DPU type: {} in {}", dpu_type, key);
             continue;
         }
 
         // find the DPU entry for the slot
-        if dpu.dpu_type == DpuType::Local && dpu.slot_id == slot_id {
+        if dpu_type == "local" && dpu.slot_id == slot_id {
             myroutes = Some(route_config_from_dpu_entry(&dpu, &region, &cluster).map_err(|e| {
                 error!("Failed to collect routes for {}: {}", slot_id, e);
                 e
@@ -262,7 +259,11 @@ mod tests {
         for s in 0..2 {
             for d in 0..2 {
                 let dpu = ConfigDBDPUEntry {
-                    dpu_type: if s == 0 { DpuType::Local } else { DpuType::Cluster },
+                    dpu_type: if s == 0 {
+                        Some("local".to_string())
+                    } else {
+                        Some("cluster".to_string())
+                    },
                     state: Some("active".to_string()),
                     slot_id: d,
                     pa_ipv4: Some(format!("10.0.0.{}", s * 8 + d)),
