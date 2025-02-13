@@ -37,7 +37,6 @@ impl CmdHandler for PingCmd {
             .lock()
             .await
             .add_handler(src_sp.clone(), recv_queue_tx)
-            .await
             .unwrap();
 
         // Send ping messages

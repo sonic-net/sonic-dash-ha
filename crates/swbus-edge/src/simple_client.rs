@@ -27,10 +27,9 @@ pub struct SimpleSwbusEdgeClient {
 
 impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
-    pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
+    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         rt.add_handler(source.clone(), handler_tx)
-            .await
             .expect("failed to add handler to SwbusEdgeRuntime");
         Self {
             rt,
