@@ -52,7 +52,6 @@ impl super::CmdHandler for ShowCmd {
             .lock()
             .await
             .add_handler(src_sp.clone(), recv_queue_tx)
-            .await
             .unwrap();
 
         let sub_cmd: &dyn ShowCmdHandler = match &self.subcommand {
