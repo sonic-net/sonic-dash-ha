@@ -1,5 +1,5 @@
 [package]
-name = "actor"
+name = "swbus-actor"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
