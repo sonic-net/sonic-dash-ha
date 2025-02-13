@@ -1,0 +1,16 @@
+[package]
+name = "actor"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+swbus-edge = { path = "../swbus-edge" }
+tokio.workspace = true
+
+[lints]
+workspace = true
