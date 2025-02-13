@@ -292,7 +292,7 @@ mod tests {
 
         // create equivalent config in yaml
         let yaml_content = r#"
-        endpoint: "10.0.1.0:51000"
+        endpoint: "10.0.1.0:23606"
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "Cluster"
@@ -300,22 +300,22 @@ mod tests {
             scope: "Cluster"
         peers:
           - id: "region-a.cluster-a.10.0.1.0-dpu1"
-            endpoint: "10.0.1.0:51001"
+            endpoint: "10.0.1.0:23607"
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::-dpu1"
-            endpoint: "[2001:db8:1::]:51001"
+            endpoint: "[2001:db8:1::]:23607"
             conn_type: "Cluster"            
           - id: "region-a.cluster-a.10.0.1.1-dpu0"
-            endpoint: "10.0.1.1:51000"
+            endpoint: "10.0.1.1:23606"
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::1-dpu0"
-            endpoint: "[2001:db8:1::1]:51000"
+            endpoint: "[2001:db8:1::1]:23606"
             conn_type: "Cluster"   
           - id: "region-a.cluster-a.10.0.1.1-dpu1"
-            endpoint: "10.0.1.1:51001"
+            endpoint: "10.0.1.1:23607"
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::1-dpu1"
-            endpoint: "[2001:db8:1::1]:51001"
+            endpoint: "[2001:db8:1::1]:23607"
             conn_type: "Cluster"   
         "#;
 
