@@ -4,8 +4,8 @@ use swbus_proto::{
     message_id_generator::MessageIdGenerator,
     result::Result,
     swbus::{
-        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusMessage, SwbusMessageHeader,
-        TraceRouteRequest, TraceRouteResponse,
+        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage,
+        SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse,
     },
 };
 use tokio::sync::{
@@ -27,10 +27,9 @@ pub struct SimpleSwbusEdgeClient {
 
 impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
-    pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
+    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         rt.add_handler(source.clone(), handler_tx)
-            .await
             .expect("failed to add handler to SwbusEdgeRuntime");
         Self {
             rt,
@@ -62,15 +61,24 @@ impl SimpleSwbusEdgeClient {
         let body = msg.body.unwrap();
 
         match body {
-            Body::DataRequest(req) => HandleReceivedMessage::PassToActor(IncomingMessage {
+            Body::DataRequest(DataRequest { payload }) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
                 source,
-                body: MessageBody::Request(req),
+                body: MessageBody::Request { payload },
             }),
-            Body::Response(resp) => HandleReceivedMessage::PassToActor(IncomingMessage {
+            Body::Response(RequestResponse {
+                request_id,
+                error_code,
+                error_message,
+                ..
+            }) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
                 source,
-                body: MessageBody::Response(resp),
+                body: MessageBody::Response {
+                    request_id,
+                    error_code: SwbusErrorCode::try_from(error_code).unwrap_or(SwbusErrorCode::UnknownError),
+                    error_message,
+                },
             }),
             Body::PingRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
                 SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
@@ -109,14 +117,24 @@ impl SimpleSwbusEdgeClient {
         let msg = SwbusMessage {
             header: Some(SwbusMessageHeader::new(self.source.clone(), msg.destination, id)),
             body: Some(match msg.body {
-                MessageBody::Request(req) => Body::DataRequest(req),
-                MessageBody::Response(resp) => Body::Response(resp),
+                MessageBody::Request { payload } => Body::DataRequest(DataRequest { payload }),
+                MessageBody::Response {
+                    request_id,
+                    error_code,
+                    error_message,
+                } => Body::Response(RequestResponse {
+                    request_id,
+                    error_code: error_code.into(),
+                    error_message,
+                    response_body: None,
+                }),
             }),
         };
         (id, msg)
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum HandleReceivedMessage {
     PassToActor(IncomingMessage),
     Respond(SwbusMessage),
@@ -126,8 +144,14 @@ enum HandleReceivedMessage {
 /// A simplified version of [`Body`], that excludes infra messages.
 #[derive(Debug, Clone)]
 pub enum MessageBody {
-    Request(DataRequest),
-    Response(RequestResponse),
+    Request {
+        payload: Vec<u8>,
+    },
+    Response {
+        request_id: MessageId,
+        error_code: SwbusErrorCode,
+        error_message: String,
+    },
 }
 
 /// A message received from another Swbus client.

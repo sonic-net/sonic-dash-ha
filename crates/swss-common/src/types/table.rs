@@ -2,6 +2,7 @@ use super::*;
 use crate::bindings::*;
 use std::ptr;
 
+/// Rust wrapper around `swss::Table`.
 #[derive(Debug)]
 pub struct Table {
     ptr: SWSSTable,
