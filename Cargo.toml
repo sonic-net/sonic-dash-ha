@@ -12,6 +12,7 @@ members = [
     "crates/swbus-proto",
     "crates/swbus-cli", 
     "crates/swbus-config",
+    "crates/actor",
 ]
 exclude = []
 
