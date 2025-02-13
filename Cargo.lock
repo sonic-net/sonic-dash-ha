@@ -3,14 +3,6 @@
 version = 4
 
 [[package]]
-name = "actor"
-version = "0.1.0"
-dependencies = [
- "swbus-edge",
- "tokio",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1458,6 +1450,14 @@ dependencies = [
  "quote",
  "rustversion",
  "syn 2.0.58",
+]
+
+[[package]]
+name = "swbus-actor"
+version = "0.1.0"
+dependencies = [
+ "swbus-edge",
+ "tokio",
 ]
 
 [[package]]
