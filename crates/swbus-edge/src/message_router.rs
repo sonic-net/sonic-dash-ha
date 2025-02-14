@@ -49,36 +49,57 @@ impl SwbusMessageRouter {
 
     async fn route_message(
         swbus_client: &mut SwbusCoreClient,
-        routes: &Arc<DashMap<ServicePath, SwbusMessageHandlerProxy>>,
+        routes: &DashMap<ServicePath, SwbusMessageHandlerProxy>,
         message: SwbusMessage,
     ) {
         // Route the message via routes, then default to the core client.
-        let header = match message.header {
-            Some(ref header) => header,
-            None => {
-                error!("Missing message header");
-                return;
-            }
+        let Some(header) = &message.header else {
+            error!("Missing message header");
+            return;
         };
-        let destination = match header.destination {
-            Some(ref destination) => destination,
-            None => {
-                error!("Missing message destination");
-                return;
-            }
+        let Some(destination) = &header.destination else {
+            error!("Missing message destination");
+            return;
         };
-        // If the route entry doesn't exist, send to swbus_client.
-        match routes.get(destination) {
-            Some(handler) => {
-                if let Err(swbus_err) = handler.send(message).await {
-                    error!("Failed to send message to handler: {:?}", swbus_err);
+
+        macro_rules! send_to {
+            ($recipient:expr) => {{
+                if let Err(e) = $recipient.send(message).await {
+                    error!("Failed to send message to {}: {:?}", stringify!($recipient), e);
                 }
-            }
-            None => {
-                if let Err(swbus_err) = swbus_client.send(message).await {
-                    error!("Failed to send message to core client: {:?}", swbus_err);
+            }};
+        }
+
+        macro_rules! try_route {
+            ($destination:expr) => {{
+                if let Some(handler) = routes.get(&$destination) {
+                    send_to!(handler);
+                    return;
                 }
-            }
-        };
+            }};
+        }
+
+        // Try full address
+        try_route!(destination);
+
+        // Try stripping the resource id
+        let mut partial_dest = destination.clone();
+        partial_dest.resource_id = String::new();
+        try_route!(partial_dest);
+
+        // Try stripping the resource type
+        partial_dest.resource_type = String::new();
+        try_route!(partial_dest);
+
+        // Try stripping the service id
+        partial_dest.service_id = String::new();
+        try_route!(partial_dest);
+
+        // Try stripping the service type
+        partial_dest.service_type = String::new();
+        try_route!(partial_dest);
+
+        // Give up at this point and send out to swbus
+        send_to!(swbus_client);
     }
 }
