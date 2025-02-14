@@ -1,4 +1,4 @@
-use super::route_config::RouteConfig;
+use super::swbus_config::RouteConfig;
 use super::{NextHopType, SwbusConnInfo, SwbusConnProxy, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};

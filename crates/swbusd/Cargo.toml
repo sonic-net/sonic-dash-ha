@@ -16,10 +16,12 @@ edition.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
-swbus-core.workspace = true
-sonic-common.workspace = true
 tracing.workspace = true
 clap = { version = "4.0", features = ["derive"] }
 
+# Internal dependencies
+swbus-core.workspace = true
+sonic-common.workspace = true
+swbus-config.workspace = true
 [lints]
 workspace = true

@@ -47,8 +47,7 @@ pretty_assertions.workspace = true
 lazy_static.workspace = true
 # used in tests/
 swbus-edge.workspace = true
-
-
+tracing-subscriber = { version = "0.3", features = ["env-filter", "serde"] }
 [build-dependencies]
 tonic-build.workspace = true
 
