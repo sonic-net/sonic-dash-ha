@@ -1,9 +1,8 @@
 use clap::Parser;
 use sonic_common::log;
+use swbus_config::{swbus_config_from_db, swbus_config_from_yaml};
 use swbus_core::mux::service::SwbusServiceHost;
 use tracing::info;
-mod config_reader;
-use config_reader::{swbus_config_from_db, swbus_config_from_yaml};
 
 #[derive(Parser, Debug)]
 #[command(name = "swbusd")]

@@ -1457,6 +1457,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "swbus-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "swbus-core",
+ "swbus-proto",
+ "swss-common",
+ "swss-common-testing",
+ "swss-serde",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "swbus-core"
 version = "0.1.0"
 dependencies = [
@@ -1521,18 +1538,10 @@ dependencies = [
 name = "swbusd"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
- "serde",
- "serde_json",
- "serde_yaml",
  "sonic-common",
+ "swbus-config",
  "swbus-core",
- "swbus-proto",
- "swss-common",
- "swss-common-testing",
- "swss-serde",
- "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
