@@ -29,12 +29,12 @@ impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
     ///
     /// `public` determines whether the client is registered using [`SwbusEdgeRuntime::add_handler`] or [`SwbusEdgeRuntime::add_private_handler`].
-    pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool) -> Self {
+    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         if public {
-            rt.add_handler(source.clone(), handler_tx).await.unwrap()
+            rt.add_handler(source.clone(), handler_tx);
         } else {
-            rt.add_private_handler(source.clone(), handler_tx).await.unwrap()
+            rt.add_private_handler(source.clone(), handler_tx);
         }
 
         Self {

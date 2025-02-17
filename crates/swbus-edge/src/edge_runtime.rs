@@ -36,19 +36,15 @@ impl SwbusEdgeRuntime {
     }
 
     /// Add handler that can be reached from any swbus client.
-    pub async fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
-        // Create MessageHandlerProxy
+    pub fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
-
         self.message_router.add_route(svc_path, proxy);
-        Ok(())
     }
 
     /// Add handler that can only be reached from within this edge runtime.
-    pub async fn add_private_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
+    pub fn add_private_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
         self.message_router.add_private_route(svc_path, proxy);
-        Ok(())
     }
 
     pub async fn send(&self, message: SwbusMessage) -> Result<()> {

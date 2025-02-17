@@ -49,12 +49,7 @@ impl super::CmdHandler for ShowCmd {
         let dst_sp = ctx.sp.clone_for_local_mgmt();
 
         // Register the channel to the runtime to receive response
-        ctx.runtime
-            .lock()
-            .await
-            .add_handler(src_sp.clone(), recv_queue_tx)
-            .await
-            .unwrap();
+        ctx.runtime.lock().await.add_handler(src_sp.clone(), recv_queue_tx);
 
         let sub_cmd: &dyn ShowCmdHandler = match &self.subcommand {
             ShowSubCmd::Route(show_route_args) => show_route_args,
