@@ -18,15 +18,15 @@ pub struct SwbusEdgeRuntime {
 
 impl SwbusEdgeRuntime {
     pub fn new(swbus_uri: String, sp: ServicePath) -> Self {
-        let (recv_queue_tx, recv_queue_rx) = channel::<SwbusMessage>(SWBUS_RECV_QUEUE_SIZE);
-        let sender_to_message_router = recv_queue_tx.clone();
-        let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), sp, recv_queue_tx);
-        let message_router = SwbusMessageRouter::new(swbus_client, recv_queue_rx);
+        let (local_msg_tx, local_msg_rx) = channel(SWBUS_RECV_QUEUE_SIZE);
+        let (remote_msg_tx, remote_msg_rx) = channel(SWBUS_RECV_QUEUE_SIZE);
+        let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), sp, remote_msg_tx);
+        let message_router = SwbusMessageRouter::new(swbus_client, local_msg_rx, remote_msg_rx);
 
         Self {
             swbus_uri,
             message_router,
-            sender_to_message_router,
+            sender_to_message_router: local_msg_tx,
         }
     }
 
@@ -35,11 +35,19 @@ impl SwbusEdgeRuntime {
         self.message_router.start().await
     }
 
+    /// Add handler that can be reached from any swbus client.
     pub async fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
         // Create MessageHandlerProxy
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
 
         self.message_router.add_route(svc_path, proxy);
+        Ok(())
+    }
+
+    /// Add handler that can only be reached from within this edge runtime.
+    pub async fn add_private_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
+        let proxy = SwbusMessageHandlerProxy::new(handler_tx);
+        self.message_router.add_private_route(svc_path, proxy);
         Ok(())
     }
 
