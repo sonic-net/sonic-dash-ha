@@ -27,11 +27,16 @@ pub struct SimpleSwbusEdgeClient {
 
 impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
-    pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
+    ///
+    /// `public` determines whether the client is registered using [`SwbusEdgeRuntime::add_handler`] or [`SwbusEdgeRuntime::add_private_handler`].
+    pub async fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
-        rt.add_handler(source.clone(), handler_tx)
-            .await
-            .expect("failed to add handler to SwbusEdgeRuntime");
+        if public {
+            rt.add_handler(source.clone(), handler_tx).await.unwrap()
+        } else {
+            rt.add_private_handler(source.clone(), handler_tx).await.unwrap()
+        }
+
         Self {
             rt,
             handler_rx: Mutex::new(handler_rx),
