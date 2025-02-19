@@ -70,11 +70,13 @@ impl SimpleSwbusEdgeClient {
             Body::DataRequest(req) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
                 source,
+                destination,
                 body: MessageBody::Request(req),
             }),
             Body::Response(resp) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
                 source,
+                destination,
                 body: MessageBody::Response(resp),
             }),
             Body::PingRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
@@ -140,6 +142,7 @@ pub enum MessageBody {
 pub struct IncomingMessage {
     pub id: MessageId,
     pub source: ServicePath,
+    pub destination: ServicePath,
     pub body: MessageBody,
 }
 
