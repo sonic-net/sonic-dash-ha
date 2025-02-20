@@ -1541,6 +1541,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "swss-common-bridge"
+version = "0.1.0"
+dependencies = [
+ "swbus-edge",
+ "swss-common",
+ "tokio",
+]
+
+[[package]]
 name = "swss-common-testing"
 version = "0.1.0"
 dependencies = [
