@@ -1536,6 +1536,7 @@ dependencies = [
  "bindgen",
  "libc",
  "paste",
+ "serde",
  "swss-common-testing",
  "tokio",
 ]

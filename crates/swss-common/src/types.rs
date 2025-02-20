@@ -29,6 +29,7 @@ pub(crate) use exception::swss_try;
 
 use crate::bindings::*;
 use cxxstring::RawMutableSWSSString;
+use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
     collections::HashMap,
@@ -88,7 +89,7 @@ impl SelectResult {
 ///
 /// In swsscommon, this is represented as a string of `"SET"` or `"DEL"`.
 /// This type can be constructed similarly - `let op: KeyOperation = "SET".parse().unwrap()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum KeyOperation {
     Set,
     Del,
@@ -146,7 +147,7 @@ impl Error for InvalidKeyOperationString {}
 pub type FieldValues = HashMap<String, CxxString>;
 
 /// Rust version of `swss::KeyOpFieldsValuesTuple`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyOpFieldValues {
     pub key: String,
     pub operation: KeyOperation,
