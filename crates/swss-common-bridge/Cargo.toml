@@ -12,6 +12,10 @@ edition.workspace = true
 swss-common = { path = "../swss-common", features = ["async"] }
 swbus-edge = { path = "../swbus-edge" }
 tokio.workspace = true
+bincode = "1.3.3"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+swss-common-testing = { path = "../swss-common-testing" }
