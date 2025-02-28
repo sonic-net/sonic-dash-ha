@@ -1,30 +1,41 @@
 #![allow(unused)]
+pub mod actor_message;
+pub mod state;
+
+use state::incoming::Received;
 use std::{
-    collections::HashMap,
     future::Future,
     sync::{Arc, RwLock},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use swbus_edge::{
-    simple_client::{IncomingMessage, MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
+    simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode, SwbusMessage},
     SwbusEdgeRuntime,
 };
-use tokio::{
-    task::JoinHandle,
-    time::{interval, Interval, MissedTickBehavior},
-};
 
-/// The core trait that must be implemented to spawn an actor.
+pub use actor_message::ActorMessage;
+pub use anyhow::{Error, Result};
+pub use serde_json as json;
+pub use state::State;
+
+/// An actor that can be run.
 pub trait Actor: Send + 'static {
-    fn init(&mut self, outbox: &mut Outbox) -> impl Future<Output = Result<ControlFlow, Error>> + Send + 'static;
+    /// Callback run upon spawn. Allows actors to setup the internal state table and send initial messages to get started.
+    ///
+    /// If this returns `Err(..)`, the actor dies immediately and cannot receive messages.
+    ///
+    /// The default implementation does nothing.
+    fn init(&mut self, state: &mut State) -> impl Future<Output = Result<()>> + Send {
+        _ = state;
+        async { Ok(()) }
+    }
 
-    fn handle_reqest(
-        &mut self,
-        outbox: &mut Outbox,
-        payload: &[u8],
-        source: &ServicePath,
-    ) -> impl Future<Output = Result<ControlFlow, Error>> + Send + 'static;
+    /// Callback run upon receipt of an [`ActorMessage`].
+    ///
+    /// If this returns `Err(..)`, state changes are not committed.
+    /// Outgoing state messages are not sent, and internal state changes are rolled back.
+    fn handle_message(&mut self, state: &mut State, key: &str) -> impl Future<Output = Result<()>> + Send;
 }
 
 /// Queue of outgoing messages that are sent if the function finishes successfully.
@@ -42,136 +53,69 @@ impl Outbox {
     }
 }
 
-/// If an actor should `Continue` or `Stop` running.
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum ControlFlow {
-    /// Continue receiving requests.
-    Continue,
-
-    /// Stop receiving requests. Unacked messages will continue to be retried.
-    Stop,
-}
-
-/// `Box<dyn std::error::Error + Send + 'static>`
-pub type Error = Box<dyn std::error::Error + Send + 'static>;
-
 /// An actor and the support structures needed to run it.
 struct ActorDriver<A> {
     actor: A,
-    swbus: SimpleSwbusEdgeClient,
-    maintenence_interval: Interval,
-    unacked_messages: HashMap<MessageId, UnackedMessage>,
-    stopped: bool,
-    outbox: Outbox,
+    state: State,
+    swbus_edge: Arc<SimpleSwbusEdgeClient>,
 }
 
 impl<A: Actor> ActorDriver<A> {
-    fn new(actor: A, swbus: SimpleSwbusEdgeClient) -> Self {
-        let mut maintenence_interval = interval(Duration::from_secs(60));
-        maintenence_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    fn new(actor: A, swbus_edge: SimpleSwbusEdgeClient) -> Self {
+        let swbus_edge = Arc::new(swbus_edge);
         ActorDriver {
             actor,
-            swbus,
-            maintenence_interval,
-            unacked_messages: HashMap::new(),
-            stopped: false,
-            outbox: Outbox { msgs: Vec::new() },
+            state: State::new(swbus_edge.clone()),
+            swbus_edge,
         }
     }
 
     /// Run the actor's main loop
     async fn run(mut self) {
-        while !(self.stopped && self.unacked_messages.is_empty()) {
+        self.actor.init(&mut self.state).await.unwrap();
+        self.state.internal.commit_changes().await;
+        self.state.outgoing.send_queued_messages().await;
+
+        loop {
             tokio::select! {
-                maybe_msg = self.swbus.recv(), if !self.stopped => {
-                    let msg = maybe_msg.expect("Swbus is down, killing actor");
-                    self.handle_message(msg).await
-                }
-                _ = self.maintenence_interval.tick() => self.maintenence().await,
-            }
-        }
-    }
-
-    /// Handle an incoming message - request or response
-    async fn handle_message(&mut self, msg: IncomingMessage) {
-        match msg.body {
-            MessageBody::Request { payload } => {
-                self.handle_request(msg.id, msg.source, payload).await;
-            }
-            MessageBody::Response {
-                request_id,
-                error_code,
-                error_message,
-            } => {
-                if error_code == SwbusErrorCode::Ok {
-                    self.unacked_messages.remove(&request_id);
-                } else {
-                    eprintln!(
-                        "Request {} to {} error: swbus error code {}: {}",
-                        request_id, msg.source, error_code, error_message
-                    );
+                _ = self.state.outgoing.drive_resend_loop() => unreachable!("drive_resend_loop never returns"),
+                received = self.state.incoming.recv() => match received {
+                    Received::ActorMessage { key } => self.handle_message(&key).await,
+                    Received::Ack { id } => self.state.outgoing.ack_message(id),
                 }
             }
         }
     }
 
-    /// Handle an incoming request, triggering `Actor::handle_request`.
-    async fn handle_request(&mut self, request_id: MessageId, source: ServicePath, payload: Vec<u8>) {
-        // Call actor callback
-        let res = self.actor.handle_reqest(&mut self.outbox, &payload, &source).await;
-
-        // Generate response based on callback result
+    /// Handle an incoming actor message, triggering `Actor::handle_message`.
+    async fn handle_message(&mut self, key: &str) {
+        let res = self.actor.handle_message(&mut self.state, key).await;
         let (error_code, error_message) = match res {
-            Ok(cf) => {
-                if cf == ControlFlow::Stop {
-                    self.stopped = true;
-                    // TODO: Unsubscribe from swbus address
-                }
+            Ok(()) => {
+                self.state.internal.commit_changes().await;
+                self.state.outgoing.send_queued_messages().await;
                 (SwbusErrorCode::Ok, String::new())
             }
-            Err(e) => (SwbusErrorCode::Fail, e.to_string()),
+            Err(e) => {
+                self.state.internal.drop_changes();
+                self.state.outgoing.drop_queued_messages();
+                (SwbusErrorCode::Fail, format!("{e:#}"))
+            }
         };
 
-        if error_code == SwbusErrorCode::Ok {
-            // Send requests queued in the outbox
-            for msg in self.outbox.msgs.drain(..) {
-                let (id, msg) = self.swbus.outgoing_message_to_swbus_message(msg);
-                let unacked_message = UnackedMessage {
-                    msg: msg.clone(),
-                    sent_at: Instant::now(),
-                };
-                self.unacked_messages.insert(id, unacked_message);
-                self.swbus.send_raw(msg).await.expect("Sending message failed");
-            }
-        } else {
-            // Just drop the messages
-            self.outbox.msgs.clear();
-        }
+        let entry = self.state.incoming.get_entry(key).unwrap();
 
-        // Send the response
-        self.swbus
+        self.swbus_edge
             .send(OutgoingMessage {
-                destination: source,
+                destination: entry.source.clone(),
                 body: MessageBody::Response {
-                    request_id,
+                    request_id: entry.request_id,
                     error_code,
                     error_message,
                 },
             })
             .await
-            .expect("Sending message failed");
-    }
-
-    /// Run a maintenence pass
-    async fn maintenence(&mut self) {
-        // Drop messages that have been unacked for over an hour, as a memory leak failsafe
-        self.unacked_messages
-            .retain(|_, msg| msg.sent_at.elapsed() < Duration::from_secs(3600));
-
-        // Resend unacked messages
-        for UnackedMessage { msg, .. } in self.unacked_messages.values() {
-            self.swbus.send_raw(msg.clone()).await.expect("Sending message failed");
-        }
+            .expect("failed to send swbus message");
     }
 }
 
