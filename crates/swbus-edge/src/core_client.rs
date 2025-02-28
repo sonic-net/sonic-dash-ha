@@ -137,10 +137,11 @@ impl SwbusCoreClient {
     }
 
     pub async fn send(&mut self, message: SwbusMessage) -> Result<()> {
+        // lazily connect to swbusd
         if self.client.is_none() {
             self.start().await?;
         }
-        // TODO: Check local registrations
+
         match self.send_queue_tx.as_ref().unwrap().send(message).await {
             Ok(_) => {}
             Err(e) => {

@@ -26,9 +26,7 @@ impl SwbusMessageRouter {
             recv_rx: Some(recv_rx),
         }
     }
-}
 
-impl SwbusMessageRouter {
     pub async fn start(&mut self) -> Result<()> {
         let routes = self.routes.clone();
         let mut recv_rx = self.recv_rx.take().unwrap();
