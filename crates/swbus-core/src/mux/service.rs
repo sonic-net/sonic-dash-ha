@@ -1,12 +1,12 @@
 use super::SwbusConn;
 use super::SwbusMultiplexer;
 use crate::mux::conn_store::SwbusConnStore;
-use crate::mux::SwbusConfig;
 use crate::mux::SwbusConnInfo;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use swbus_config::SwbusConfig;
 use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_server::{SwbusService, SwbusServiceServer};
 use swbus_proto::swbus::*;

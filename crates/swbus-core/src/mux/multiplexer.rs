@@ -1,8 +1,8 @@
-use super::swbus_config::RouteConfig;
 use super::{NextHopType, SwbusConnInfo, SwbusConnProxy, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
+use swbus_config::RouteConfig;
 use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;

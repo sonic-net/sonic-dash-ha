@@ -172,9 +172,9 @@ impl SwbusNextHop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mux::RouteConfig;
     use crate::mux::SwbusConn;
     use std::sync::Arc;
+    use swbus_config::RouteConfig;
     use swbus_proto::swbus::SwbusMessage;
     use tokio::sync::mpsc;
 

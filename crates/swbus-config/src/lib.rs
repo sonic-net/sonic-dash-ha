@@ -3,7 +3,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use swbus_core::mux::swbus_config::{PeerConfig, RouteConfig, SwbusConfig};
 use swbus_proto::swbus::*;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
@@ -12,6 +11,29 @@ use tracing::*;
 
 const CONFIG_DB: &str = "CONFIG_DB";
 const SWBUSD_PORT: u16 = 23606;
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SwbusConfig {
+    pub endpoint: SocketAddr,
+    pub routes: Vec<RouteConfig>,
+    pub peers: Vec<PeerConfig>,
+}
+
+#[derive(Debug, Eq, PartialEq, Hash, Clone, Deserialize)]
+pub struct RouteConfig {
+    #[serde(deserialize_with = "deserialize_service_path")]
+    pub key: ServicePath,
+    pub scope: RouteScope,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct PeerConfig {
+    #[serde(deserialize_with = "deserialize_service_path")]
+    pub id: ServicePath,
+    pub endpoint: SocketAddr,
+    pub conn_type: ConnectionType,
+}
+
 #[derive(Error, Debug)]
 pub enum SwbusConfigError {
     #[error("InvalidConfig: {detail}")]
