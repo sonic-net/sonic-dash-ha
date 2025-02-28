@@ -1443,11 +1443,16 @@ dependencies = [
 name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "serde_yaml",
+ "swbus-config",
  "swbus-core",
  "swbus-edge",
  "swbus-proto",
+ "swss-common",
+ "swss-common-testing",
+ "swss-serde",
  "tabled",
  "tokio",
  "tokio-stream",

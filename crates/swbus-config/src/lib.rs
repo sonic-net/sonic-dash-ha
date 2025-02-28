@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::*;
 
 const CONFIG_DB: &str = "CONFIG_DB";
-const SWBUSD_PORT: u16 = 23606;
+pub const SWBUSD_PORT: u16 = 23606;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct SwbusConfig {
@@ -63,28 +63,28 @@ impl SwbusConfigError {
 pub type Result<T, E = SwbusConfigError> = core::result::Result<T, E>;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-struct ConfigDBDPUEntry {
+pub struct ConfigDBDPUEntry {
     #[serde(rename = "type")]
-    dpu_type: Option<String>,
-    state: Option<String>,
-    slot_id: u32,
-    pa_ipv4: Option<String>,
-    pa_ipv6: Option<String>,
-    npu_ipv4: Option<String>,
-    npu_ipv6: Option<String>,
-    probe_ip: Option<String>,
+    pub dpu_type: Option<String>,
+    pub state: Option<String>,
+    pub slot_id: u32,
+    pub pa_ipv4: Option<String>,
+    pub pa_ipv6: Option<String>,
+    pub npu_ipv4: Option<String>,
+    pub npu_ipv6: Option<String>,
+    pub probe_ip: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-struct ConfigDBDeviceMetadataEntry {
-    region: Option<String>,
-    cluster: Option<String>,
+pub struct ConfigDBDeviceMetadataEntry {
+    pub region: Option<String>,
+    pub cluster: Option<String>,
     #[serde(rename = "type")]
-    device_type: Option<String>,
-    sub_type: Option<String>,
-    hostname: Option<String>,
-    platform: Option<String>,
-    hwsku: Option<String>,
+    pub device_type: Option<String>,
+    pub sub_type: Option<String>,
+    pub hostname: Option<String>,
+    pub platform: Option<String>,
+    pub hwsku: Option<String>,
 }
 
 #[instrument]
@@ -299,7 +299,7 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
     })
 }
 
-pub fn swbus_config_from_yaml(yaml_file: String) -> Result<SwbusConfig> {
+pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
     let file =
         File::open(yaml_file).map_err(|e| SwbusConfigError::io_error(format!("Failed to open YAML file: {}", e)))?;
     let reader = BufReader::new(file);
@@ -407,7 +407,7 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(yaml_content.as_bytes()).unwrap();
 
-        let mut expected = swbus_config_from_yaml(file_path.to_str().unwrap().to_string()).unwrap();
+        let mut expected = swbus_config_from_yaml(file_path.to_str().unwrap()).unwrap();
 
         // sort before compare
         config_fromdb.routes.sort_by(|a, b| a.key.cmp(&b.key));
@@ -447,7 +447,7 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(yaml_content.as_bytes()).unwrap();
 
-        let result = swbus_config_from_yaml(file_path.to_str().unwrap().to_string());
+        let result = swbus_config_from_yaml(file_path.to_str().unwrap());
         match result {
             Ok(_) => {}
             Err(e) => {

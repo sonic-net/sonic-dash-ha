@@ -19,6 +19,7 @@ tonic.workspace = true
 clap.workspace = true
 serde_yaml.workspace = true
 tabled.workspace = true
+anyhow.workspace = true
 
 # Log and error handling
 tracing.workspace = true
@@ -27,6 +28,12 @@ tracing-subscriber.workspace = true
 swbus-edge.workspace = true
 swbus-core.workspace = true
 swbus-proto.workspace = true
+swbus-config.workspace = true
+
+[dev-dependencies]
+swss-common-testing.workspace = true
+swss-common.workspace = true
+swss-serde.workspace = true
 
 [lints]
 workspace = true
