@@ -35,8 +35,8 @@ const KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
 const KUBE_LABEL_SET_KEY: &str = "SET";
 const SERVER_TABLE: &str = "KUBERNETES_MASTER";
 const SERVER_KEY: &str = "SERVER";
-//const ST_SER_CONNECTED: &str = "connected";
-//const ST_SER_UPDATE_TS: &str = "update_time";
+const ST_SER_CONNECTED: &str = "connected";
+const ST_SER_UPDATE_TS: &str = "update_time";
 
 // Get seconds to wait for remote docker to start.
 // If not, revert to local
@@ -91,6 +91,15 @@ fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static
         (CONTAINER_ID, "".to_string()),
     ]);
     read_data(&db_connections.state_db, feature, &mut fields);
+    fields
+}
+
+fn read_server_state(db_connections: &DbConnections) -> HashMap<&'static str, String> {
+    let mut fields: HashMap<&str, String> = HashMap::from([
+        (ST_SER_CONNECTED, "false".to_string()),
+        (ST_SER_UPDATE_TS, "".to_string()),
+    ]);
+    read_data(&db_connections.state_db, SERVER_KEY, &mut fields);
     fields
 }
 
@@ -173,6 +182,7 @@ async fn container_start(feature: &str) {
 
     let feature_config = read_config(&db_connections, feature);
     let feature_state = read_state(&db_connections, feature);
+    let server_state = read_server_state(&db_connections);
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     let mut data: HashMap<&str, &str> = HashMap::from([(SYSTEM_STATE, "up"), (UPD_TIMESTAMP, &timestamp)]);
@@ -182,7 +192,10 @@ async fn container_start(feature: &str) {
         start_val |= StartFlags::StartLocal;
     } else {
         start_val |= StartFlags::StartKube;
-        if feature_config.get(NO_FALLBACK).unwrap() == "False" && feature_state.get(REMOTE_STATE).unwrap() == "none" {
+        if feature_config.get(NO_FALLBACK).unwrap() == "False"
+            && (feature_state.get(REMOTE_STATE).unwrap() == "none"
+                || server_state.get(ST_SER_CONNECTED).unwrap() == "false")
+        {
             start_val |= StartFlags::StartLocal;
             data.insert(REMOTE_STATE, "none");
         }
@@ -215,11 +228,16 @@ async fn container_start(feature: &str) {
 async fn container_stop(feature: &str, timeout: Option<i64>) {
     let db_connections = initialize_connection();
 
-    //let feature_config = read_config(&db_connections, feature);
+    let feature_config = read_config(&db_connections, feature);
     let feature_state = read_state(&db_connections, feature);
     let docker_id = get_container_id(feature, &db_connections);
+    let remove_label = feature_config.get(SET_OWNER).unwrap() != "local";
 
     let docker = Docker::connect_with_local_defaults().unwrap();
+
+    if remove_label {
+        set_label(&db_connections, feature, false);
+    }
 
     if !docker_id.is_empty() {
         let stop_options = timeout.map(|timeout| StopContainerOptions { t: timeout });
