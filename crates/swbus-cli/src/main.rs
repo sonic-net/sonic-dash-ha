@@ -262,9 +262,6 @@ mod tests {
             cluster: Some("cluster-a".to_string()),
             device_type: Some("SpineRouter".to_string()),
             sub_type: Some("SmartSwitch".to_string()),
-            hostname: Some("smartswitch1".to_string()),
-            platform: Some("x86_64".to_string()),
-            hwsku: Some("hwsku1".to_string()),
         };
         to_table(&metadata, &table, "localhost").unwrap();
 
