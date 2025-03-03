@@ -38,6 +38,7 @@ trait CmdHandler {
 
 struct CommandContext {
     debug: bool,
+    // The source servicepath of swbus-cli
     sp: ServicePath,
     runtime: Arc<Mutex<SwbusEdgeRuntime>>,
     id_generator: MessageIdGenerator,
@@ -118,6 +119,9 @@ fn init_logger(debug: bool) {
         .init();
 }
 
+/// get swbusd config from config_db or file if config_file is provided.
+/// If config_file is provided, it will be used, otherwise, the slot id will be read from
+/// environment variable DEV and used to get the config from config_db.
 fn get_swbus_config(config_file: Option<&str>) -> Result<SwbusConfig> {
     match config_file {
         Some(config_file) => {
@@ -151,7 +155,9 @@ async fn main() {
     if sp.is_none() {
         error!("No cluster route found, please check the config");
     }
-    let sp = sp.unwrap();
+    let mut sp = sp.unwrap();
+    sp.service_type = "cli".to_string();
+    sp.service_id = "0".to_string();
     let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
         format!("http://{}", swbus_config.endpoint),
         sp.clone(),
@@ -163,7 +169,7 @@ async fn main() {
 
     let ctx = CommandContext {
         debug: args.debug,
-        sp: sp.clone(),
+        sp,
         runtime: runtime.clone(),
         id_generator: MessageIdGenerator::new(),
     };
