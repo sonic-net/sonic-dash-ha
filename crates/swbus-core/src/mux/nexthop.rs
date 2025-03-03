@@ -13,7 +13,6 @@ use tracing::*;
 pub(crate) enum NextHopType {
     Local,
     Remote,
-    Drop,
 }
 
 #[derive(Clone, Getters, CopyGetters)]
@@ -50,14 +49,6 @@ impl SwbusNextHop {
         }
     }
 
-    pub fn new_drop() -> Self {
-        SwbusNextHop {
-            nh_type: NextHopType::Drop,
-            conn_info: None,
-            conn_proxy: None,
-            hop_count: 0,
-        }
-    }
     #[instrument(name="queue_message", parent=None, level="debug", skip_all, fields(nh_type=?self.nh_type, conn_info=self.conn_info.as_ref().map(|x| x.id()).unwrap_or(&"None".to_string()), message.id=?message.header.as_ref().unwrap().id))]
     pub async fn queue_message(
         &self,
@@ -67,7 +58,6 @@ impl SwbusNextHop {
         let current_span = tracing::Span::current();
         debug!("Queue message");
         match self.nh_type {
-            NextHopType::Drop => self.drop_message(message).instrument(current_span.clone()).await,
             NextHopType::Local => {
                 self.process_local_message(mux, message)
                     .instrument(current_span.clone())
@@ -112,11 +102,9 @@ impl SwbusNextHop {
                 self.process_mgmt_request(mux, &message, mgmt_request).unwrap()
             }
             _ => {
-                debug!("Invalid message type to a local endpoint");
-                return Err(SwbusError::input(
-                    SwbusErrorCode::ServiceNotFound,
-                    format!("Invalid message type to a local endpoint: {:?}", message),
-                ));
+                // drop all other messages. This could happen due to message loop or other invaid messages to swbusd.
+                debug!("Drop unknown message to a local endpoint");
+                return Ok(None);
             }
         };
         Ok(Some(response))
@@ -161,12 +149,6 @@ impl SwbusNextHop {
             )),
         }
     }
-
-    async fn drop_message(&self, _: SwbusMessage) -> Result<Option<SwbusMessage>> {
-        debug!("Drop message");
-        // todo: increment drop counter
-        Ok(None)
-    }
 }
 
 #[cfg(test)]
@@ -207,18 +189,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_new_drop() {
-        let nexthop = SwbusNextHop::new_drop();
-
-        assert_eq!(nexthop.nh_type, NextHopType::Drop);
-        assert!(nexthop.conn_info.is_none());
-        assert!(nexthop.conn_proxy.is_none());
-        assert_eq!(nexthop.hop_count, 0);
-    }
-
-    #[tokio::test]
     async fn test_queue_message_drop() {
-        let nexthop = SwbusNextHop::new_drop();
+        let nexthop = SwbusNextHop::new_local();
         let mux = SwbusMultiplexer::default();
         let message = SwbusMessage {
             header: Some(SwbusMessageHeader::new(
