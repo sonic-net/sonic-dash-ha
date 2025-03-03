@@ -1,11 +1,9 @@
-mod common;
-
-use common::*;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 use swss_common::*;
+use swss_common_testing::*;
 
 lazy_static! {
     static ref LEVEL: Mutex<String> = Mutex::new("INFO".to_string());

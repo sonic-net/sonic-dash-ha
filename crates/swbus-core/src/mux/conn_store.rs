@@ -1,5 +1,5 @@
 use crate::mux::conn::SwbusConn;
-use crate::mux::route_config::{PeerConfig, RouteConfig};
+use crate::mux::swbus_config::{PeerConfig, RouteConfig};
 use crate::mux::SwbusConnInfo;
 use crate::mux::SwbusConnMode;
 use crate::mux::SwbusMultiplexer;

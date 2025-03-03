@@ -1,5 +1,3 @@
-mod common;
-
 use swss_common::*;
 
 struct LoggerConfigHandlerForTest {}

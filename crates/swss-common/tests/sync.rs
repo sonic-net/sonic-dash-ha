@@ -1,8 +1,6 @@
-mod common;
-
-use common::*;
 use std::{collections::HashMap, time::Duration};
 use swss_common::*;
+use swss_common_testing::*;
 
 #[test]
 fn dbconnector_sync_api_basic_test() -> Result<(), Exception> {
