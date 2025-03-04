@@ -149,10 +149,10 @@ impl ServicePath {
             return RouteScope::Global;
         }
         if self.node_id.is_empty() {
-            return RouteScope::Region;
+            return RouteScope::InRegion;
         }
         if self.service_id.is_empty() {
-            return RouteScope::Cluster;
+            return RouteScope::InCluster;
         }
         RouteScope::Client
     }

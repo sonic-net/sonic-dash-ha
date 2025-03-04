@@ -190,7 +190,7 @@ mod tests {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
@@ -223,12 +223,12 @@ mod tests {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
         mux.set_my_routes(vec![route_config.clone()]);
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
@@ -250,7 +250,7 @@ mod tests {
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),

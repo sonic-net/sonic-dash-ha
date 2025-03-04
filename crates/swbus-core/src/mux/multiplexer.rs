@@ -47,9 +47,9 @@ impl SwbusMultiplexer {
         let path = conn_info.remote_service_path();
         let route_key = match conn_info.connection_type() {
             ConnectionType::Global => path.to_regional_prefix(),
-            ConnectionType::Region => path.to_cluster_prefix(),
-            ConnectionType::Cluster => path.to_node_prefix(),
-            ConnectionType::Local => path.to_service_prefix(),
+            ConnectionType::InRegion => path.to_cluster_prefix(),
+            ConnectionType::InCluster => path.to_node_prefix(),
+            ConnectionType::InNode => path.to_service_prefix(),
             ConnectionType::Client => path.to_string(),
         };
         let nexthop = SwbusNextHop::new_remote(conn_info.clone(), proxy, 1);
@@ -61,9 +61,9 @@ impl SwbusMultiplexer {
         let path = conn_info.remote_service_path();
         let route_key = match conn_info.connection_type() {
             ConnectionType::Global => path.to_regional_prefix(),
-            ConnectionType::Region => path.to_cluster_prefix(),
-            ConnectionType::Cluster => path.to_node_prefix(),
-            ConnectionType::Local => path.to_service_prefix(),
+            ConnectionType::InRegion => path.to_cluster_prefix(),
+            ConnectionType::InCluster => path.to_node_prefix(),
+            ConnectionType::InNode => path.to_service_prefix(),
             ConnectionType::Client => path.to_string(),
         };
         self.routes.remove(&route_key);
@@ -96,26 +96,30 @@ impl SwbusMultiplexer {
 
     // Riff: The my route part is very confusing. Looks to be made for local service, but not really sure how it works.
     pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
+        let mut incluster_route_exists = false;
         for route in routes {
-            if route.scope == RouteScope::Cluster {
+            if route.scope == RouteScope::InCluster {
                 // Create local service route
                 let route_key = route.key.to_node_prefix();
                 let local_nh = SwbusNextHop::new_local();
                 self.update_route(route_key, local_nh);
+                incluster_route_exists = true;
             }
 
             self.my_routes.insert(route);
         }
+        if !incluster_route_exists {
+            panic!("my routes must include a node route");
+        }
     }
 
     pub fn get_my_service_path(&self) -> ServicePath {
-        self.my_routes
+        let my_incluster_route = self
+            .my_routes
             .iter()
             .by_ref()
-            .next()
-            .expect("My route is not set")
-            .key
-            .clone()
+            .find(|entry| entry.scope == RouteScope::InCluster);
+        my_incluster_route.unwrap().key.clone()
     }
     #[instrument(name="route_message", parent=None, level="debug", skip_all, fields(message_id=?message.header.as_ref().unwrap().id))]
     pub async fn route_message(&self, message: SwbusMessage) -> Result<()> {
@@ -165,9 +169,9 @@ impl SwbusMultiplexer {
             };
 
             // If the route entry is resolved, we forward the message to the next hop.
-            let response = nexthop.queue_message(self, message).await.unwrap();
+            let response = nexthop.queue_message(self, message).await?;
             if let Some(response) = response {
-                Box::pin(self.route_message(response)).await.unwrap();
+                Box::pin(self.route_message(response)).await?;
             } else {
                 // todo: try another nexthop if there is one
             }
@@ -189,7 +193,7 @@ impl SwbusMultiplexer {
         // Here it will send 'no-route' response[2] for response[1]. response[1] has source SP of A
         // because the response is originated from A. So response[2]'s dest is to A (itself).
         // Response[2] will be sent to a drop nexhop, which should drop the unexpected response packet.
-        Box::pin(self.route_message(response)).await.unwrap();
+        Box::pin(self.route_message(response)).await?;
 
         Ok(())
     }
@@ -204,7 +208,7 @@ impl SwbusMultiplexer {
                 }
                 let route_scope = ServicePath::from_string(entry.key()).unwrap().route_scope();
                 match scope {
-                    Some(s) => route_scope >= s && route_scope >= RouteScope::Cluster,
+                    Some(s) => route_scope >= s && route_scope >= RouteScope::InCluster,
                     None => true,
                 }
             })
@@ -245,15 +249,22 @@ mod tests {
     #[test]
     fn test_set_my_routes() {
         let mux = Arc::new(SwbusMultiplexer::new());
-        let route_config = RouteConfig {
+        let incluster_route = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
-        mux.set_my_routes(vec![route_config.clone()]);
-        assert!(mux.my_routes.contains(&route_config));
+        let inregion_route = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a").unwrap(),
+            scope: RouteScope::InRegion,
+        };
 
-        let nh = mux.routes.get(&route_config.key.to_node_prefix()).unwrap();
+        mux.set_my_routes(vec![incluster_route.clone(), inregion_route.clone()]);
+        assert!(mux.my_routes.contains(&incluster_route));
+        assert!(mux.my_routes.contains(&inregion_route));
+
+        let nh = mux.routes.get(&incluster_route.key.to_node_prefix()).unwrap();
         assert_eq!(nh.nh_type(), NextHopType::Local);
+        assert_eq!(incluster_route.key, mux.get_my_service_path());
     }
 
     fn add_route(
@@ -306,7 +317,7 @@ mod tests {
 
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);
@@ -316,14 +327,14 @@ mod tests {
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
             "region-a.cluster-a.10.0.0.1-dpu0",
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
         );
         let mut send_queue_rx3 = add_route(
             &mux,
             "region-a.cluster-a.10.0.0.3-dpu0",
             1,
             "region-a.cluster-a.10.0.0.3-dpu0",
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
         );
 
         let request = r#"
@@ -365,7 +376,7 @@ mod tests {
 
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);
@@ -375,14 +386,14 @@ mod tests {
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
             "region-a.cluster-a.10.0.0.1-dpu0",
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
         );
         let _ = add_route(
             &mux,
             "region-a.cluster-a.10.0.0.3-dpu0",
             1,
             "region-a.cluster-a.10.0.0.3-dpu0",
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
         );
 
         let request = r#"
@@ -429,7 +440,7 @@ mod tests {
 
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);
@@ -439,7 +450,7 @@ mod tests {
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
             "region-a.cluster-a.10.0.0.1-dpu0",
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
         );
 
         let request = r#"
@@ -486,7 +497,7 @@ mod tests {
 
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);
@@ -520,7 +531,7 @@ mod tests {
 
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         };
 
         mux.set_my_routes(vec![route_config.clone()]);
@@ -530,17 +541,17 @@ mod tests {
             "region-a.cluster-a.10.0.0.1-dpu0",
             1,
             "region-a.cluster-a.10.0.0.1-dpu0",
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
         );
         let mut _send_queue_rx3 = add_route(
             &mux,
             "region-a.cluster-b",
             1,
             "region-a.cluster-b.10.0.0.1-dpu0",
-            ConnectionType::Region,
+            ConnectionType::InRegion,
         );
 
-        let routes = mux.export_routes(Some(RouteScope::Cluster));
+        let routes = mux.export_routes(Some(RouteScope::InCluster));
         let json_string = serde_json::to_string(&routes).unwrap();
         let normalized_routes: RouteQueryResult = serde_json::from_str(&json_string).unwrap();
 
@@ -549,14 +560,14 @@ mod tests {
             hop_count: 1,
             nh_id: "".to_string(),
             nh_service_path: Some(ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap()),
-            nh_scope: RouteScope::Cluster as i32,
+            nh_scope: RouteScope::InCluster as i32,
         };
         let entry2 = RouteQueryResultEntry {
             service_path: Some(ServicePath::from_string("region-a.cluster-b").unwrap()),
             hop_count: 1,
             nh_id: "".to_string(),
             nh_service_path: Some(ServicePath::from_string("region-a.cluster-b.10.0.0.1-dpu0").unwrap()),
-            nh_scope: RouteScope::Region as i32,
+            nh_scope: RouteScope::InRegion as i32,
         };
 
         let expected = RouteQueryResult {
@@ -564,7 +575,7 @@ mod tests {
         };
         assert_eq!(normalized_routes, expected);
 
-        let routes = mux.export_routes(Some(RouteScope::Region));
+        let routes = mux.export_routes(Some(RouteScope::InRegion));
         let json_string = serde_json::to_string(&routes).unwrap();
         let normalized_routes: RouteQueryResult = serde_json::from_str(&json_string).unwrap();
         let expected = RouteQueryResult { entries: vec![entry2] };

@@ -123,7 +123,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
         let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, slot_id), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         });
     }
 
@@ -138,7 +138,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
         let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, slot_id), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
-            scope: RouteScope::Cluster,
+            scope: RouteScope::InCluster,
         });
     }
 
@@ -183,7 +183,7 @@ fn peer_config_from_dpu_entry(
         peers.push(PeerConfig {
             id: sp,
             endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), SWBUSD_PORT + slot_id as u16),
-            conn_type: ConnectionType::Cluster,
+            conn_type: ConnectionType::InCluster,
         });
     }
 
@@ -196,7 +196,7 @@ fn peer_config_from_dpu_entry(
         peers.push(PeerConfig {
             id: sp,
             endpoint: SocketAddr::new(IpAddr::V6(npu_ipv6), SWBUSD_PORT + slot_id as u16),
-            conn_type: ConnectionType::Cluster,
+            conn_type: ConnectionType::InCluster,
         });
     }
 
@@ -375,28 +375,28 @@ mod tests {
         endpoint: "10.0.1.0:23606"
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
-            scope: "Cluster"
+            scope: "InCluster"
           - key: "region-a.cluster-a.2001:db8:1::0-dpu0"
-            scope: "Cluster"
+            scope: "InCluster"
         peers:
           - id: "region-a.cluster-a.10.0.1.0-dpu1"
             endpoint: "10.0.1.0:23607"
-            conn_type: "Cluster"
+            conn_type: "InCluster"
           - id: "region-a.cluster-a.2001:db8:1::-dpu1"
             endpoint: "[2001:db8:1::]:23607"
-            conn_type: "Cluster"            
+            conn_type: "InCluster"            
           - id: "region-a.cluster-a.10.0.1.1-dpu0"
             endpoint: "10.0.1.1:23606"
-            conn_type: "Cluster"
+            conn_type: "InCluster"
           - id: "region-a.cluster-a.2001:db8:1::1-dpu0"
             endpoint: "[2001:db8:1::1]:23606"
-            conn_type: "Cluster"   
+            conn_type: "InCluster"   
           - id: "region-a.cluster-a.10.0.1.1-dpu1"
             endpoint: "10.0.1.1:23607"
-            conn_type: "Cluster"
+            conn_type: "InCluster"
           - id: "region-a.cluster-a.2001:db8:1::1-dpu1"
             endpoint: "[2001:db8:1::1]:23607"
-            conn_type: "Cluster"   
+            conn_type: "InCluster"   
         "#;
 
         let dir = tempdir().unwrap();
@@ -429,14 +429,14 @@ mod tests {
         endpoint: 10.0.0.1:8000
         routes:
           - key: "region-a.cluster-a.10.0.0.1-dpu0"
-            scope: "Cluster"
+            scope: "InCluster"
         peers:
           - id: "region-a.cluster-a.10.0.0.2-dpu0"
             endpoint: "10.0.0.2:8000"
-            conn_type: "Cluster"
+            conn_type: "InCluster"
           - id: "region-a.cluster-a.10.0.0.3-dpu0"
             endpoint: "10.0.0.3:8000"
-            conn_type: "Cluster"
+            conn_type: "InCluster"
         "#;
 
         let dir = tempdir().unwrap();
@@ -460,7 +460,7 @@ mod tests {
             config.routes[0].key,
             ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap()
         );
-        assert_eq!(config.routes[0].scope, RouteScope::Cluster);
+        assert_eq!(config.routes[0].scope, RouteScope::InCluster);
 
         assert_eq!(
             config.peers[0].id,
@@ -470,7 +470,7 @@ mod tests {
             config.peers[0].endpoint,
             "10.0.0.2:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[0].conn_type, ConnectionType::Cluster);
+        assert_eq!(config.peers[0].conn_type, ConnectionType::InCluster);
         assert_eq!(
             config.peers[1].id,
             ServicePath::from_string("region-a.cluster-a.10.0.0.3-dpu0").unwrap()
@@ -479,6 +479,6 @@ mod tests {
             config.peers[1].endpoint,
             "10.0.0.3:8000".parse().expect("not expecting error")
         );
-        assert_eq!(config.peers[1].conn_type, ConnectionType::Cluster);
+        assert_eq!(config.peers[1].conn_type, ConnectionType::InCluster);
     }
 }

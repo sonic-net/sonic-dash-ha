@@ -79,7 +79,7 @@ mod tests {
         let remote_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
         let local_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap();
         let conn_info = SwbusConnInfo::new_client(
-            ConnectionType::Cluster,
+            ConnectionType::InCluster,
             remote_addr,
             remote_service_path.clone(),
             local_service_path.clone(),
@@ -88,7 +88,7 @@ mod tests {
         assert_eq!(conn_info.id(), "swbs-to://127.0.0.1:8080");
         assert_eq!(conn_info.mode(), SwbusConnMode::Client);
         assert_eq!(conn_info.remote_addr(), remote_addr);
-        assert_eq!(conn_info.connection_type(), ConnectionType::Cluster);
+        assert_eq!(conn_info.connection_type(), ConnectionType::InCluster);
         assert_eq!(conn_info.remote_service_path(), &remote_service_path);
         assert_eq!(conn_info.local_service_path(), Some(&local_service_path));
     }
@@ -97,12 +97,12 @@ mod tests {
     fn new_server_conn_info_should_succeed() {
         let remote_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let remote_service_path = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
-        let conn_info = SwbusConnInfo::new_server(ConnectionType::Region, remote_addr, remote_service_path.clone());
+        let conn_info = SwbusConnInfo::new_server(ConnectionType::InRegion, remote_addr, remote_service_path.clone());
 
         assert_eq!(conn_info.id(), "swbs-from://127.0.0.1:8080");
         assert_eq!(conn_info.mode(), SwbusConnMode::Server);
         assert_eq!(conn_info.remote_addr(), remote_addr);
-        assert_eq!(conn_info.connection_type(), ConnectionType::Region);
+        assert_eq!(conn_info.connection_type(), ConnectionType::InRegion);
         assert_eq!(conn_info.remote_service_path(), &remote_service_path);
         assert_eq!(conn_info.local_service_path(), None);
     }

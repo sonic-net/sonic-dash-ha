@@ -7,14 +7,14 @@
                 "routes": [
                     {
                         "key": "region-a.cluster-a.10.0.0.1-dpu0",
-                        "scope": "Cluster"
+                        "scope": "InCluster"
                     }
                 ],
                 "peers": [
                     {
                         "id": "region-a.cluster-a.10.0.0.2-dpu0",
                         "endpoint": "127.0.0.1:60002",
-                        "conn_type": "Cluster"
+                        "conn_type": "InCluster"
                     }
                 ]
             },
@@ -23,14 +23,14 @@
                 "routes": [
                     {
                         "key": "region-a.cluster-a.10.0.0.2-dpu0",
-                        "scope": "Cluster"
+                        "scope": "InCluster"
                     }
                 ],
                 "peers": [
                     {
                         "id": "region-a.cluster-a.10.0.0.1-dpu0",
                         "endpoint": "127.0.0.1:60001",
-                        "conn_type": "Cluster"
+                        "conn_type": "InCluster"
                     }
                 ]
             }

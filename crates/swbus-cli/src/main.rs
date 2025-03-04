@@ -148,7 +148,7 @@ async fn main() {
     let swbus_config = get_swbus_config(args.config_file.as_deref()).unwrap();
     let mut sp: Option<ServicePath> = None;
     for route in &swbus_config.routes {
-        if route.scope == RouteScope::Cluster {
+        if route.scope == RouteScope::InCluster {
             sp = Some(route.key.clone());
             break;
         }
@@ -300,6 +300,6 @@ mod tests {
         assert!(config
             .routes
             .iter()
-            .any(|r| r.scope == RouteScope::Cluster && r.key == expected_sp));
+            .any(|r| r.scope == RouteScope::InCluster && r.key == expected_sp));
     }
 }
