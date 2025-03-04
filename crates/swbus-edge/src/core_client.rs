@@ -22,7 +22,9 @@ pub struct SwbusCoreClient {
     local_services: Arc<DashSet<ServicePath>>,
 
     client: Option<SwbusServiceClient<Channel>>,
+    // tx queue to send messages to swbusd
     send_queue_tx: Option<mpsc::Sender<SwbusMessage>>,
+    // tx queue to send messages to message router
     message_processor_tx: mpsc::Sender<SwbusMessage>,
 
     recv_stream_task: Option<tokio::task::JoinHandle<Result<()>>>,
@@ -140,7 +142,6 @@ impl SwbusCoreClient {
             self.start().await?;
         }
 
-        // TODO: Check local registrations
         match self.send_queue_tx.as_ref().unwrap().send(message).await {
             Ok(_) => {}
             Err(e) => {
