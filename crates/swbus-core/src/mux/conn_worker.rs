@@ -75,7 +75,7 @@ where
     }
 
     fn unregister_from_mux(&self) -> Result<()> {
-        self.mux.unregister(self.info.clone());
+        self.mux.unregister(&self.info);
         Ok(())
     }
 
@@ -98,7 +98,10 @@ where
                             }
                         }
                         Some(Err(err)) => {
-                            error!("Failed to receive message: {}.", err);
+                            if self.info.connection_type() != ConnectionType::Client {
+                                // we don't care CLI client disconnected
+                                error!("Failed to receive message: {}.", err);
+                            }
                             return Err(SwbusError::connection(
                                 SwbusErrorCode::ConnectionError,
                                 io::Error::new(io::ErrorKind::ConnectionReset, err.to_string()),
@@ -128,11 +131,47 @@ where
                 info!("Received traceroute request: {:?}", message);
                 // self.process_ping_request(&message);
             }
+            Some(swbus_message::Body::RouteAnnouncement(route_entries)) => {
+                // drop route announcement message
+                debug!("Received route announcement");
+                self.mux.process_route_announcement(route_entries, &self.info)?;
+            }
+            Some(swbus_message::Body::ManagementRequest(mgmt_request)) => {
+                let response = self.process_mgmt_request(message.header.as_ref().unwrap(), mgmt_request)?;
+                self.mux.route_message(response).await?;
+            }
             _ => {
                 self.mux.route_message(message).await?;
             }
         }
         Ok(())
+    }
+
+    fn process_mgmt_request(
+        &self,
+        request_header: &SwbusMessageHeader,
+        mgmt_request: ManagementRequest,
+    ) -> Result<SwbusMessage> {
+        match mgmt_request.request.as_str() {
+            "show_route" => {
+                debug!("Received show_route request");
+                let routes = self.mux.dump_route_table();
+                debug!("show_route response: {:?}", routes);
+                let response_msg = SwbusMessage::new_response(
+                    request_header,
+                    Some(self.mux.get_my_service_path()),
+                    SwbusErrorCode::Ok,
+                    "",
+                    self.mux.generate_message_id(),
+                    Some(request_response::ResponseBody::RouteEntries(routes)),
+                );
+                Ok(response_msg)
+            }
+            _ => Err(SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                format!("Invalid management request: {:?}", mgmt_request),
+            )),
+        }
     }
 
     fn validate_message_common(&mut self, message: &SwbusMessage) -> Result<()> {
@@ -184,16 +223,21 @@ mod tests {
 
     #[tokio::test]
     async fn conn_worker_can_be_shutdown() {
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: RouteScope::InCluster,
+        };
+
         let shutdown_ct = CancellationToken::new();
         let message_stream = stream::iter(vec![]);
-        let mux = Arc::new(SwbusMultiplexer::new());
+
+        let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
 
         let mut worker = SwbusConnWorker::new(conn_info, shutdown_ct.clone(), message_stream, mux, conn_store);
@@ -219,19 +263,18 @@ mod tests {
         };
         let message_stream = stream::iter(vec![Ok(ping_msg)]);
 
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
             scope: RouteScope::InCluster,
         };
-        mux.set_my_routes(vec![route_config.clone()]);
+
+        let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
 
         let mut worker = SwbusConnWorker::new(conn_info, shutdown_ct.clone(), message_stream, mux, conn_store);
@@ -244,16 +287,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_invalid_message() {
+        let route_config = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
+            scope: RouteScope::InCluster,
+        };
+
         let shutdown_ct = CancellationToken::new();
         let message_stream = stream::iter(vec![]);
-        let mux = Arc::new(SwbusMultiplexer::new());
+
+        let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
 
         let mut worker = SwbusConnWorker::new(conn_info, shutdown_ct.clone(), message_stream, mux, conn_store);

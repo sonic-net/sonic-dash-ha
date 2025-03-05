@@ -11,11 +11,10 @@
             "message": {
               "header": {
                 "version": 1,
-                "id": 0,
                 "flag": 0,
                 "ttl": 64,
-                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
-                "destination": "region-a.cluster-a.10.0.0.2-dpu0/local-mgmt/0"
+                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
+                "destination": "region-a.cluster-a.10.0.0.2-dpu0"
               },
               "body": {
                 "PingRequest": {}
@@ -29,11 +28,10 @@
             "message": {
               "header": {
                 "version": 1,
-                "id": 0,
                 "flag": 0,
                 "ttl": 62,
-                "source": "region-a.cluster-a.10.0.0.2-dpu0/local-mgmt/0",
-                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0"
+                "source": "region-a.cluster-a.10.0.0.2-dpu0",
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0"
               },
               "body": {
                 "Response": {
@@ -61,7 +59,6 @@
             "message": {
               "header": {
                 "version": 1,
-                "id": 0,
                 "flag": 0,
                 "ttl": 1,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
@@ -79,7 +76,6 @@
             "message": {
               "header": {
                 "version": 1,
-                "id": 0,
                 "flag": 0,
                 "ttl": 63,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0",
@@ -111,7 +107,6 @@
             "message": {
               "header": {
                 "version": 1,
-                "id": 0,
                 "flag": 0,
                 "ttl": 64,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
@@ -129,7 +124,6 @@
             "message": {
               "header": {
                 "version": 1,
-                "id": 0,
                 "flag": 0,
                 "ttl": 63,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0",

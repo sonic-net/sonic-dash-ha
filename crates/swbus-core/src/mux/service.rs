@@ -1,3 +1,4 @@
+use super::route_annoucer::{RouteAnnounceTask, RouteAnnouncer};
 use super::SwbusConn;
 use super::SwbusMultiplexer;
 use crate::mux::conn_store::SwbusConnStore;
@@ -13,12 +14,14 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
+use tokio_util::sync::CancellationToken;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 use tracing::*;
+
 pub struct SwbusServiceHost {
     swbus_server_addr: SocketAddr,
-    mux: Arc<SwbusMultiplexer>,
-    conn_store: Arc<SwbusConnStore>,
+    mux: Option<Arc<SwbusMultiplexer>>,
+    conn_store: Option<Arc<SwbusConnStore>>,
 }
 
 type SwbusMessageResult<T> = Result<Response<T>, Status>;
@@ -26,17 +29,16 @@ type SwbusMessageStream = Pin<Box<dyn Stream<Item = Result<SwbusMessage, Status>
 
 impl SwbusServiceHost {
     pub fn new(swbus_server_addr: &SocketAddr) -> Self {
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         // populate the mux with the routes
         Self {
             swbus_server_addr: *swbus_server_addr,
-            mux,
-            conn_store,
+            mux: None,
+            conn_store: None,
         }
     }
 
-    pub async fn start(self: SwbusServiceHost, config: SwbusConfig) -> Result<()> {
+    pub async fn start(mut self: SwbusServiceHost, config: SwbusConfig) -> Result<()> {
+        info!("Starting SwbusServiceHost at {}", self.swbus_server_addr);
         let addr = self.swbus_server_addr;
 
         if config.routes.is_empty() {
@@ -46,16 +48,30 @@ impl SwbusServiceHost {
             ));
         }
 
-        // register local nexthops for local services
-        self.mux.set_my_routes(config.routes.clone());
-        for route in config.routes {
-            self.conn_store.add_my_route(route);
-        }
+        // create mux and set route announce task queue
+        let mut mux = SwbusMultiplexer::new(config.routes);
+        let (route_annouce_task_tx, route_annouce_task_rx) = mpsc::channel::<RouteAnnounceTask>(100);
+        let route_announcer_ct = CancellationToken::new();
+        mux.set_route_announcer(route_annouce_task_tx, route_announcer_ct.clone());
+
+        let mux = Arc::new(mux);
+        let mux_clone = mux.clone();
+
+        // start the route announcer
+        tokio::spawn(async move {
+            let mut route_announcer = RouteAnnouncer::new(route_annouce_task_rx, route_announcer_ct, mux_clone);
+            route_announcer.run().await;
+        });
+
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         // add peers to the connection store
         for peer in config.peers {
-            self.conn_store.add_peer(peer);
+            conn_store.add_peer(peer);
         }
+
+        self.mux = Some(mux);
+        self.conn_store = Some(conn_store);
 
         Server::builder()
             .add_service(SwbusServiceServer::new(self))
@@ -122,10 +138,15 @@ impl SwbusService for SwbusServiceHost {
         let (out_tx, out_rx) = mpsc::channel(16);
 
         let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr, service_path));
-        let conn =
-            SwbusConn::from_incoming_stream(conn_info, in_stream, out_tx, self.mux.clone(), self.conn_store.clone())
-                .await;
-        self.conn_store.conn_established(conn);
+        let conn = SwbusConn::from_incoming_stream(
+            conn_info,
+            in_stream,
+            out_tx,
+            self.mux.as_ref().unwrap().clone(),
+            self.conn_store.as_ref().unwrap().clone(),
+        )
+        .await;
+        self.conn_store.as_ref().unwrap().conn_established(conn);
         let out_stream = ReceiverStream::new(out_rx);
         Ok(Response::new(Box::pin(out_stream) as Self::StreamMessagesStream))
     }

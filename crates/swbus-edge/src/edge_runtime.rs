@@ -17,10 +17,11 @@ pub struct SwbusEdgeRuntime {
 }
 
 impl SwbusEdgeRuntime {
-    pub fn new(swbus_uri: String, sp: ServicePath) -> Self {
+    pub fn new(swbus_uri: String, sp: ServicePath, conn_type: ConnectionType) -> Self {
+        assert!(conn_type == ConnectionType::Client || conn_type == ConnectionType::InNode);
         let (local_msg_tx, local_msg_rx) = channel(SWBUS_RECV_QUEUE_SIZE);
         let (remote_msg_tx, remote_msg_rx) = channel(SWBUS_RECV_QUEUE_SIZE);
-        let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), sp, remote_msg_tx);
+        let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), sp, remote_msg_tx, conn_type);
         let message_router = SwbusMessageRouter::new(swbus_client, local_msg_rx, remote_msg_rx);
 
         Self {

@@ -19,6 +19,7 @@ use tracing::info;
 pub struct SwbusCoreClient {
     uri: String,
     sp: ServicePath,
+    conn_type: ConnectionType,
     local_services: Arc<DashSet<ServicePath>>,
 
     client: Option<SwbusServiceClient<Channel>>,
@@ -32,10 +33,16 @@ pub struct SwbusCoreClient {
 
 // Factory functions
 impl SwbusCoreClient {
-    pub fn new(uri: String, sp: ServicePath, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Self {
+    pub fn new(
+        uri: String,
+        sp: ServicePath,
+        message_processor_tx: mpsc::Sender<SwbusMessage>,
+        conn_type: ConnectionType,
+    ) -> Self {
         Self {
             uri,
             sp,
+            conn_type,
             local_services: Arc::new(DashSet::new()),
             client: None,
             send_queue_tx: None,
@@ -65,6 +72,7 @@ impl SwbusCoreClient {
     pub async fn connect(
         uri: String,
         sp: ServicePath,
+        conn_type: ConnectionType,
         receive_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> Result<(
         tokio::task::JoinHandle<Result<()>>,
@@ -105,7 +113,7 @@ impl SwbusCoreClient {
 
         meta.insert(
             SWBUS_CONNECTION_TYPE,
-            MetadataValue::from_str(ConnectionType::InNode.as_str_name()).unwrap(),
+            MetadataValue::from_str(conn_type.as_str_name()).unwrap(),
         );
 
         let recv_stream = match client.stream_messages(send_stream_request).await {
@@ -127,8 +135,13 @@ impl SwbusCoreClient {
 
     #[requires(self.recv_stream_task.is_none() && self.client.is_none() && self.send_queue_tx.is_none())]
     pub async fn start(&mut self) -> Result<()> {
-        let (recv_stream_task, send_queue_tx, client) =
-            Self::connect(self.uri.clone(), self.sp.clone(), self.message_processor_tx.clone()).await?;
+        let (recv_stream_task, send_queue_tx, client) = Self::connect(
+            self.uri.clone(),
+            self.sp.clone(),
+            self.conn_type,
+            self.message_processor_tx.clone(),
+        )
+        .await?;
         self.client = Some(client);
         self.recv_stream_task = Some(recv_stream_task);
         self.send_queue_tx = Some(send_queue_tx);

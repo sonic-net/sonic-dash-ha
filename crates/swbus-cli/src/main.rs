@@ -162,6 +162,7 @@ async fn main() {
     let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
         format!("http://{}", swbus_config.endpoint),
         sp.clone(),
+        ConnectionType::Client,
     )));
     let runtime_clone = runtime.clone();
     tokio::spawn(async move {
@@ -180,8 +181,8 @@ async fn main() {
     }
 
     match args.subcommand {
-        CliSubCmd::Ping(ping_args) => ping_args.handle(&ctx).await,
-        CliSubCmd::Show(show_args) => show_args.handle(&ctx).await,
+        CliSubCmd::Ping(ping_sub_cmd) => ping_sub_cmd.handle(&ctx).await,
+        CliSubCmd::Show(show_sub_cmd) => show_sub_cmd.handle(&ctx).await,
     };
 }
 

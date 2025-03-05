@@ -1,0 +1,93 @@
+[
+  {
+    "name": "show_route_inter-cluster",
+    "description": "verify routes are exchanged between gateways",
+    "steps": [
+      {
+        "requests": [
+          {
+            "client": "swbusd_cluster-a.node1_client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 1,
+                "source": "region-a.cluster-a.node1/testsvc/0",
+                "destination": "region-a.cluster-b.node1"
+              },
+              "body": {
+                "ManagementRequest": {
+                  "request": "show_route",
+                  "arguments": []
+                }
+              }
+            }
+          }
+        ],
+        "responses": [
+          {
+            "client": "swbusd_cluster-a.node1_client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 63,
+                "source": "region-a.cluster-a.node1",
+                "destination": "region-a.cluster-a.node1/testsvc/0"
+              },
+              "body": {
+                "Response": {
+                  "request_id": 0,
+                  "error_code": 1,
+                  "error_message": "",
+                  "response_body": {
+                    "RouteEntries": {
+                      "entries": [
+                        {
+                          "service_path": "region-a.cluster-a",
+                          "nh_service_path": "region-a.cluster-a.gw",
+                          "route_scope": 3,
+                          "hop_count": 1
+                        },
+                        {
+                          "service_path": "region-a.cluster-a.gw",
+                          "nh_service_path": "region-a.cluster-a.gw",
+                          "route_scope": 2,
+                          "hop_count": 1
+                        },
+                        {
+                          "service_path": "region-a.cluster-a.gw",
+                          "nh_service_path": "region-a.cluster-a.gw",
+                          "route_scope": 2,
+                          "hop_count": 1
+                        },                        
+                        {
+                          "service_path": "region-a.cluster-a.node1/testsvc/0",
+                          "nh_service_path": "region-a.cluster-a.node1/testsvc/0",
+                          "route_scope": 0,
+                          "hop_count": 1
+                        },
+                        {
+                          "service_path": "region-a.cluster-b",
+                          "nh_service_path": "region-a.cluster-a.gw",
+                          "route_scope": 3,
+                          "hop_count": 2
+                        },
+                        {
+                          "service_path": "region-a.cluster-b.gw",
+                          "nh_service_path": "region-a.cluster-a.gw",
+                          "route_scope": 2,
+                          "hop_count": 2
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

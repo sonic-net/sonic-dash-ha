@@ -2,9 +2,9 @@ use crate::mux::conn::SwbusConn;
 use crate::mux::SwbusConnInfo;
 use crate::mux::SwbusConnMode;
 use crate::mux::SwbusMultiplexer;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use std::sync::Arc;
-use swbus_config::{PeerConfig, RouteConfig};
+use swbus_config::PeerConfig;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tracing::*;
@@ -18,7 +18,6 @@ enum ConnTracker {
 pub struct SwbusConnStore {
     mux: Arc<SwbusMultiplexer>,
     connections: DashMap<Arc<SwbusConnInfo>, ConnTracker>,
-    my_routes: DashSet<RouteConfig>,
 }
 
 impl SwbusConnStore {
@@ -26,7 +25,6 @@ impl SwbusConnStore {
         SwbusConnStore {
             mux,
             connections: DashMap::new(),
-            my_routes: DashSet::new(),
         }
     }
 
@@ -62,18 +60,11 @@ impl SwbusConnStore {
         self.connections.insert(conn_info_clone, ConnTracker::Task(retry_task));
     }
 
-    pub fn add_my_route(&self, my_route: RouteConfig) {
-        self.my_routes.insert(my_route);
-    }
-
     pub fn add_peer(self: &Arc<SwbusConnStore>, peer: PeerConfig) {
-        // todo: assuming only one route for now. Will be improved to send routes in route update message and remove this
-        let my_route = self.my_routes.iter().next().expect("My service path is not set");
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             peer.conn_type,
             peer.endpoint,
             peer.id.clone(),
-            my_route.key.clone(),
         ));
         self.start_connect_task(conn_info, false);
     }
@@ -114,14 +105,13 @@ impl SwbusConnStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use swbus_config::RouteConfig;
     use swbus_proto::swbus::ConnectionType;
     use swbus_proto::swbus::RouteScope;
     use swbus_proto::swbus::ServicePath;
     use tokio::sync::mpsc;
     #[tokio::test]
     async fn test_add_peer() {
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let peer_config = PeerConfig {
             conn_type: ConnectionType::InNode,
             endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
@@ -131,7 +121,9 @@ mod tests {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
             scope: RouteScope::InCluster,
         };
-        conn_store.add_my_route(route_config);
+
+        let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         conn_store.add_peer(peer_config);
 
@@ -141,34 +133,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_add_my_route() {
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
-        let route_config = RouteConfig {
-            key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
-            scope: RouteScope::InCluster,
-        };
-
-        conn_store.add_my_route(route_config.clone());
-
-        assert!(conn_store.my_routes.contains(&route_config));
-    }
-
-    #[tokio::test]
     async fn test_conn_lost() {
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
             scope: RouteScope::InCluster,
         };
-        conn_store.add_my_route(route_config);
+        let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
         conn_store.conn_lost(conn_info.clone());
 
@@ -179,19 +155,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_conn_established() {
-        let mux = Arc::new(SwbusMultiplexer::new());
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
             scope: RouteScope::InCluster,
         };
-        conn_store.add_my_route(route_config);
+
+        let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_client(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.1-dpu0").unwrap(),
         ));
         let (send_queue_tx, _) = mpsc::channel(16);
         let conn = SwbusConn::new(&conn_info, send_queue_tx);

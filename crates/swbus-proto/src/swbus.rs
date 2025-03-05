@@ -90,15 +90,15 @@ impl ServicePath {
         })
     }
 
-    pub fn to_regional_prefix(&self) -> String {
+    pub fn to_global_prefix(&self) -> String {
         self.region_id.clone()
     }
 
-    pub fn to_cluster_prefix(&self) -> String {
+    pub fn to_inregion_prefix(&self) -> String {
         format!("{}.{}", self.region_id, self.cluster_id)
     }
 
-    pub fn to_node_prefix(&self) -> String {
+    pub fn to_incluster_prefix(&self) -> String {
         format!("{}.{}.{}", self.region_id, self.cluster_id, self.node_id)
     }
 
@@ -211,14 +211,16 @@ pub fn deserialize_service_path_opt<'de, D>(deserializer: D) -> Result<Option<Se
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
-
-    match ServicePath::from_string(&s) {
-        Ok(sp) => Ok(Some(sp)),
-        Err(_) => Err(serde::de::Error::custom(format!(
-            "Failed to parse service path from string: {}",
-            s
-        ))),
+    let value = Option::<String>::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(s) => match ServicePath::from_string(&s) {
+            Ok(sp) => Ok(Some(sp)),
+            Err(_) => Err(serde::de::Error::custom(format!(
+                "Failed to parse service path from string: {}",
+                s
+            ))),
+        },
     }
 }
 
@@ -238,10 +240,18 @@ where
     }
 }
 
-impl PartialOrd for RouteQueryResultEntry {
+impl PartialOrd for RouteEntry {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.service_path.partial_cmp(&other.service_path) {
-            Some(std::cmp::Ordering::Equal) => self.hop_count.partial_cmp(&other.hop_count),
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for RouteEntry {}
+
+impl Ord for RouteEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.service_path.cmp(&other.service_path) {
+            std::cmp::Ordering::Equal => self.hop_count.cmp(&other.hop_count),
             x => x,
         }
     }
@@ -325,7 +335,7 @@ impl SwbusMessage {
 
     /// send response to the sender of the request
     pub fn new_response(
-        request: &SwbusMessage,
+        request_header: &SwbusMessageHeader,
         dest: Option<&ServicePath>,
         error_code: SwbusErrorCode,
         error_message: &str,
@@ -333,8 +343,8 @@ impl SwbusMessage {
         response_body: Option<ResponseBody>,
     ) -> Self {
         let mut request_response = match error_code {
-            SwbusErrorCode::Ok => RequestResponse::ok(request.header.as_ref().unwrap().id),
-            _ => RequestResponse::infra_error(request.header.as_ref().unwrap().id, error_code, error_message),
+            SwbusErrorCode::Ok => RequestResponse::ok(request_header.id),
+            _ => RequestResponse::infra_error(request_header.id, error_code, error_message),
         };
 
         if response_body.is_some() {
@@ -344,25 +354,13 @@ impl SwbusMessage {
         // if dest is not provided, use the source of the request
         let dest_sp = match dest {
             Some(sp) => sp.clone(),
-            None => request
-                .header
-                .as_ref()
-                .unwrap()
-                .destination
-                .clone()
-                .expect("missing dest service_path"),
+            None => request_header.destination.clone().expect("missing dest service_path"),
         };
 
         SwbusMessage {
             header: Some(SwbusMessageHeader::new(
                 dest_sp,
-                request
-                    .header
-                    .as_ref()
-                    .unwrap()
-                    .source
-                    .clone()
-                    .expect("missing source service_path"),
+                request_header.source.clone().expect("missing source service_path"),
                 request_id,
             )),
             body: Some(swbus_message::Body::Response(request_response)),
@@ -469,15 +467,16 @@ mod tests {
     }
 
     #[test]
-    fn registration_query_request_can_be_created() {
-        let request = RegistrationQueryRequest {};
-        test_packing_with_swbus_message(swbus_message::Body::RegistrationQueryRequest(request));
-    }
-
-    #[test]
-    fn registration_query_response_can_be_created() {
-        let response = RegistrationQueryResponse {};
-        test_packing_with_swbus_message(swbus_message::Body::RegistrationQueryResponse(response));
+    fn route_announcement_can_be_created() {
+        let entry = RouteEntry {
+            service_path: Some(create_mock_service_path()),
+            nh_id: "test".to_string(),
+            nh_service_path: Some(create_mock_service_path()),
+            route_scope: RouteScope::InRegion.into(),
+            hop_count: 1,
+        };
+        let request = RouteEntries { entries: vec![entry] };
+        test_packing_with_swbus_message(swbus_message::Body::RouteAnnouncement(request));
     }
 
     #[test]
@@ -600,8 +599,14 @@ mod tests {
         let request_id = request.header.as_ref().unwrap().id;
         let src = request.header.as_ref().unwrap().source.as_ref().unwrap().clone();
         let dest = request.header.as_ref().unwrap().destination.as_ref().unwrap().clone();
-        let response =
-            SwbusMessage::new_response(&request, None, SwbusErrorCode::Ok, "", create_mock_message_id(), None);
+        let response = SwbusMessage::new_response(
+            request.header.as_ref().unwrap(),
+            None,
+            SwbusErrorCode::Ok,
+            "",
+            create_mock_message_id(),
+            None,
+        );
         assert_eq!(response.header.as_ref().unwrap().version, 1);
         assert_eq!(response.header.as_ref().unwrap().flag, 0);
         assert_eq!(response.header.as_ref().unwrap().ttl, 64);
@@ -617,5 +622,47 @@ mod tests {
         assert_eq!(response.request_id, request_id);
 
         // assert_eq!(response.body.as_ref().unwrap().request_, true);
+    }
+
+    #[test]
+    fn test_sp_compare() {
+        let sp1 = ServicePath::from_string("region-a.cluster-a.1.0.0.1-dpu0").unwrap();
+        let sp2 = ServicePath::from_string("region-a.cluster-a.1.0.0.2-dpu0").unwrap();
+        let sp3 = ServicePath::from_string("region-a.cluster-b").unwrap();
+
+        assert_eq!(sp1 < sp2, true);
+        assert_eq!(sp2 < sp3, true);
+    }
+
+    #[test]
+    fn test_route_entry_compare() {
+        let entry1 = RouteEntry {
+            service_path: Some(ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap()),
+            hop_count: 1,
+            nh_id: "".to_string(),
+            nh_service_path: None,
+            route_scope: RouteScope::InCluster as i32,
+        };
+        let entry2 = RouteEntry {
+            service_path: Some(ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap()),
+            hop_count: 0, //my route has hop count 0
+            nh_id: "".to_string(),
+            nh_service_path: None,
+            route_scope: RouteScope::InCluster as i32,
+        };
+        let entry3 = RouteEntry {
+            service_path: Some(ServicePath::from_string("region-a.cluster-b").unwrap()),
+            hop_count: 1,
+            nh_id: "".to_string(),
+            nh_service_path: None,
+            route_scope: RouteScope::InRegion as i32,
+        };
+
+        assert_eq!(entry1 < entry2, true);
+        assert_eq!(entry2 < entry3, true);
+
+        let mut entries = vec![entry1.clone(), entry3.clone(), entry2.clone()];
+        entries.sort();
+        assert_eq!(entries, vec![entry1, entry2, entry3]);
     }
 }

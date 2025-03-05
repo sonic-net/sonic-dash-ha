@@ -13,8 +13,8 @@
                 "version": 1,
                 "flag": 0,
                 "ttl": 1,
-                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
-                "destination": "region-a.cluster-a.10.0.0.1-dpu0/local-mgmt/0"
+                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0"
               },
               "body": {
                 "ManagementRequest": {
@@ -33,8 +33,8 @@
                 "version": 1,
                 "flag": 0,
                 "ttl": 63,
-                "source": "region-a.cluster-a.10.0.0.1-dpu0/local-mgmt/0",
-                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0"
+                "source": "region-a.cluster-a.10.0.0.1-dpu0",
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0"
               },
               "body": {
                 "Response": {
@@ -42,20 +42,26 @@
                   "error_code": 1,
                   "error_message": "",
                   "response_body": {
-                    "RouteQueryResult": {
+                    "RouteEntries": {
                       "entries": [
                         {
                           "service_path": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
                           "nh_service_path": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
-                          "nh_scope": 1,
+                          "route_scope": 0,
                           "hop_count": 1
                         },
                         {
                           "service_path": "region-a.cluster-a.10.0.0.2-dpu0",
                           "nh_service_path": "region-a.cluster-a.10.0.0.2-dpu0",
-                          "nh_scope": 2,
+                          "route_scope": 2,
                           "hop_count": 1
-                        }
+                        },
+                        {
+                          "service_path": "region-a.cluster-a.10.0.0.2-dpu0",
+                          "nh_service_path": "region-a.cluster-a.10.0.0.2-dpu0",
+                          "route_scope": 2,
+                          "hop_count": 1
+                        }                        
                       ]
                     }
                   }
