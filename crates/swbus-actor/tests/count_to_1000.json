@@ -1,0 +1,19 @@
+{
+  "spawn": ["a"],
+  "actors": {
+    "a": {
+      "init": [
+        { "AssertEq": ["1", "1"] },
+        { "Send": { "to": "a", "key": "count", "val": "0" }}
+      ],
+      "handle_message": {
+        "count": [
+          { "AssertEq": ["<source>", "a"] },
+          { "Print": "<val>" },
+          { "If": { "eq": ["<val>", "1000"], "then": [ "Finish" ] } },
+          { "Send": { "to": "a", "key": "count", "val": "<val> + 1" } }
+        ]
+      }
+    }
+  }
+}
