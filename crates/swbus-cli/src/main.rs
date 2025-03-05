@@ -12,6 +12,7 @@ use tokio::sync::Mutex;
 use tokio::time::{self, Duration, Instant};
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, Layer};
+use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 #[command(name = "swbuscli")]
@@ -156,8 +157,8 @@ async fn main() {
         error!("No cluster route found, please check the config");
     }
     let mut sp = sp.unwrap();
-    sp.service_type = "cli".to_string();
-    sp.service_id = "0".to_string();
+    sp.service_type = "swbus-cli".to_string();
+    sp.service_id = Uuid::new_v4().to_string();
     let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
         format!("http://{}", swbus_config.endpoint),
         sp.clone(),
