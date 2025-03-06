@@ -19,24 +19,24 @@ struct DbConnections {
 }
 
 // DB field names
-const FEATURE_TABLE: &str = "FEATURE";
-const SET_OWNER: &str = "set_owner";
-const NO_FALLBACK: &str = "no_fallback_to_local";
+const DB_FEATURE_TABLE: &str = "FEATURE";
+const DB_FIELD_SET_OWNER: &str = "set_owner";
+const DB_FIELD_NO_FALLBACK: &str = "no_fallback_to_local";
 
-const CURRENT_OWNER: &str = "current_owner";
-const UPD_TIMESTAMP: &str = "update_time";
-const CONTAINER_ID: &str = "container_id";
-const REMOTE_STATE: &str = "remote_state";
-const SYSTEM_STATE: &str = "system_state";
-const STATE: &str = "state";
-const ST_FEAT_CTR_STABLE_VER: &str = "container_stable_version";
+const DB_FIELD_CURRENT_OWNER: &str = "current_owner";
+const DB_FIELD_UPD_TIMESTAMP: &str = "update_time";
+const DB_FIELD_CONTAINER_ID: &str = "container_id";
+const DB_FIELD_REMOTE_STATE: &str = "remote_state";
+const DB_FIELD_SYSTEM_STATE: &str = "system_state";
+const DB_FIELD_STATE: &str = "state";
+const DB_FIELD_ST_FEAT_CTR_STABLE_VER: &str = "container_stable_version";
 
-const KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
-const KUBE_LABEL_SET_KEY: &str = "SET";
-const SERVER_TABLE: &str = "KUBERNETES_MASTER";
-const SERVER_KEY: &str = "SERVER";
-const ST_SER_CONNECTED: &str = "connected";
-const ST_SER_UPDATE_TS: &str = "update_time";
+const DB_KUBE_LABEL_TABLE: &str = "KUBE_LABELS";
+const DB_KUBE_LABEL_SET_KEY: &str = "SET";
+const DB_SERVER_TABLE: &str = "KUBERNETES_MASTER";
+const DB_SERVER_KEY: &str = "SERVER";
+const DB_FIELD_ST_SER_CONNECTED: &str = "connected";
+const DB_FIELD_ST_SER_UPDATE_TS: &str = "update_time";
 
 // Get seconds to wait for remote docker to start.
 // If not, revert to local
@@ -58,10 +58,10 @@ fn get_config_data(field: &str) -> Option<serde_json::Value> {
 }
 
 fn read_data(db_connector: &DbConnector, feature: &str, fields: &mut HashMap<&str, String>) {
-    let table_name = if feature == SERVER_KEY {
-        SERVER_TABLE
+    let table_name = if feature == DB_SERVER_KEY {
+        DB_SERVER_TABLE
     } else {
-        FEATURE_TABLE
+        DB_FEATURE_TABLE
     };
 
     let data = db_connector
@@ -76,9 +76,9 @@ fn read_data(db_connector: &DbConnector, feature: &str, fields: &mut HashMap<&st
 
 fn read_config(db_connections: &DbConnections, feature: &str) -> HashMap<&'static str, String> {
     let mut fields: HashMap<&str, String> = HashMap::from([
-        (SET_OWNER, "local".to_string()),
-        (NO_FALLBACK, "False".to_string()),
-        (STATE, "disabled".to_string()),
+        (DB_FIELD_SET_OWNER, "local".to_string()),
+        (DB_FIELD_NO_FALLBACK, "False".to_string()),
+        (DB_FIELD_STATE, "disabled".to_string()),
     ]);
     read_data(&db_connections.config_db, feature, &mut fields);
     fields
@@ -86,9 +86,9 @@ fn read_config(db_connections: &DbConnections, feature: &str) -> HashMap<&'stati
 
 fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static str, String> {
     let mut fields: HashMap<&str, String> = HashMap::from([
-        (CURRENT_OWNER, "local".to_string()),
-        (REMOTE_STATE, "none".to_string()),
-        (CONTAINER_ID, "".to_string()),
+        (DB_FIELD_CURRENT_OWNER, "local".to_string()),
+        (DB_FIELD_REMOTE_STATE, "none".to_string()),
+        (DB_FIELD_CONTAINER_ID, "".to_string()),
     ]);
     read_data(&db_connections.state_db, feature, &mut fields);
     fields
@@ -96,10 +96,10 @@ fn read_state(db_connections: &DbConnections, feature: &str) -> HashMap<&'static
 
 fn read_server_state(db_connections: &DbConnections) -> HashMap<&'static str, String> {
     let mut fields: HashMap<&str, String> = HashMap::from([
-        (ST_SER_CONNECTED, "false".to_string()),
-        (ST_SER_UPDATE_TS, "".to_string()),
+        (DB_FIELD_ST_SER_CONNECTED, "false".to_string()),
+        (DB_FIELD_ST_SER_UPDATE_TS, "".to_string()),
     ]);
-    read_data(&db_connections.state_db, SERVER_KEY, &mut fields);
+    read_data(&db_connections.state_db, DB_SERVER_KEY, &mut fields);
     fields
 }
 
@@ -108,8 +108,8 @@ fn set_label(db_connections: &DbConnections, feature: &str, create: bool) {
         db_connections
             .state_db
             .hset(
-                KUBE_LABEL_TABLE,
-                &format!("{}|{}_enabled", KUBE_LABEL_SET_KEY, feature),
+                DB_KUBE_LABEL_TABLE,
+                &format!("{}|{}_enabled", DB_KUBE_LABEL_SET_KEY, feature),
                 &CxxString::new(if create { "true" } else { "false" }),
             )
             .expect("Unable to set label of container in Redis");
@@ -119,10 +119,11 @@ fn set_label(db_connections: &DbConnections, feature: &str, create: bool) {
 fn update_data(db_connections: &DbConnections, feature: &str, data: &HashMap<&str, &str>) {
     if db_connections.remote_ctr_enabled {
         for (key, value) in data.iter() {
-            let _ =
-                db_connections
-                    .state_db
-                    .hset(FEATURE_TABLE, &format!("{}|{}", feature, key), &CxxString::new(value));
+            let _ = db_connections.state_db.hset(
+                DB_FEATURE_TABLE,
+                &format!("{}|{}", feature, key),
+                &CxxString::new(value),
+            );
         }
     }
 }
@@ -157,10 +158,14 @@ fn get_container_id<'a>(feature: &'a str, db_connections: &DbConnections) -> Cow
         .state_db
         .hgetall(&format!("FEATURE|{}", feature))
         .expect("Unable to get data");
-    if data.get(CURRENT_OWNER).map_or("", |value| value.to_str().unwrap()) == "local" {
+    if data
+        .get(DB_FIELD_CURRENT_OWNER)
+        .map_or("", |value| value.to_str().unwrap())
+        == "local"
+    {
         Cow::Borrowed(feature)
     } else {
-        data.get(CONTAINER_ID).map_or(Cow::Borrowed(feature), |value| {
+        data.get(DB_FIELD_CONTAINER_ID).map_or(Cow::Borrowed(feature), |value| {
             Cow::Owned(value.to_str().unwrap().to_string())
         })
     }
@@ -185,28 +190,29 @@ async fn container_start(feature: &str) {
     let server_state = read_server_state(&db_connections);
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    let mut data: HashMap<&str, &str> = HashMap::from([(SYSTEM_STATE, "up"), (UPD_TIMESTAMP, &timestamp)]);
+    let mut data: HashMap<&str, &str> =
+        HashMap::from([(DB_FIELD_SYSTEM_STATE, "up"), (DB_FIELD_UPD_TIMESTAMP, &timestamp)]);
 
     let mut start_val = enumset::EnumSet::new();
-    if feature_config.get(SET_OWNER).unwrap() == "local" {
+    if feature_config.get(DB_FIELD_SET_OWNER).unwrap() == "local" {
         start_val |= StartFlags::StartLocal;
     } else {
         start_val |= StartFlags::StartKube;
-        if feature_config.get(NO_FALLBACK).unwrap() == "False"
-            && (feature_state.get(REMOTE_STATE).unwrap() == "none"
-                || server_state.get(ST_SER_CONNECTED).unwrap() == "false")
+        if feature_config.get(DB_FIELD_NO_FALLBACK).unwrap() == "False"
+            && (feature_state.get(DB_FIELD_REMOTE_STATE).unwrap() == "none"
+                || server_state.get(DB_FIELD_ST_SER_CONNECTED).unwrap() == "false")
         {
             start_val |= StartFlags::StartLocal;
-            data.insert(REMOTE_STATE, "none");
+            data.insert(DB_FIELD_REMOTE_STATE, "none");
         }
     }
 
     if start_val & StartFlags::StartLocal != enumset::EnumSet::empty() {
-        data.insert(CURRENT_OWNER, "local");
-        data.insert(CONTAINER_ID, feature);
+        data.insert(DB_FIELD_CURRENT_OWNER, "local");
+        data.insert(DB_FIELD_CONTAINER_ID, feature);
         if start_val == StartFlags::StartLocal {
             set_label(&db_connections, feature, false);
-            data.insert(REMOTE_STATE, "none");
+            data.insert(DB_FIELD_REMOTE_STATE, "none");
         }
     }
 
@@ -231,7 +237,7 @@ async fn container_stop(feature: &str, timeout: Option<i64>) {
     let feature_config = read_config(&db_connections, feature);
     let feature_state = read_state(&db_connections, feature);
     let docker_id = get_container_id(feature, &db_connections);
-    let remove_label = feature_config.get(SET_OWNER).unwrap() != "local";
+    let remove_label = feature_config.get(DB_FIELD_SET_OWNER).unwrap() != "local";
 
     let docker = Docker::connect_with_local_defaults().unwrap();
 
@@ -249,13 +255,13 @@ async fn container_stop(feature: &str, timeout: Option<i64>) {
 
     let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     let mut data: HashMap<&str, &str> = HashMap::from([
-        (CURRENT_OWNER, "none"),
-        (SYSTEM_STATE, "down"),
-        (CONTAINER_ID, ""),
-        (UPD_TIMESTAMP, &timestamp),
+        (DB_FIELD_CURRENT_OWNER, "none"),
+        (DB_FIELD_SYSTEM_STATE, "down"),
+        (DB_FIELD_CONTAINER_ID, ""),
+        (DB_FIELD_UPD_TIMESTAMP, &timestamp),
     ]);
-    if feature_state.get(REMOTE_STATE).unwrap() == "running" {
-        data.insert(REMOTE_STATE, "stopped");
+    if feature_state.get(DB_FIELD_REMOTE_STATE).unwrap() == "running" {
+        data.insert(DB_FIELD_REMOTE_STATE, "stopped");
     }
 
     update_data(&db_connections, feature, &data);
@@ -267,15 +273,15 @@ async fn container_kill(feature: &str) {
     let feature_config = read_config(&db_connections, feature);
     let feature_state = read_state(&db_connections, feature);
     let docker_id = get_container_id(feature, &db_connections);
-    let remove_label =
-        (feature_config.get(SET_OWNER).unwrap() != "local") || (feature_state.get(CURRENT_OWNER).unwrap() != "local");
+    let remove_label = (feature_config.get(DB_FIELD_SET_OWNER).unwrap() != "local")
+        || (feature_state.get(DB_FIELD_CURRENT_OWNER).unwrap() != "local");
 
     if remove_label {
         set_label(&db_connections, feature, false);
     }
 
-    if feature_config.get(SET_OWNER).unwrap() == "local" {
-        let current_state = feature_state.get(STATE).unwrap();
+    if feature_config.get(DB_FIELD_SET_OWNER).unwrap() == "local" {
+        let current_state = feature_state.get(DB_FIELD_STATE).unwrap();
         if current_state != "enabled" && current_state != "always_enabled" {
             println!("{} is not enabled", feature);
             return;
@@ -309,12 +315,12 @@ async fn container_wait(feature: &str) {
             update_data(
                 &db_connections,
                 feature,
-                &HashMap::from([(ST_FEAT_CTR_STABLE_VER, version.as_str())]),
+                &HashMap::from([(DB_FIELD_ST_FEAT_CTR_STABLE_VER, version.as_str())]),
             );
         }
     }
 
-    if docker_id.is_empty() && feature_config.get(NO_FALLBACK).unwrap() == "False" {
+    if docker_id.is_empty() && feature_config.get(DB_FIELD_NO_FALLBACK).unwrap() == "False" {
         pend_wait_seconds = get_config_data(SONIC_CTR_CONFIG_PEND_SECS)
             .and_then(|value| value.as_u64())
             .map(|value| value as u32)
@@ -322,7 +328,7 @@ async fn container_wait(feature: &str) {
     }
 
     while docker_id.is_empty() {
-        if feature_config.get(NO_FALLBACK).unwrap() == "False" {
+        if feature_config.get(DB_FIELD_NO_FALLBACK).unwrap() == "False" {
             if pend_wait_seconds < WAIT_POLL_SECS {
                 break;
             }
@@ -332,10 +338,14 @@ async fn container_wait(feature: &str) {
         sleep(Duration::from_secs(WAIT_POLL_SECS as u64));
         feature_state = read_state(&db_connections, feature);
 
-        docker_id = Cow::Borrowed(feature_state.get(CONTAINER_ID).unwrap());
+        docker_id = Cow::Borrowed(feature_state.get(DB_FIELD_CONTAINER_ID).unwrap());
 
-        if feature_state.get(REMOTE_STATE).unwrap() == "pending" {
-            update_data(&db_connections, feature, &HashMap::from([(REMOTE_STATE, "ready")]));
+        if feature_state.get(DB_FIELD_REMOTE_STATE).unwrap() == "pending" {
+            update_data(
+                &db_connections,
+                feature,
+                &HashMap::from([(DB_FIELD_REMOTE_STATE, "ready")]),
+            );
         }
     }
 
