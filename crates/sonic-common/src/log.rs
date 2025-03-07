@@ -1,39 +1,111 @@
 use color_eyre::eyre::{Context, Result};
-use tracing_error::ErrorLayer;
-use tracing_subscriber::{
-    self, fmt::format::FmtSpan, prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt, Layer,
-};
-
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
+#[cfg(not(target_os = "windows"))]
+use swss_common::{link_to_swsscommon_logger, LoggerConfigChangeHandler};
+
+use tracing::info;
+use tracing_error::ErrorLayer;
+use tracing_subscriber::{
+    self, filter, fmt::format::FmtSpan, prelude::__tracing_subscriber_SubscriberExt, reload, util::SubscriberInitExt,
+    Layer, Registry,
+};
 #[cfg(debug_assertions)]
 const DEFAULT_LOG_LEVEL: &str = "debug";
 
 #[cfg(not(debug_assertions))]
 const DEFAULT_LOG_LEVEL: &str = "info";
 
-pub fn init(program_name: &'static str) -> Result<()> {
+struct LoggerConfigHandler {
+    level_reload_handle: reload::Handle<filter::LevelFilter, Registry>,
+}
+
+impl LoggerConfigChangeHandler for LoggerConfigHandler {
+    fn on_log_level_change(&mut self, level: &str) {
+        let level = match level {
+            "ALERT" => filter::LevelFilter::WARN,
+            "NOTICE" => filter::LevelFilter::INFO,
+            "INFO" => filter::LevelFilter::INFO,
+            "DEBUG" => filter::LevelFilter::DEBUG,
+            _ => filter::LevelFilter::ERROR,
+        };
+
+        self.level_reload_handle.modify(|f| *f = level).unwrap();
+    }
+
+    fn on_log_output_change(&mut self, output: &str) {
+        // Rust doesn't support dynamically changing log output. We will only support default output (syslog in linux, file in windows)
+        if output != "SYSLOG" {
+            info!(
+                "Log output change to unsupported destination {}. Setting ignored",
+                output
+            );
+        }
+    }
+}
+
+/// log initialization
+/// There are multiple options to initialize log:
+/// 1. Set RUST_LOG or {program_name}_LOG_LEVEL env var to the desired log level. If the log env is not set and link_swsscommon_logger is false,
+///     use DEFAULT_LOG_LEVEL. Otherwise, use swsscommon logger described next
+/// 2. If link_swsscommon_logger is set, use swsscommon logger to get log settings from config_db, which supports dynamic log level change
+///     by modifying config_db. The settings include
+///   - log_level: emerg, alert, crit, error, warn, notice, info, debug
+///   - output: stdout, stderr, syslog. Rust doesn't support dynamically changing log output. We will only support default output (syslog in linux, file in windows)
+pub fn init(program_name: &'static str, link_swsscommon_logger: bool) -> Result<()> {
     let log_level_env_var = format!("{}_LOG_LEVEL", program_name.to_uppercase());
 
+    let mut log_env_set = true;
+    // RUST_LOG env has the highest priority. If it is not set, get logger setting from config_db
     std::env::set_var(
         "RUST_LOG",
         std::env::var("RUST_LOG")
             .or_else(|_| std::env::var(log_level_env_var))
-            .unwrap_or_else(|_| DEFAULT_LOG_LEVEL.to_string()),
+            .unwrap_or_else(|_| {
+                log_env_set = false;
+                DEFAULT_LOG_LEVEL.to_string()
+            }),
     );
 
     let file_subscriber = new_file_subscriber(program_name).wrap_err("Unable to create file subscriber.")?;
 
+    #[cfg(not(target_os = "windows"))]
+    if link_swsscommon_logger && !log_env_set {
+        let filter = filter::LevelFilter::INFO;
+        let (level_layer, level_reload_handle) = reload::Layer::new(filter);
+
+        let handler = LoggerConfigHandler { level_reload_handle };
+        // connect to swsscommon logger
+        let result = link_to_swsscommon_logger(program_name, handler);
+        if result.is_ok() {
+            println!("Link to swsscommon logger successfully.");
+            let file_subscriber = file_subscriber
+                .with_line_number(true)
+                .with_target(false)
+                .with_ansi(false)
+                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
+
+            tracing_subscriber::registry()
+                .with(level_layer.and_then(file_subscriber))
+                .with(ErrorLayer::default())
+                .init();
+            return Ok(());
+        } else {
+            eprintln!("Unable to link to swsscommon logger: {}", result.unwrap_err());
+            // fall back to EnvFilter
+        }
+    }
+
+    let filter = tracing_subscriber::filter::EnvFilter::from_default_env();
     let file_subscriber = file_subscriber
         .with_line_number(true)
         .with_target(false)
         .with_ansi(false)
-        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
-        .with_filter(tracing_subscriber::filter::EnvFilter::from_default_env());
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
 
     tracing_subscriber::registry()
-        .with(file_subscriber)
+        .with(filter.and_then(file_subscriber))
         .with(ErrorLayer::default())
         .init();
 
@@ -85,7 +157,7 @@ fn new_file_subscriber(
 mod test {
     #[test]
     fn log_can_be_initialized() {
-        let result = super::init("test");
+        let result = super::init("test", true);
         assert!(result.is_ok());
     }
 }
