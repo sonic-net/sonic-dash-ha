@@ -1,0 +1,23 @@
+{
+  "spawn": ["a"],
+  "actors": {
+    "a": {
+      "init": [
+        { "AddInternalTable": { "key": "mytable" } },
+        { "Write": { "key": "mytable", "field": "myfield", "val": "0" } },
+        { "Send": { "to": "a", "key": "loop", "val": "" }}
+      ],
+      "handle_message": {
+        "loop": [
+          { "AssertEq": ["<source>", "a"] },
+          { "AssertEq": ["<val>", ""] },
+          { "Read": { "key": "mytable", "field": "myfield", "var": "myfield-val" } },
+          { "Print": "<myfield-val>" },
+          { "If": { "eq": ["<myfield-val>", "1000"], "then": [ "Finish" ] } },
+          { "Send": { "to": "a", "key": "loop", "val": "" }},
+          { "Write": { "key": "mytable", "field": "myfield", "val": "<myfield-val> + 1" } }
+        ]
+      }
+    }
+  }
+}

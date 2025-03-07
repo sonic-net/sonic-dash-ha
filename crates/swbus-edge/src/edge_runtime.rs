@@ -35,7 +35,7 @@ impl SwbusEdgeRuntime {
         self.message_router.start().await
     }
 
-    pub async fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
+    pub fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) -> Result<()> {
         // Create MessageHandlerProxy
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
 

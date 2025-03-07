@@ -1,0 +1,23 @@
+[package]
+name = "swbus-actor"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+swbus-edge = { path = "../swbus-edge" }
+swss-common = { path = "../swss-common", features = ["async"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+swss-common-testing = { path = "../swss-common-testing" }
