@@ -17,6 +17,9 @@ async = ["dep:tokio"]
 [dependencies]
 libc = "0.2.158"
 tokio = { version = "1", optional = true, features = ["net", "rt"] }
+getset.workspace = true
+lazy_static.workspace = true
+tracing-subscriber.workspace = true
 
 [build-dependencies]
 bindgen = "0.70.1"
