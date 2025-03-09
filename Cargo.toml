@@ -10,7 +10,8 @@ members = [
     "crates/swss-serde",
     "crates/swbus-edge", 
     "crates/swbus-proto",
-    "crates/swbus-cli", "crates/swbus-config",
+    "crates/swbus-cli", 
+    "crates/swbus-config",
     "crates/container",
 ]
 exclude = []
@@ -79,7 +80,7 @@ futures-util = "0.3"
 chrono = "0.4"
 enumset = "1"
 bollard = { version = "0.17.1", features = ["chrono"] }
-
+uuid = { version = "1.15", features = ["v4"] }
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
 swbus-proto = { version = "0.1.0", path = "crates/swbus-proto" }

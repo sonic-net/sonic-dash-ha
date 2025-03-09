@@ -7,7 +7,6 @@ mod message_handler;
 mod multiplexer;
 pub mod nexthop;
 pub mod service;
-pub mod swbus_config;
 
 pub use conn::*;
 pub use conn_info::*;
@@ -16,4 +15,3 @@ pub use conn_worker::*;
 pub use message_handler::*;
 pub(crate) use multiplexer::*;
 pub(crate) use nexthop::*;
-pub(crate) use swbus_config::*;

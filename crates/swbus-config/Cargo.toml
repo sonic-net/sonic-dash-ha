@@ -17,7 +17,6 @@ tracing.workspace = true
 swss-serde.workspace = true
 swss-common.workspace = true
 swbus-proto.workspace = true
-swbus-core.workspace = true
 
 [dev-dependencies]
 swss-common-testing.workspace = true

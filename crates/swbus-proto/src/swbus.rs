@@ -109,13 +109,14 @@ impl ServicePath {
         )
     }
 
-    pub fn clone_for_local_mgmt(&self) -> Self {
+    // swbusd service path is in node scope without service and resource
+    pub fn to_swbusd_service_path(&self) -> ServicePath {
         ServicePath {
             region_id: self.region_id.clone(),
             cluster_id: self.cluster_id.clone(),
             node_id: self.node_id.clone(),
-            service_type: "local-mgmt".to_string(),
-            service_id: "0".to_string(),
+            service_type: "".to_string(),
+            service_id: "".to_string(),
             resource_type: "".to_string(),
             resource_id: "".to_string(),
         }
@@ -567,6 +568,29 @@ mod tests {
         assert_eq!(ServicePath::from_string(sp_str.as_str()).unwrap(), service_path);
     }
 
+    #[test]
+    fn test_to_swbusd_service_path() {
+        let service_path = ServicePath {
+            region_id: "region-a".to_string(),
+            cluster_id: "cluster-a".to_string(),
+            node_id: "1.1.1.1-dpu0".to_string(),
+            service_type: "cli".to_string(),
+            service_id: "0".to_string(),
+            resource_type: "ping".to_string(),
+            resource_id: "0".to_string(),
+        };
+        let expected_sp = ServicePath {
+            region_id: "region-a".to_string(),
+            cluster_id: "cluster-a".to_string(),
+            node_id: "1.1.1.1-dpu0".to_string(),
+            service_type: "".to_string(),
+            service_id: "".to_string(),
+            resource_type: "".to_string(),
+            resource_id: "".to_string(),
+        };
+        let swbusd_service_path = service_path.to_swbusd_service_path();
+        assert_eq!(swbusd_service_path, expected_sp);
+    }
     #[test]
     fn test_swbus_message_new_response() {
         let request = SwbusMessage::new(

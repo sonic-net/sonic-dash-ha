@@ -20,7 +20,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    if let Err(e) = log::init("swbusd") {
+    if let Err(e) = log::init("swbusd", true) {
         eprintln!("Failed to initialize logging: {}", e);
     }
     info!("Starting swbusd");
@@ -29,7 +29,7 @@ async fn main() {
         None => {
             let config_path = args.config.expect("route_config is required when slot_id is not set");
 
-            swbus_config_from_yaml(config_path).unwrap()
+            swbus_config_from_yaml(&config_path).unwrap()
         }
     };
 
