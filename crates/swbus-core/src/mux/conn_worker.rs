@@ -179,7 +179,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mux::RouteConfig;
+    use swbus_config::RouteConfig;
     use tokio_stream::{self as stream};
 
     #[tokio::test]

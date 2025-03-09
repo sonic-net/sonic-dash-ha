@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs::File;
+use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use swbus_core::mux::swbus_config::{PeerConfig, RouteConfig, SwbusConfig};
 use swbus_proto::swbus::*;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
@@ -11,58 +11,87 @@ use thiserror::Error;
 use tracing::*;
 
 const CONFIG_DB: &str = "CONFIG_DB";
-const SWBUSD_PORT: u16 = 23606;
-#[derive(Error, Debug)]
-pub enum SwbusConfigError {
-    #[error("InvalidConfig: {detail}")]
-    InvalidConfig { detail: String },
+pub const SWBUSD_PORT: u16 = 23606;
 
-    #[error("IOError: {detail}")]
-    IOError { detail: String },
-
-    #[error("InternalError:{detail}")]
-    Internal { detail: String },
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SwbusConfig {
+    pub endpoint: SocketAddr,
+    pub routes: Vec<RouteConfig>,
+    pub peers: Vec<PeerConfig>,
 }
 
-impl SwbusConfigError {
-    pub fn invalid_config(detail: String) -> Self {
-        SwbusConfigError::InvalidConfig { detail }
-    }
+#[derive(Debug, Eq, PartialEq, Hash, Clone, Deserialize)]
+pub struct RouteConfig {
+    #[serde(deserialize_with = "deserialize_service_path")]
+    pub key: ServicePath,
+    pub scope: RouteScope,
+}
 
-    pub fn io_error(detail: String) -> Self {
-        SwbusConfigError::IOError { detail }
-    }
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct PeerConfig {
+    #[serde(deserialize_with = "deserialize_service_path")]
+    pub id: ServicePath,
+    pub endpoint: SocketAddr,
+    pub conn_type: ConnectionType,
+}
 
-    pub fn internal(detail: String) -> Self {
-        SwbusConfigError::Internal { detail }
+#[derive(Error, Debug)]
+pub enum SwbusConfigError {
+    #[error("Invalid config: {0}")]
+    InvalidConfig(String),
+
+    #[error("Failed to connect to the data source")]
+    IOError(#[from] io::Error),
+
+    #[error("swss-common error occurred while {action}: {original}")]
+    SWSSError {
+        action: String,
+        #[source]
+        original: swss_common::Exception, // Preserve the original error
+    },
+
+    #[error("swss-serde error occurred while {action}: {original}")]
+    SWSSSerdeError {
+        action: String,
+        #[source]
+        original: swss_serde::Error,
+    },
+}
+
+impl From<(String, swss_common::Exception)> for SwbusConfigError {
+    fn from((action, original): (String, swss_common::Exception)) -> Self {
+        SwbusConfigError::SWSSError { action, original }
+    }
+}
+
+impl From<(String, swss_serde::Error)> for SwbusConfigError {
+    fn from((action, original): (String, swss_serde::Error)) -> Self {
+        SwbusConfigError::SWSSSerdeError { action, original }
     }
 }
 
 pub type Result<T, E = SwbusConfigError> = core::result::Result<T, E>;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-struct ConfigDBDPUEntry {
+pub struct ConfigDBDPUEntry {
     #[serde(rename = "type")]
-    dpu_type: Option<String>,
-    state: Option<String>,
-    slot_id: u32,
-    pa_ipv4: Option<String>,
-    pa_ipv6: Option<String>,
-    npu_ipv4: Option<String>,
-    npu_ipv6: Option<String>,
-    probe_ip: Option<String>,
+    pub dpu_type: Option<String>,
+    pub state: Option<String>,
+    pub slot_id: u32,
+    pub pa_ipv4: Option<String>,
+    pub pa_ipv6: Option<String>,
+    pub npu_ipv4: Option<String>,
+    pub npu_ipv6: Option<String>,
+    pub probe_ip: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-struct ConfigDBDeviceMetadataEntry {
-    region: Option<String>,
-    cluster: Option<String>,
+pub struct ConfigDBDeviceMetadataEntry {
+    pub region: Option<String>,
+    pub cluster: Option<String>,
     #[serde(rename = "type")]
-    device_type: Option<String>,
-    sub_type: Option<String>,
-    hostname: Option<String>,
-    platform: Option<String>,
-    hwsku: Option<String>,
+    pub device_type: Option<String>,
+    pub sub_type: Option<String>,
 }
 
 #[instrument]
@@ -74,10 +103,10 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     let dpu_type = dpu_entry
         .dpu_type
         .as_ref()
-        .ok_or(SwbusConfigError::invalid_config("DPU type not found".to_string()))?;
+        .ok_or(SwbusConfigError::InvalidConfig("DPU type not found".into()))?;
     if dpu_type != "local" && dpu_type != "cluster" {
         // ignore external DPUs, not for DASH smartswitch
-        return Err(SwbusConfigError::invalid_config(format!(
+        return Err(SwbusConfigError::InvalidConfig(format!(
             "Unsupported DPU type: {}",
             dpu_type
         )));
@@ -85,7 +114,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
 
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4.as_ref() {
         if npu_ipv4.parse::<Ipv4Addr>().is_err() {
-            return Err(SwbusConfigError::invalid_config(format!(
+            return Err(SwbusConfigError::InvalidConfig(format!(
                 "Invalid IPv4 address: {}",
                 npu_ipv4
             )));
@@ -100,7 +129,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
 
     if let Some(npu_ipv6) = dpu_entry.npu_ipv6.as_ref() {
         if npu_ipv6.parse::<Ipv6Addr>().is_err() {
-            return Err(SwbusConfigError::invalid_config(format!(
+            return Err(SwbusConfigError::InvalidConfig(format!(
                 "Invalid IPv6 address: {}",
                 npu_ipv6
             )));
@@ -114,7 +143,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     }
 
     if routes.is_empty() {
-        SwbusConfigError::invalid_config(format!("No valid routes found in local dpu{}", slot_id));
+        SwbusConfigError::InvalidConfig(format!("No valid routes found in local dpu{}", slot_id));
     }
 
     debug!("Routes collected: {:?}", &routes);
@@ -134,10 +163,10 @@ fn peer_config_from_dpu_entry(
     let dpu_type = dpu_entry
         .dpu_type
         .as_ref()
-        .ok_or(SwbusConfigError::invalid_config("DPU type not found".to_string()))?;
+        .ok_or(SwbusConfigError::InvalidConfig("DPU type not found".to_string()))?;
     if dpu_type != "local" && dpu_type != "cluster" {
         // ignore external DPUs, not for DASH smartswitch
-        return Err(SwbusConfigError::invalid_config(format!(
+        return Err(SwbusConfigError::InvalidConfig(format!(
             "Unsupported DPU type: {}",
             dpu_type
         )));
@@ -148,7 +177,7 @@ fn peer_config_from_dpu_entry(
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4 {
         let npu_ipv4 = npu_ipv4
             .parse::<Ipv4Addr>()
-            .map_err(|_| SwbusConfigError::invalid_config(format!("Invalid IPv4 address: {}", npu_ipv4)))?;
+            .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv4 address: {}", npu_ipv4)))?;
 
         let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, slot_id), "", "", "", "");
         peers.push(PeerConfig {
@@ -161,7 +190,7 @@ fn peer_config_from_dpu_entry(
     if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
         let npu_ipv6 = npu_ipv6
             .parse::<Ipv6Addr>()
-            .map_err(|_| SwbusConfigError::invalid_config(format!("Invalid IPv6 address: {}", npu_ipv6)))?;
+            .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {}", npu_ipv6)))?;
 
         let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, slot_id), "", "", "", "");
         peers.push(PeerConfig {
@@ -181,19 +210,17 @@ fn peer_config_from_dpu_entry(
 
 #[instrument]
 fn get_device_info() -> Result<(String, String)> {
-    let db = DbConnector::new_named(CONFIG_DB, false, 0)
-        .map_err(|e| SwbusConfigError::io_error(format!("Failed to connect config_db: {}", e)))?;
-    let table = Table::new(db, "DEVICE_METADATA")
-        .map_err(|e| SwbusConfigError::internal(format!("Failed to open DEVICE_METADATA table: {}", e)))?;
+    let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting to config_db".into(), e))?;
+    let table = Table::new(db, "DEVICE_METADATA").map_err(|e| ("opening DEVICE_METADATA table".into(), e))?;
 
-    let metadata: ConfigDBDeviceMetadataEntry = from_table(&table, "localhost")
-        .map_err(|e| SwbusConfigError::internal(format!("Failed to read DEVICE_METADATA:localhost entry: {}", e)))?;
+    let metadata: ConfigDBDeviceMetadataEntry =
+        from_table(&table, "localhost").map_err(|e| ("reading DEVICE_METADATA:localhost entry".into(), e))?;
 
-    let region = metadata.region.ok_or(SwbusConfigError::invalid_config(
-        "region not found in DEVICE_METADATA table".to_string(),
+    let region = metadata.region.ok_or(SwbusConfigError::InvalidConfig(
+        "region not found in DEVICE_METADATA table".into(),
     ))?;
-    let cluster = metadata.cluster.ok_or(SwbusConfigError::invalid_config(
-        "cluster not found in DEVICE_METADATA table".to_string(),
+    let cluster = metadata.cluster.ok_or(SwbusConfigError::InvalidConfig(
+        "cluster not found in DEVICE_METADATA table".into(),
     ))?;
 
     debug!("Region: {}, Cluster: {}", region, cluster);
@@ -209,17 +236,14 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
 
     let (region, cluster) = get_device_info()?;
 
-    let db = DbConnector::new_named(CONFIG_DB, false, 0)
-        .map_err(|e| SwbusConfigError::io_error(format!("Failed to connect config_db: {}", e)))?;
-    let table =
-        Table::new(db, "DPU").map_err(|e| SwbusConfigError::internal(format!("Failed to open DPU table: {}", e)))?;
+    let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting config_db".into(), e))?;
+    let table = Table::new(db, "DPU").map_err(|e| ("opening DPU table".into(), e))?;
 
     let keys = table
         .get_keys()
-        .map_err(|e| SwbusConfigError::internal(format!("Failed to get keys from DPU table: {}", e)))?;
+        .map_err(|e| ("Failed to get keys from DPU table".into(), e))?;
     for key in keys {
-        let dpu: ConfigDBDPUEntry = from_table(&table, &key)
-            .map_err(|e| SwbusConfigError::internal(format!("Failed to read DPU entry {}: {}", key, e)))?;
+        let dpu: ConfigDBDPUEntry = from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
 
         if dpu.dpu_type.as_ref().is_none() {
             error!("Missing type in DPU entry {}", key);
@@ -253,8 +277,7 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
             continue;
         }
 
-        let dpu: ConfigDBDPUEntry = from_table(&table, &key)
-            .map_err(|e| SwbusConfigError::internal(format!("Failed to read DPU entry {}: {}", key, e)))?;
+        let dpu: ConfigDBDPUEntry = from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
         let peer = peer_config_from_dpu_entry(&key, dpu, &region, &cluster).map_err(|e| {
             error!("Failed to collect peers from {}: {}", key, e);
             e
@@ -262,7 +285,7 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
         peers.extend(peer);
     }
     if myroutes.is_none() {
-        return Err(SwbusConfigError::invalid_config(format!(
+        return Err(SwbusConfigError::InvalidConfig(format!(
             "DPU at slot {} is not found",
             slot_id
         )));
@@ -277,14 +300,13 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
     })
 }
 
-pub fn swbus_config_from_yaml(yaml_file: String) -> Result<SwbusConfig> {
-    let file =
-        File::open(yaml_file).map_err(|e| SwbusConfigError::io_error(format!("Failed to open YAML file: {}", e)))?;
+pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
+    let file = File::open(yaml_file)?;
     let reader = BufReader::new(file);
 
     // Parse the YAML data
     let swbus_config: SwbusConfig = serde_yaml::from_reader(reader)
-        .map_err(|e| SwbusConfigError::invalid_config(format!("Failed to parse YAML file: {}", e)))?;
+        .map_err(|e| SwbusConfigError::InvalidConfig(format!("Failed to parse YAML file: {}", e)))?;
     Ok(swbus_config)
 }
 
@@ -309,9 +331,6 @@ mod tests {
             cluster: Some("cluster-a".to_string()),
             device_type: Some("SpineRouter".to_string()),
             sub_type: Some("SmartSwitch".to_string()),
-            hostname: Some("smartswitch1".to_string()),
-            platform: Some("x86_64".to_string()),
-            hwsku: Some("hwsku1".to_string()),
         };
         to_table(&metadata, &table, "localhost").unwrap();
 
@@ -385,7 +404,7 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(yaml_content.as_bytes()).unwrap();
 
-        let mut expected = swbus_config_from_yaml(file_path.to_str().unwrap().to_string()).unwrap();
+        let mut expected = swbus_config_from_yaml(file_path.to_str().unwrap()).unwrap();
 
         // sort before compare
         config_fromdb.routes.sort_by(|a, b| a.key.cmp(&b.key));
@@ -425,7 +444,7 @@ mod tests {
         let mut file = File::create(&file_path).unwrap();
         file.write_all(yaml_content.as_bytes()).unwrap();
 
-        let result = swbus_config_from_yaml(file_path.to_str().unwrap().to_string());
+        let result = swbus_config_from_yaml(file_path.to_str().unwrap());
         match result {
             Ok(_) => {}
             Err(e) => {

@@ -10,7 +10,8 @@ members = [
     "crates/swss-serde",
     "crates/swbus-edge", 
     "crates/swbus-proto",
-    "crates/swbus-cli", "crates/swbus-config",
+    "crates/swbus-cli", 
+    "crates/swbus-config",
 ]
 exclude = []
 
@@ -74,7 +75,7 @@ atomic_enum = "0.3"
 tempfile = "3"
 tabled = "0.17"
 futures-core = "0.3"
-
+uuid = { version = "1.15", features = ["v4"] }
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
 swbus-proto = { version = "0.1.0", path = "crates/swbus-proto" }
