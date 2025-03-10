@@ -92,44 +92,50 @@ impl SwbusMessageRouter {
             return;
         };
 
-        macro_rules! send_to {
-            ($recipient:expr) => {{
-                if let Err(e) = $recipient.send(message).await {
-                    error!("Failed to send message to {}: {:?}", stringify!($recipient), e);
-                }
-            }};
+        // Try the full route/address
+        if try_route(routes, &destination, privacy, &message).await {
+            return;
         }
-
-        macro_rules! try_route {
-            ($destination:expr) => {{
-                if let Some(handler) = routes.get(&$destination, privacy) {
-                    send_to!(handler);
-                    return;
-                }
-            }};
-        }
-
-        // Try full address
-        try_route!(destination);
 
         // Try stripping the resource id
         let mut partial_dest = destination.clone();
-        partial_dest.resource_id = String::new();
-        try_route!(partial_dest);
+        partial_dest.resource_id.clear();
+        if try_route(routes, &partial_dest, privacy, &message).await {
+            return;
+        }
 
         // Try stripping the resource type
-        partial_dest.resource_type = String::new();
-        try_route!(partial_dest);
+        partial_dest.resource_type.clear();
+        if try_route(routes, &partial_dest, privacy, &message).await {
+            return;
+        }
 
         // Try stripping the service id
-        partial_dest.service_id = String::new();
-        try_route!(partial_dest);
+        partial_dest.service_id.clear();
+        if try_route(routes, &partial_dest, privacy, &message).await {
+            return;
+        }
 
         // Try stripping the service type
-        partial_dest.service_type = String::new();
-        try_route!(partial_dest);
+        partial_dest.service_type.clear();
+        if try_route(routes, &partial_dest, privacy, &message).await {
+            return;
+        }
 
         // Give up at this point and send out to swbus
-        send_to!(swbus_client);
+        if let Err(e) = swbus_client.send(message).await {
+            error!("Failed to send message to swbusd: {e}");
+        }
+    }
+}
+
+async fn try_route(routes: &RouteMap, destination: &ServicePath, privacy: Privacy, message: &SwbusMessage) -> bool {
+    if let Some(handler) = routes.get(destination, privacy) {
+        if let Err(e) = handler.send(message.clone()).await {
+            error!("Failed to send message to local handler: {e}");
+        }
+        true
+    } else {
+        false
     }
 }
