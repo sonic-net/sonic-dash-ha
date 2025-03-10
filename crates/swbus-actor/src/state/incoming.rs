@@ -1,4 +1,5 @@
 use crate::actor_message::{ActorMessage, Value};
+use anyhow::{anyhow, Context, Result};
 use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
@@ -15,12 +16,14 @@ pub struct Incoming {
 }
 
 impl Incoming {
-    pub fn get(&self, key: &str) -> Option<&ActorMessage> {
+    pub fn get(&self, key: &str) -> Result<&ActorMessage> {
         self.get_entry(key).map(|entry| &entry.msg)
     }
 
-    pub fn get_entry(&self, key: &str) -> Option<&IncomingTableEntry> {
-        self.table.get(key)
+    pub fn get_entry(&self, key: &str) -> Result<&IncomingTableEntry> {
+        self.table
+            .get(key)
+            .ok_or_else(|| anyhow!("Incoming state table has no key '{key}'"))
     }
 
     pub(crate) fn new(swbus_edge: Arc<SimpleSwbusEdgeClient>) -> Self {
@@ -52,54 +55,37 @@ impl Incoming {
         }
     }
 
-    pub(crate) async fn recv(&mut self) -> Received {
-        loop {
-            let IncomingMessage { id, source, body } = self.swbus_edge.recv().await.expect("swbus-edge died");
+    /// Extracts the ActorMessage from a request and inserts it into the table,
+    /// and returns a clone of the key to pass to the actor callback.
+    pub(crate) async fn handle_request(
+        &mut self,
+        id: MessageId,
+        source: ServicePath,
+        payload: &[u8],
+    ) -> Result<String> {
+        match ActorMessage::deserialize(payload) {
+            Ok(actor_msg) => {
+                let key = actor_msg.key.clone();
+                self.insert(actor_msg, source.clone(), id);
+                Ok(key)
+            }
+            Err(e) => {
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source,
+                        body: MessageBody::Response {
+                            request_id: id,
+                            error_code: SwbusErrorCode::InvalidPayload,
+                            error_message: format!("{e:#}"),
+                        },
+                    })
+                    .await
+                    .context("invalid ActorMessage received, but failed to send error response swbus message")?;
 
-            match body {
-                MessageBody::Request { payload } => match ActorMessage::deserialize(&payload) {
-                    Ok(actor_msg) => {
-                        let key = actor_msg.key.clone();
-                        self.insert(actor_msg, source.clone(), id);
-                        break Received::ActorMessage { key };
-                    }
-                    Err(e) => {
-                        self.swbus_edge
-                            .send(OutgoingMessage {
-                                destination: source,
-                                body: MessageBody::Response {
-                                    request_id: id,
-                                    error_code: SwbusErrorCode::InvalidPayload,
-                                    error_message: format!("{e:#}"),
-                                },
-                            })
-                            .await
-                            .expect("failed to send swbus message");
-                    }
-                },
-                MessageBody::Response {
-                    request_id,
-                    error_code,
-                    error_message,
-                } => {
-                    if error_code == SwbusErrorCode::Ok {
-                        break Received::Ack { id: request_id };
-                    } else {
-                        // TODO: what to do with error responses?
-                        eprintln!("error response to {request_id}: ({error_code:?}) {error_message}");
-                    }
-                }
+                Err(e.context("invalid ActorMessage received"))
             }
         }
     }
-}
-
-pub(crate) enum Received {
-    /// Received an ActorMessage, which is now available in `Incoming` at this `key`.
-    ActorMessage { key: String },
-
-    /// Received a successful response to a previous outgoing request. This should be passed to `Outgoing`.
-    Ack { id: MessageId },
 }
 
 pub struct IncomingTableEntry {

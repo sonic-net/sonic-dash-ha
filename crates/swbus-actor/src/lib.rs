@@ -2,14 +2,13 @@
 pub mod actor_message;
 pub mod state;
 
-use state::incoming::Received;
 use std::{
     future::Future,
     sync::{Arc, RwLock},
     time::Instant,
 };
 use swbus_edge::{
-    simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
+    simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode, SwbusMessage},
     SwbusEdgeRuntime,
 };
@@ -79,16 +78,42 @@ impl<A: Actor> ActorDriver<A> {
         loop {
             tokio::select! {
                 _ = self.state.outgoing.drive_resend_loop() => unreachable!("drive_resend_loop never returns"),
-                received = self.state.incoming.recv() => match received {
-                    Received::ActorMessage { key } => self.handle_message(&key).await,
-                    Received::Ack { id } => self.state.outgoing.ack_message(id),
+                // received = self.state.incoming.recv() => match received {
+                //     Received::ActorMessage { key } => self.handle_message(&key).await,
+                //     Received::Ack { id } => self.state.outgoing.ack_message(id),
+                // }
+                maybe_msg = self.swbus_edge.recv() => self.handle_swbus_message(maybe_msg.expect("swbus-edge died")).await,
+            }
+        }
+    }
+
+    async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
+        let IncomingMessage { id, source, body } = msg;
+        match body {
+            MessageBody::Request { payload } => {
+                match self.state.incoming.handle_request(id, source, &payload).await {
+                    Ok(key) => self.handle_actor_message(&key).await,
+                    // TODO: This is an obscure error scenario, do we handle it?
+                    Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
+                }
+            }
+            MessageBody::Response {
+                request_id,
+                error_code,
+                error_message,
+            } => {
+                if error_code == SwbusErrorCode::Ok {
+                    self.state.outgoing.ack_message(request_id);
+                } else {
+                    // TODO: What to do with error messages?
+                    eprintln!("error response to {request_id}: ({error_code:?}) {error_message}");
                 }
             }
         }
     }
 
-    /// Handle an incoming actor message, triggering `Actor::handle_message`.
-    async fn handle_message(&mut self, key: &str) {
+    /// Handle an actor message in the incoming state table, triggering `Actor::handle_message`.
+    async fn handle_actor_message(&mut self, key: &str) {
         let res = self.actor.handle_message(&mut self.state, key).await;
         let (error_code, error_message) = match res {
             Ok(()) => {

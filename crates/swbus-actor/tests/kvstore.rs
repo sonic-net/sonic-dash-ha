@@ -67,19 +67,14 @@ impl KVClient {
 impl Actor for KVClient {
     async fn init(&mut self, state: &mut State) -> Result<()> {
         state
-            .outgoing
+            .outgoing()
             .send(sp("kv"), ActorMessage::new("", &KVMessage::get("count"))?);
         Ok(())
     }
 
     async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
         assert_eq!(key, "kv-get");
-        let KVGetResult { key, val } = state
-            .incoming
-            .get(key)
-            .unwrap()
-            .deserialize_data::<KVGetResult>()
-            .unwrap();
+        let KVGetResult { key, val } = state.incoming().get(key)?.deserialize_data::<KVGetResult>()?;
 
         match &*key {
             "count" => {
@@ -87,13 +82,13 @@ impl Actor for KVClient {
                 if n == 1000 {
                     self.notify_done();
                 } else {
-                    state.outgoing.send(
+                    state.outgoing().send(
                         sp("kv"),
                         ActorMessage::new("", &KVMessage::set("count", format!("{}", n + 1)))?,
                     );
 
                     state
-                        .outgoing
+                        .outgoing()
                         .send(sp("kv"), ActorMessage::new("", &KVMessage::get("count"))?);
                 }
             }
@@ -109,22 +104,22 @@ struct KVStore(Redis);
 impl Actor for KVStore {
     async fn init(&mut self, state: &mut State) -> Result<()> {
         let table = Table::new_async(self.0.db_connector(), "kv-actor-data").await?;
-        state.internal.add("data", table, "kv-actor-data").await;
+        state.internal().add("data", table, "kv-actor-data").await;
         Ok(())
     }
 
     async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let entry = state.incoming.get_entry(key).unwrap();
+        let (internal, incoming, outgoing) = state.get_all();
+        let entry = incoming.get_entry(key).unwrap();
         match entry.msg.deserialize_data::<KVMessage>()? {
             KVMessage::Get { key } => {
-                let val = state
-                    .internal
+                let val = internal
                     .get("data")
                     .get(&key)
                     .map(|cxx_string| cxx_string.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 let source = entry.source.clone();
-                state.outgoing.send(
+                outgoing.send(
                     source,
                     ActorMessage::new(
                         "kv-get",
@@ -136,7 +131,7 @@ impl Actor for KVStore {
                 );
             }
             KVMessage::Set { key, val } => {
-                state.internal.get_mut("data").insert(key, val.into());
+                state.internal().get_mut("data").insert(key, val.into());
             }
         }
         Ok(())

@@ -38,7 +38,7 @@ impl EchoClient {
 
 impl Actor for EchoClient {
     async fn init(&mut self, state: &mut State) -> Result<()> {
-        state.outgoing.send(sp("echo"), ActorMessage::new("0", &0)?);
+        state.outgoing().send(sp("echo"), ActorMessage::new("0", &0)?);
         Ok(())
     }
 
@@ -47,12 +47,7 @@ impl Actor for EchoClient {
 
         // Assert that the incoming table has messages 0..=count still cached
         for i in 0..=count {
-            let n = state
-                .incoming
-                .get(&format!("{i}"))
-                .unwrap()
-                .deserialize_data::<u32>()
-                .unwrap();
+            let n = state.incoming().get(&format!("{i}"))?.deserialize_data::<u32>()?;
             assert_eq!(n, i);
         }
 
@@ -60,7 +55,7 @@ impl Actor for EchoClient {
             self.notify_done();
         } else {
             state
-                .outgoing
+                .outgoing()
                 .send(sp("echo"), ActorMessage::new(format!("{}", count + 1), &(count + 1))?);
         }
         Ok(())
@@ -71,10 +66,10 @@ struct EchoServer;
 
 impl Actor for EchoServer {
     async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let entry = state.incoming.get_entry(key).unwrap();
+        let entry = state.incoming().get_entry(key).unwrap();
         let source = entry.source.clone();
         let msg = entry.msg.clone();
-        state.outgoing.send(source, msg);
+        state.outgoing().send(source, msg);
         Ok(())
     }
 }

@@ -160,11 +160,12 @@ impl TestActor {
     async fn run_action(&mut self, action: &Action, state: &mut State) -> Result<()> {
         use Action::*;
 
+        let (internal, _, outgoing) = state.get_all();
         match action {
             AddInternalTable { key } => {
                 let db = self.db.clone_timeout_async(3000).await?;
                 let tbl = Table::new_async(db, &random_string()).await?;
-                state.internal.add(key, tbl, "swss_key").await;
+                internal.add(key, tbl, "swss_key").await;
             }
             AssertEq(a, b) => {
                 let a = self.env.eval(a);
@@ -176,19 +177,19 @@ impl TestActor {
                 let key = self.env.eval(key);
                 let field = self.env.eval(field);
                 let var = self.env.eval(var);
-                self.env.set(&var, state.internal.get(&key)[&field].to_str()?);
+                self.env.set(&var, internal.get(&key)[&field].to_str()?);
             }
             Write { key, field, val } => {
                 let key = self.env.eval(key);
                 let field = self.env.eval(field);
                 let val = self.env.eval(val);
-                state.internal.get_mut(&key).insert(field, val.into());
+                internal.get_mut(&key).insert(field, val.into());
             }
             Send { to, key, val } => {
                 let to = self.env.eval(to);
                 let key = self.env.eval(key);
                 let val = self.env.eval(val);
-                state.outgoing.send(sp(&to), ActorMessage::new(key, &val)?);
+                outgoing.send(sp(&to), ActorMessage::new(key, &val)?);
             }
             Finish => {
                 self.notify_done.send(()).await?;
@@ -216,7 +217,7 @@ impl Actor for TestActor {
     }
 
     async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let entry = state.incoming.get_entry(key).unwrap();
+        let entry = state.incoming().get_entry(key).unwrap();
         self.env.clear();
         self.env.set("source", &entry.source.resource_id);
         self.env.set("key", key);
