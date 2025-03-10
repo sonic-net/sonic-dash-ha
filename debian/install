@@ -1,2 +1,3 @@
 target/release/hamgrd usr/bin
 target/release/swbusd usr/bin
+target/release/swbus-cli usr/bin

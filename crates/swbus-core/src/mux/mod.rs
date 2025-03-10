@@ -6,7 +6,6 @@ mod conn_worker;
 mod message_handler;
 mod multiplexer;
 pub mod nexthop;
-pub mod route_config;
 pub mod service;
 
 pub use conn::*;
@@ -16,4 +15,3 @@ pub use conn_worker::*;
 pub use message_handler::*;
 pub(crate) use multiplexer::*;
 pub(crate) use nexthop::*;
-pub(crate) use route_config::*;

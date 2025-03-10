@@ -1,11 +1,12 @@
 use super::SwbusConn;
 use super::SwbusMultiplexer;
 use crate::mux::conn_store::SwbusConnStore;
-use crate::mux::RoutesConfig;
 use crate::mux::SwbusConnInfo;
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use swbus_config::SwbusConfig;
 use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_server::{SwbusService, SwbusServiceServer};
 use swbus_proto::swbus::*;
@@ -15,7 +16,7 @@ use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 use tracing::*;
 pub struct SwbusServiceHost {
-    swbus_server_addr: String,
+    swbus_server_addr: SocketAddr,
     mux: Arc<SwbusMultiplexer>,
     conn_store: Arc<SwbusConnStore>,
 }
@@ -24,26 +25,21 @@ type SwbusMessageResult<T> = Result<Response<T>, Status>;
 type SwbusMessageStream = Pin<Box<dyn Stream<Item = Result<SwbusMessage, Status>> + Send>>;
 
 impl SwbusServiceHost {
-    pub fn new(swbus_server_addr: String) -> Self {
+    pub fn new(swbus_server_addr: &SocketAddr) -> Self {
         let mux = Arc::new(SwbusMultiplexer::new());
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
         // populate the mux with the routes
         Self {
-            swbus_server_addr,
+            swbus_server_addr: *swbus_server_addr,
             mux,
             conn_store,
         }
     }
 
-    pub async fn start(self: SwbusServiceHost, routes_config: RoutesConfig) -> Result<()> {
-        let addr = self.swbus_server_addr.parse().map_err(|e| {
-            SwbusError::input(
-                SwbusErrorCode::InvalidArgs,
-                format!("Failed to parse server address: {}.", e),
-            )
-        })?;
+    pub async fn start(self: SwbusServiceHost, config: SwbusConfig) -> Result<()> {
+        let addr = self.swbus_server_addr;
 
-        if routes_config.routes.is_empty() {
+        if config.routes.is_empty() {
             return Err(SwbusError::input(
                 SwbusErrorCode::InvalidArgs,
                 "No routes found in the configuration.".to_string(),
@@ -51,13 +47,13 @@ impl SwbusServiceHost {
         }
 
         // register local nexthops for local services
-        self.mux.set_my_routes(routes_config.routes.clone());
-        for route in routes_config.routes {
+        self.mux.set_my_routes(config.routes.clone());
+        for route in config.routes {
             self.conn_store.add_my_route(route);
         }
 
         // add peers to the connection store
-        for peer in routes_config.peers {
+        for peer in config.peers {
             self.conn_store.add_peer(peer);
         }
 
