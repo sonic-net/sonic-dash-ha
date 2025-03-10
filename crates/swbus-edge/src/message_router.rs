@@ -1,7 +1,8 @@
+mod route_map;
+
 use crate::core_client::SwbusCoreClient;
 use crate::message_handler_proxy::SwbusMessageHandlerProxy;
-use dashmap::DashMap;
-use std::ops::Deref;
+use route_map::RouteMap;
 use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
@@ -19,26 +20,6 @@ enum Privacy {
 
     /// Route can only be reached from the local swbus edge
     Private,
-}
-
-#[derive(Default)]
-struct RouteMap(DashMap<ServicePath, (SwbusMessageHandlerProxy, Privacy)>);
-
-impl RouteMap {
-    fn insert(&self, svc_path: ServicePath, handler: SwbusMessageHandlerProxy, privacy: Privacy) {
-        self.0.insert(svc_path, (handler, privacy));
-    }
-
-    fn get(&self, svc_path: &ServicePath, message_privacy: Privacy) -> Option<SwbusMessageHandlerProxy> {
-        self.0.get(svc_path).and_then(|pair| {
-            let (handler, route_privacy) = pair.deref();
-            if *route_privacy == Privacy::Private && message_privacy == Privacy::Public {
-                None
-            } else {
-                Some(handler.clone())
-            }
-        })
-    }
 }
 
 pub struct SwbusMessageRouter {
