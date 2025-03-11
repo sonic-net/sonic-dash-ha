@@ -4,6 +4,7 @@ use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc::Sender;
 
+#[derive(Clone)]
 pub struct SwbusMessageHandlerProxy {
     tx: Sender<SwbusMessage>,
 }

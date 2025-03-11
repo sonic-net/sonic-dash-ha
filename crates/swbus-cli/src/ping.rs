@@ -33,11 +33,7 @@ impl CmdHandler for PingCmd {
         src_sp.resource_type = "ping".to_string();
         src_sp.resource_id = "0".to_string();
         // Register the channel to the runtime to receive response
-        ctx.runtime
-            .lock()
-            .await
-            .add_handler(src_sp.clone(), recv_queue_tx)
-            .unwrap();
+        ctx.runtime.lock().await.add_handler(src_sp.clone(), recv_queue_tx);
 
         // Send ping messages
         info!("PING {}", self.dest.to_longest_path());

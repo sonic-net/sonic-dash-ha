@@ -41,7 +41,7 @@ impl<A: Actor> ActorDriver<A> {
     }
 
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
-        let IncomingMessage { id, source, body } = msg;
+        let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
                 match self.state.incoming.handle_request(id, source, &payload).await {

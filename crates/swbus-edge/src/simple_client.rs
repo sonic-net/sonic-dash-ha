@@ -27,10 +27,16 @@ pub struct SimpleSwbusEdgeClient {
 
 impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
-    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath) -> Self {
+    ///
+    /// `public` determines whether the client is registered using [`SwbusEdgeRuntime::add_handler`] or [`SwbusEdgeRuntime::add_private_handler`].
+    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
-        rt.add_handler(source.clone(), handler_tx)
-            .expect("failed to add handler to SwbusEdgeRuntime");
+        if public {
+            rt.add_handler(source.clone(), handler_tx);
+        } else {
+            rt.add_private_handler(source.clone(), handler_tx);
+        }
+
         Self {
             rt,
             handler_rx: Mutex::new(handler_rx),
@@ -64,6 +70,7 @@ impl SimpleSwbusEdgeClient {
             Body::DataRequest(DataRequest { payload }) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
                 source,
+                destination,
                 body: MessageBody::Request { payload },
             }),
             Body::Response(RequestResponse {
@@ -74,6 +81,7 @@ impl SimpleSwbusEdgeClient {
             }) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
                 source,
+                destination,
                 body: MessageBody::Response {
                     request_id,
                     error_code: SwbusErrorCode::try_from(error_code).unwrap_or(SwbusErrorCode::UnknownError),
@@ -159,6 +167,7 @@ pub enum MessageBody {
 pub struct IncomingMessage {
     pub id: MessageId,
     pub source: ServicePath,
+    pub destination: ServicePath,
     pub body: MessageBody,
 }
 

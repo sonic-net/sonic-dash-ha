@@ -14,7 +14,8 @@ impl ActorRuntime {
 
     /// Spawn an actor on this runtime, reachable by sending Swbus requests to `addr`.
     pub fn spawn<A: Actor>(&self, actor: A, addr: ServicePath) {
-        let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), addr);
+        // TODO: Add privacy option
+        let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), addr, true);
         let actor_driver = ActorDriver::new(actor, swbus_client);
         tokio::task::spawn(actor_driver.run());
     }
