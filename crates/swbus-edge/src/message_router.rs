@@ -93,7 +93,7 @@ impl SwbusMessageRouter {
         };
 
         // Try the full route/address
-        if try_route(routes, &destination, privacy, &message).await {
+        if try_route(routes, destination, privacy, &message).await {
             return;
         }
 
