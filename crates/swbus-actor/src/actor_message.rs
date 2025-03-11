@@ -1,10 +1,9 @@
-use std::any::type_name;
-
 use crate::Result;
 use anyhow::Context;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::any::type_name;
 use swbus_edge::{
-    simple_client::{MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
+    simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusMessage},
 };
 

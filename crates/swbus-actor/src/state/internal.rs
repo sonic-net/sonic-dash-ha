@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use swss_common::{FieldValues, Table};
 
+/// Internal state table - SWSS `Table`s.
 #[derive(Default, Debug)]
 pub struct Internal {
     table: HashMap<String, InternalTableEntry>,
@@ -44,7 +45,7 @@ impl Internal {
 }
 
 #[derive(Debug)]
-pub struct InternalTableEntry {
+struct InternalTableEntry {
     swss_table: Table,
     swss_key: String,
 
@@ -60,7 +61,8 @@ impl InternalTableEntry {
     async fn new(mut swss_table: Table, swss_key: String) -> Self {
         // (re)hydrate from the table
         let fvs = swss_table
-            .get(&swss_key)
+            .get_async(&swss_key)
+            .await
             .expect("Table::get threw an exception")
             .unwrap_or_default();
         let backup_fvs = fvs.clone();

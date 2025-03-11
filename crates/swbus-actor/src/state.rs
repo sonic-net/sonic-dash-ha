@@ -8,6 +8,7 @@ use outgoing::Outgoing;
 use std::sync::Arc;
 use swbus_edge::simple_client::SimpleSwbusEdgeClient;
 
+/// Actor state tables.
 pub struct State {
     pub(crate) internal: Internal,
     pub(crate) incoming: Incoming,
@@ -31,7 +32,10 @@ impl State {
     /// let tbl = state.internal().get_mut("tbl");
     /// tbl["x"] = x.deserialize_data::<String>().into();
     /// // ERROR: state is mutably borrowed twice
+    /// ```
     ///
+    /// ```no_run
+    /// # let state: State = todo!();
     /// let (internal, incoming, outgoing) = state.get_all();
     /// let x = incoming.get("x");
     /// let tbl = internal.get_mut("tbl");

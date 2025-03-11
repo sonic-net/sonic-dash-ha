@@ -1,15 +1,12 @@
-use crate::actor_message::{ActorMessage, Value};
-use anyhow::{anyhow, Context, Result};
-use std::{
-    borrow::Borrow,
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use crate::actor_message::ActorMessage;
+use anyhow::{anyhow, Result};
+use std::{collections::HashMap, sync::Arc};
 use swbus_edge::{
-    simple_client::{IncomingMessage, MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
+    simple_client::{MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
 };
 
+/// Incoming state table - messages from other actors identified by a string key.
 pub struct Incoming {
     swbus_edge: Arc<SimpleSwbusEdgeClient>,
     table: HashMap<String, IncomingTableEntry>,
@@ -80,7 +77,7 @@ impl Incoming {
                         },
                     })
                     .await
-                    .context("invalid ActorMessage received, but failed to send error response swbus message")?;
+                    .expect("invalid ActorMessage received, but failed to send error response swbus message");
 
                 Err(e.context("invalid ActorMessage received"))
             }

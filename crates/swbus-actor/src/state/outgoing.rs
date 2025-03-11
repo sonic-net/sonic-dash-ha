@@ -12,6 +12,7 @@ use tokio::time::{interval, Interval};
 
 const RESEND_TIME: Duration = Duration::from_secs(60);
 
+/// Outgoing state table - messages to send to other actors.
 pub struct Outgoing {
     swbus_client: Arc<SimpleSwbusEdgeClient>,
     resend_interval: Interval,
@@ -95,6 +96,7 @@ impl Outgoing {
 
 #[derive(Debug)]
 struct UnackedMessage {
+    #[allow(unused)] // TODO: use this for some kind of debugging help
     actor_message: ActorMessage,
     swbus_message: SwbusMessage,
     time_sent: Instant,
