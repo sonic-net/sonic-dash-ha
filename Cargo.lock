@@ -1589,9 +1589,21 @@ dependencies = [
  "lazy_static",
  "libc",
  "paste",
+ "serde",
  "swss-common-testing",
  "tokio",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "swss-common-bridge"
+version = "0.1.0"
+dependencies = [
+ "swbus-actor",
+ "swbus-edge",
+ "swss-common",
+ "swss-common-testing",
+ "tokio",
 ]
 
 [[package]]

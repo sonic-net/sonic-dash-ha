@@ -60,4 +60,5 @@ unsafe impl Send for ConsumerStateTable {}
 #[cfg(feature = "async")]
 impl ConsumerStateTable {
     async_util::impl_read_data_async!();
+    async_util::impl_basic_async_method!(pops_async <= pops(&self) -> Result<Vec<KeyOpFieldValues>>);
 }
