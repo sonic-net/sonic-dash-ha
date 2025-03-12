@@ -30,17 +30,20 @@ impl State {
     /// ```compile_fail
     /// let x = state.incoming().get("x")?;
     /// let tbl = state.internal().get_mut("tbl");
-    /// tbl["x"] = x.deserialize_data::<String>().into();
+    /// tbl["x"] = x.deserialize_data::<String>()?.into();
     /// // ERROR: state is mutably borrowed twice
     /// ```
     ///
     /// ```no_run
-    /// # let state: State = todo!();
+    /// # fn foo() -> anyhow::Result<()> {
+    /// # let state: swbus_actor::State = todo!();
     /// let (internal, incoming, outgoing) = state.get_all();
-    /// let x = incoming.get("x");
+    /// let x = incoming.get("x")?;
     /// let tbl = internal.get_mut("tbl");
-    /// tbl["x"] = x.deserialize_data::<String>().into();
+    /// tbl["x"] = x.deserialize_data::<String>()?.into();
     /// // Ok
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn get_all(&mut self) -> (&mut Internal, &mut Incoming, &mut Outgoing) {
         (&mut self.internal, &mut self.incoming, &mut self.outgoing)
