@@ -90,48 +90,13 @@ impl SwbusConn {
 
     async fn start_client_worker_task(
         conn_info: Arc<SwbusConnInfo>,
-        client: SwbusServiceClient<Channel>,
+        mut client: SwbusServiceClient<Channel>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
         let (send_queue_tx, send_queue_rx) = mpsc::channel(16);
         let mut conn = SwbusConn::new(&conn_info, send_queue_tx);
 
-        let conn_info_for_worker = conn.info().clone();
-        let shutdown_ct_for_worker = conn.shutdown_ct.clone();
-        let worker_task = tokio::spawn(async move {
-            Self::run_client_worker_task(
-                conn_info_for_worker,
-                client,
-                shutdown_ct_for_worker,
-                send_queue_rx,
-                mux,
-                conn_store,
-            )
-            .await
-        });
-        conn.worker_task = Some(worker_task);
-
-        Ok(conn)
-    }
-
-    /// This function is the entry point for the client worker task.
-    /// It creates a stream of messages from the message queue and sends it to the server.
-    /// It also receives messages from the server and forwards them to the message queue.
-    ///
-    /// parameters:
-    /// - conn_info: The connection information.
-    /// - client: The SwbusServiceClient.
-    /// - control_queue_rx: The control message queue
-    /// - send_queue_rx: The outgoing message queue rx end.
-    async fn run_client_worker_task(
-        conn_info: Arc<SwbusConnInfo>,
-        mut client: SwbusServiceClient<Channel>,
-        shutdown_ct: CancellationToken,
-        send_queue_rx: mpsc::Receiver<Result<SwbusMessage, Status>>,
-        mux: Arc<SwbusMultiplexer>,
-        conn_store: Arc<SwbusConnStore>,
-    ) -> Result<()> {
         let request_stream = ReceiverStream::new(send_queue_rx)
             .map(|result| result.expect("Not expecting grpc client adding messages with error status"));
 
@@ -164,6 +129,40 @@ impl SwbusConn {
             }
         };
 
+        let conn_info_for_worker = conn.info().clone();
+        let shutdown_ct_for_worker = conn.shutdown_ct.clone();
+
+        let worker_task = tokio::spawn(async move {
+            Self::run_client_worker_task(
+                conn_info_for_worker,
+                shutdown_ct_for_worker,
+                incoming_stream,
+                mux,
+                conn_store,
+            )
+            .await
+        });
+        conn.worker_task = Some(worker_task);
+
+        Ok(conn)
+    }
+
+    /// This function is the entry point for the client worker task.
+    /// It creates a stream of messages from the message queue and sends it to the server.
+    /// It also receives messages from the server and forwards them to the message queue.
+    ///
+    /// parameters:
+    /// - conn_info: The connection information.
+    /// - client: The SwbusServiceClient.
+    /// - control_queue_rx: The control message queue
+    /// - send_queue_rx: The outgoing message queue rx end.
+    async fn run_client_worker_task(
+        conn_info: Arc<SwbusConnInfo>,
+        shutdown_ct: CancellationToken,
+        incoming_stream: Streaming<SwbusMessage>,
+        mux: Arc<SwbusMultiplexer>,
+        conn_store: Arc<SwbusConnStore>,
+    ) -> Result<()> {
         let mut conn_worker = SwbusConnWorker::new(conn_info, shutdown_ct, incoming_stream, mux, conn_store);
         conn_worker.run().await
     }

@@ -46,7 +46,6 @@ impl super::CmdHandler for ShowCmd {
         let mut src_sp = ctx.sp.clone();
         src_sp.resource_type = "show".to_string();
         src_sp.resource_id = "0".to_string();
-        let dst_sp = ctx.sp.clone_for_local_mgmt();
 
         // Register the channel to the runtime to receive response
         ctx.runtime.lock().await.add_handler(src_sp.clone(), recv_queue_tx);
@@ -57,7 +56,8 @@ impl super::CmdHandler for ShowCmd {
         };
 
         let mgmt_request = sub_cmd.create_request();
-        let header = SwbusMessageHeader::new(src_sp.clone(), dst_sp.clone(), ctx.id_generator.generate());
+        let swbusd_sp = ctx.sp.to_swbusd_service_path();
+        let header = SwbusMessageHeader::new(src_sp.clone(), swbusd_sp, ctx.id_generator.generate());
         let request_id = header.id;
         let request_msg = SwbusMessage {
             header: Some(header),

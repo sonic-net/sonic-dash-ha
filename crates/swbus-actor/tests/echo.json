@@ -1,0 +1,31 @@
+{
+  "spawn": ["echo", "client"],
+  "actors": {
+    "echo": {
+      "handle_message": {
+        "*": [
+          { "Send": { "to": "<source>", "key": "<key>", "val": "<val>" } }
+        ]
+      }
+    },
+
+    "client": {
+      "init": [ { "Send": { "to": "echo", "key": "a-key", "val": "a-val" } } ],
+      "handle_message": {
+        "a-key": [
+          { "AssertEq": ["<val>", "a-val"] },
+          { "Send": { "to": "echo", "key": "b-key", "val": "b-val" } }
+        ],
+        "b-key": [
+          { "AssertEq": ["<val>", "b-val"] },
+          { "Send": { "to": "echo", "key": "c-key", "val": "c-val" } }
+        ],
+        "c-key": [
+          { "AssertEq": ["<val>", "c-val"] },
+          { "Send": { "to": "echo", "key": "d-key", "val": "d-val" } }
+        ],
+        "d-key": [ "Finish" ]
+      }
+    }
+  }
+}

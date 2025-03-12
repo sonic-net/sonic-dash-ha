@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
 use std::io::BufReader;
-use swbus_core::mux::route_config::RoutesConfig;
-use swbus_core::mux::route_config::*;
+use std::net::SocketAddr;
+use swbus_config::*;
 use swbus_core::mux::service::SwbusServiceHost;
 use swbus_edge::core_client::SwbusCoreClient;
 use swbus_proto::swbus::*;
@@ -54,16 +54,8 @@ struct MessageClientPair {
 /// The topology definition including servers and clients.
 #[derive(Deserialize, Debug)]
 struct TopoData {
-    pub servers: HashMap<String, SwbusdConfig>,
+    pub servers: HashMap<String, SwbusConfig>,
     pub clients: HashMap<String, SwbusClientConfig>,
-}
-#[derive(Deserialize, Debug)]
-struct SwbusdConfig {
-    /// the endpoint of the swbusd
-    pub endpoint: String,
-    /// the routes and peers configuration
-    pub routes: Vec<RouteConfig>,
-    pub peers: Vec<PeerConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -101,12 +93,8 @@ impl TopoRuntime {
             .get(&self.name)
             .unwrap_or_else(|| panic!("Failed to find topo {}", self.name));
 
-        for (name, server) in &topo_cfg.servers {
-            let routes_config = RoutesConfig {
-                routes: server.routes.clone(),
-                peers: server.peers.clone(),
-            };
-            self.start_server(name, &server.endpoint, routes_config).await;
+        for (name, server) in topo_cfg.servers.clone() {
+            self.start_server(&name, &server).await;
         }
 
         for (name, client) in &topo_cfg.clients {
@@ -125,19 +113,19 @@ impl TopoRuntime {
         info!("Topo {} is up", self.name);
     }
 
-    async fn start_server(&mut self, name: &str, node_addr: &str, route_config: RoutesConfig) {
-        let service_host = SwbusServiceHost::new(node_addr.to_string());
-
+    async fn start_server(&mut self, name: &str, route_config: &SwbusConfig) {
+        let service_host = SwbusServiceHost::new(&route_config.endpoint);
+        let config_clone = route_config.clone();
         let server_task = tokio::spawn(async move {
-            service_host.start(route_config).await.unwrap();
+            service_host.start(config_clone).await.unwrap();
         });
 
         self.server_jobs.push(server_task);
 
-        info!("Server {} started at {}", name, node_addr);
+        info!("Server {} started at {}", name, &route_config.endpoint);
     }
 
-    async fn start_client(&mut self, name: &str, node_addr: &str, client_sp: ServicePath) {
+    async fn start_client(&mut self, name: &str, node_addr: &SocketAddr, client_sp: ServicePath) {
         let (receive_queue_tx, receive_queue_rx) = mpsc::channel::<SwbusMessage>(2);
         let start = Instant::now();
         let addr = format!("http://{}", node_addr);

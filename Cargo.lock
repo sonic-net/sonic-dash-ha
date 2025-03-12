@@ -533,7 +533,19 @@ checksum = "94b22e06ecb0110981051723910cbf0b5f5e09a2062dd7663334ee79a9d1286c"
 dependencies = [
  "cfg-if",
  "libc",
- "wasi",
+ "wasi 0.11.0+wasi-snapshot-preview1",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43a49c392881ce6d5c3b8cb70f98717b7c07aabbdff06687b9030dbfbe2725f8"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "wasi 0.13.3+wasi-0.2.2",
+ "windows-targets 0.52.4",
 ]
 
 [[package]]
@@ -870,7 +882,7 @@ checksum = "80e04d1dcff3aae0704555fe5fee3bcfaf3d1fdf8a7e521d5b9d2b42acb52cec"
 dependencies = [
  "hermit-abi",
  "libc",
- "wasi",
+ "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.52.0",
 ]
 
@@ -1186,7 +1198,7 @@ version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
- "getrandom",
+ "getrandom 0.2.14",
 ]
 
 [[package]]
@@ -1414,6 +1426,7 @@ dependencies = [
  "lazy_static",
  "pretty_assertions",
  "signal-hook",
+ "swss-common",
  "syslog-tracing",
  "tracing",
  "tracing-error",
@@ -1449,20 +1462,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "swbus-actor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "swbus-edge",
+ "swss-common",
+ "swss-common-testing",
+ "tokio",
+]
+
+[[package]]
 name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "serde_yaml",
+ "swbus-config",
  "swbus-core",
  "swbus-edge",
  "swbus-proto",
+ "swss-common",
+ "swss-common-testing",
+ "swss-serde",
  "tabled",
  "tokio",
  "tokio-stream",
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "swbus-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "swbus-proto",
+ "swss-common",
+ "swss-common-testing",
+ "swss-serde",
+ "tempfile",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]
@@ -1483,6 +1531,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "strum",
+ "swbus-config",
  "swbus-edge",
  "swbus-proto",
  "tempfile",
@@ -1492,6 +1541,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1531,6 +1581,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "sonic-common",
+ "swbus-config",
  "swbus-core",
  "tokio",
  "tokio-stream",
@@ -1543,11 +1594,14 @@ name = "swss-common"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "getset",
+ "lazy_static",
  "libc",
  "paste",
  "serde",
  "swss-common-testing",
  "tokio",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1565,6 +1619,7 @@ dependencies = [
 name = "swss-common-testing"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "rand",
  "swss-common",
 ]
@@ -1976,11 +2031,11 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.10.0"
+version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81dfa00651efa65069b0b6b651f4aaa31ba9e3c3ce0137aaad053604ee7e0314"
+checksum = "e0f540e3240398cce6128b64ba83fdbdd86129c16a3aa1a3a252efd66eb3d587"
 dependencies = [
- "getrandom",
+ "getrandom 0.3.1",
 ]
 
 [[package]]
@@ -2009,6 +2064,15 @@ name = "wasi"
 version = "0.11.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
+
+[[package]]
+name = "wasi"
+version = "0.13.3+wasi-0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26816d2e1a4a36a2940b96c5296ce403917633dff8f3440e9b236ed6f6bacad2"
+dependencies = [
+ "wit-bindgen-rt",
+]
 
 [[package]]
 name = "winapi"
@@ -2163,6 +2227,15 @@ name = "windows_x86_64_msvc"
 version = "0.52.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32b752e52a2da0ddfbdbcc6fceadfeede4c939ed16d13e648833a61dfb611ed8"
+
+[[package]]
+name = "wit-bindgen-rt"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "yansi"

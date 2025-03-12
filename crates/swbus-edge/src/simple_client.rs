@@ -105,7 +105,7 @@ impl SimpleSwbusEdgeClient {
     /// Send a message.
     pub async fn send(&self, msg: OutgoingMessage) -> Result<MessageId> {
         let (id, msg) = self.outgoing_message_to_swbus_message(msg);
-        self.rt.send(msg).await?;
+        self.send_raw(msg).await?;
         Ok(id)
     }
 
