@@ -1,5 +1,5 @@
-use crate::encoding::encode_kfv;
 use std::{future::Future, sync::Arc};
+use swbus_actor::ActorMessage;
 use swbus_edge::{
     simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::ServicePath,
@@ -8,6 +8,11 @@ use swbus_edge::{
 use swss_common::{ConsumerStateTable, KeyOpFieldValues, SubscriberStateTable, ZmqConsumerStateTable};
 use tokio::task::JoinHandle;
 
+/// Spawn a consumer table to actor bridge task.
+///
+/// `dest_generator` is a function that takes a `&KeyOpFieldValues` read from `table`
+/// and generates the `ServicePath` address and `String` input table key that
+/// the data will be sent to.
 pub fn spawn_consumer_bridge<T, F>(
     rt: Arc<SwbusEdgeRuntime>,
     addr: ServicePath,
@@ -16,7 +21,7 @@ pub fn spawn_consumer_bridge<T, F>(
 ) -> JoinHandle<()>
 where
     T: ConsumerTable,
-    F: FnMut(&KeyOpFieldValues) -> ServicePath + Send + 'static,
+    F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
 {
     let swbus = SimpleSwbusEdgeClient::new(rt, addr, false);
     tokio::task::spawn(async move {
@@ -24,8 +29,8 @@ where
             tokio::select! {
                 _ = table.read_data() => {
                     for kfvs in table.pops().await {
-                        let destination = dest_generator(&kfvs);
-                        let payload = encode_kfv(&kfvs);
+                        let (destination, key) = dest_generator(&kfvs);
+                        let payload = ActorMessage::new(key, &kfvs).expect("encoding ActorMessage").serialize();
                         swbus
                             .send(OutgoingMessage { destination, body: MessageBody::Request { payload } })
                             .await
@@ -75,15 +80,17 @@ impl_consumertable! { ConsumerStateTable SubscriberStateTable ZmqConsumerStateTa
 #[cfg(test)]
 mod test {
     use super::{spawn_consumer_bridge, ConsumerTable};
-    use crate::{encoding::decode_kfv, producer::ProducerTable};
+    use crate::producer::ProducerTable;
     use std::{sync::Arc, time::Duration};
+    use swbus_actor::ActorMessage;
     use swbus_edge::{
         simple_client::{IncomingMessage, MessageBody, SimpleSwbusEdgeClient},
         swbus_proto::swbus::ServicePath,
         SwbusEdgeRuntime,
     };
     use swss_common::{
-        ConsumerStateTable, ProducerStateTable, ZmqClient, ZmqConsumerStateTable, ZmqProducerStateTable, ZmqServer,
+        ConsumerStateTable, KeyOpFieldValues, ProducerStateTable, ZmqClient, ZmqConsumerStateTable,
+        ZmqProducerStateTable, ZmqServer,
     };
     use swss_common_testing::{random_kfvs, random_zmq_endpoint, Redis};
     use tokio::time::timeout;
@@ -129,7 +136,9 @@ mod test {
         let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true);
 
         // Spawn the bridge
-        spawn_consumer_bridge(rt, sp("mytable-bridge"), consumer_table, |_| sp("receiver"));
+        spawn_consumer_bridge(rt, sp("mytable-bridge"), consumer_table, |_| {
+            (sp("receiver"), "".into())
+        });
 
         // Send some updates we should receive
         let mut kfvs = random_kfvs();
@@ -149,7 +158,7 @@ mod test {
                 panic!("Did not receive proper message from bridge")
             };
 
-            let kfv_received = decode_kfv(&payload).unwrap();
+            let kfv_received = decode_kfv(&payload);
             kfvs_received.push(kfv_received);
         }
 
@@ -157,6 +166,10 @@ mod test {
         kfvs.sort_unstable();
         kfvs_received.sort_unstable();
         assert_eq!(kfvs, kfvs_received);
+    }
+
+    fn decode_kfv(payload: &[u8]) -> KeyOpFieldValues {
+        ActorMessage::deserialize(payload).unwrap().deserialize_data().unwrap()
     }
 
     fn sp(s: &str) -> ServicePath {

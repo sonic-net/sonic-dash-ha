@@ -1,5 +1,5 @@
-use crate::encoding::decode_kfv;
 use std::{future::Future, sync::Arc};
+use swbus_actor::ActorMessage;
 use swbus_edge::{
     simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
@@ -25,15 +25,18 @@ where
                 continue;
             };
 
-            let (error_code, error_message) = match decode_kfv(&payload) {
-                Ok(kfv) => {
-                    table.apply_kfv(kfv).await;
-                    (SwbusErrorCode::Ok, String::new())
-                }
-                Err(e) => (
-                    SwbusErrorCode::InvalidPayload,
-                    format!("Invalid encoded KeyOpFieldValues: {e}"),
-                ),
+            let (error_code, error_message) = match ActorMessage::deserialize(&payload) {
+                Ok(actor_msg) => match actor_msg.deserialize_data::<KeyOpFieldValues>() {
+                    Ok(kfv) => {
+                        table.apply_kfv(kfv).await;
+                        (SwbusErrorCode::Ok, String::new())
+                    }
+                    Err(e) => (
+                        SwbusErrorCode::InvalidPayload,
+                        format!("Invalid KeyOpFieldValues: {e:#}"),
+                    ),
+                },
+                Err(e) => (SwbusErrorCode::InvalidPayload, format!("Invalid ActorMessage: {e:#}")),
             };
 
             swbus
@@ -87,15 +90,17 @@ impl_producertable! { ProducerStateTable ZmqProducerStateTable Table }
 #[cfg(test)]
 mod test {
     use super::{spawn_producer_bridge, ProducerTable};
-    use crate::{consumer::ConsumerTable, encoding::encode_kfv};
+    use crate::consumer::ConsumerTable;
     use std::{sync::Arc, time::Duration};
+    use swbus_actor::ActorMessage;
     use swbus_edge::{
         simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
         swbus_proto::swbus::ServicePath,
         SwbusEdgeRuntime,
     };
     use swss_common::{
-        ConsumerStateTable, ProducerStateTable, ZmqClient, ZmqConsumerStateTable, ZmqProducerStateTable, ZmqServer,
+        ConsumerStateTable, KeyOpFieldValues, ProducerStateTable, ZmqClient, ZmqConsumerStateTable,
+        ZmqProducerStateTable, ZmqServer,
     };
     use swss_common_testing::{random_kfvs, random_zmq_endpoint, Redis};
     use tokio::time::timeout;
@@ -166,6 +171,10 @@ mod test {
         kfvs.sort_unstable();
         kfvs_received.sort_unstable();
         assert_eq!(kfvs, kfvs_received);
+    }
+
+    fn encode_kfv(kfv: &KeyOpFieldValues) -> Vec<u8> {
+        ActorMessage::new("", kfv).unwrap().serialize()
     }
 
     fn sp(s: &str) -> ServicePath {

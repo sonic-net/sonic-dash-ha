@@ -52,7 +52,7 @@ impl Serialize for CxxString {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_bytes(self.as_bytes())
+        self.as_cxx_str().serialize(serializer)
     }
 }
 
@@ -67,10 +67,17 @@ impl<'de> Deserialize<'de> for CxxString {
             type Value = CxxString;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("bytes")
+                formatter.write_str("string or bytes")
             }
 
             fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(CxxString::new(v))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
@@ -310,3 +317,12 @@ impl PartialEq<String> for CxxStr {
 /// is protected by `CxxString::into_raw` requiring an owned `self`. By the same logic, `Send` is
 /// unnecessary to implement (you can never obtain a value to send).
 unsafe impl Sync for CxxStr {}
+
+impl Serialize for CxxStr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.to_str() {
+            Ok(s) => serializer.serialize_str(s),
+            Err(_) => serializer.serialize_bytes(self.as_bytes()),
+        }
+    }
+}
