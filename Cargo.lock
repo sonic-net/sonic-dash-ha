@@ -1453,6 +1453,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "swbus-actor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "swbus-edge",
+ "swss-common",
+ "swss-common-testing",
+ "tokio",
+]
+
+[[package]]
 name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
