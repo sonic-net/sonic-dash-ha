@@ -114,7 +114,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn zmq_consumer_state_table_bridge() {
+    async fn zmq_ponsumer_state_table_bridge() {
         let (zmq_endpoint, _deleter) = random_zmq_endpoint();
         let mut zmqs = ZmqServer::new(&zmq_endpoint).unwrap();
         let zmqc = ZmqClient::new(&zmq_endpoint).unwrap();
