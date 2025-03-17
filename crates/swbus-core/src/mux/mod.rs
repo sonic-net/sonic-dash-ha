@@ -6,6 +6,7 @@ mod conn_worker;
 mod message_handler;
 mod multiplexer;
 pub mod nexthop;
+mod route_annoucer;
 pub mod service;
 
 pub use conn::*;

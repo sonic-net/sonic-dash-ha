@@ -1,0 +1,93 @@
+{
+    "description": "Simple topo with 4 swbusd including 2 gateways and 1 client: client <-> swbusd_cluster-a.node1 <-> swbusd_cluster-a.gw <-> swbusd_cluster-b.gw <-> swbusd_cluster-b.node1",
+    "servers": {
+        "swbusd_cluster-a.node1": {
+            "endpoint": "127.0.0.1:60001",
+            "routes": [
+                {
+                    "key": "region-a.cluster-a.node1",
+                    "scope": "InCluster"
+                }
+            ],
+            "peers": [
+                {
+                    "id": "region-a.cluster-a.gw",
+                    "endpoint": "127.0.0.1:60002",
+                    "conn_type": "InCluster"
+                }
+            ]
+        },
+        "swbusd_cluster-a.gw": {
+            "endpoint": "127.0.0.1:60002",
+            "routes": [
+                {
+                    "key": "region-a.cluster-a.gw",
+                    "scope": "InCluster"
+                },
+                {
+                    "key": "region-a.cluster-a",
+                    "scope": "InRegion"
+                }
+            ],
+            "peers": [
+                {
+                    "id": "region-a.cluster-a.node1",
+                    "endpoint": "127.0.0.1:60001",
+                    "conn_type": "InCluster"
+                },
+                {
+                    "id": "region-a.cluster-b.gw",
+                    "endpoint": "127.0.0.1:60003",
+                    "conn_type": "InRegion"
+                }
+            ]
+        },
+        "swbusd_cluster-b.gw": {
+            "endpoint": "127.0.0.1:60003",
+            "routes": [
+                {
+                    "key": "region-a.cluster-b.gw",
+                    "scope": "InCluster"
+                },
+                {
+                    "key": "region-a.cluster-b",
+                    "scope": "InRegion"
+                }
+            ],
+            "peers": [
+                {
+                    "id": "region-a.cluster-a.gw",
+                    "endpoint": "127.0.0.1:60002",
+                    "conn_type": "InRegion"
+                },
+                {
+                    "id": "region-a.cluster-b.node1",
+                    "endpoint": "127.0.0.1:60004",
+                    "conn_type": "InCluster"
+                }
+            ]
+        },                        
+        "swbusd_cluster-b.node1": {
+            "endpoint": "127.0.0.1:60004",
+            "routes": [
+                {
+                    "key": "region-a.cluster-b.node1",
+                    "scope": "InCluster"
+                }
+            ],
+            "peers": [
+                {
+                    "id": "region-a.cluster-b.gw",
+                    "endpoint": "127.0.0.1:60003",
+                    "conn_type": "InCluster"
+                }
+            ]
+        }
+    },
+    "clients": {
+        "swbusd_cluster-a.node1_client": {
+            "swbusd": "swbusd_cluster-a.node1",
+            "client_sp": "region-a.cluster-a.node1/testsvc/0"
+        }
+    }
+}
