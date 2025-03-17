@@ -113,17 +113,6 @@ mod test {
         timeout(Duration::from_secs(5), run_test(cst, pst)).await.unwrap();
     }
 
-    /*
-    TODO: I do not know why this doesn't work
-    #[tokio::test]
-    async fn subscriber_state_table_bridge() {
-        let redis = Redis::start();
-        let tbl = Table::new(redis.db_connector(), "mytable").unwrap();
-        let sst = SubscriberStateTable::new(redis.db_connector(), "mytable", None, None).unwrap();
-        timeout(Duration::from_secs(5), run_test(sst, tbl)).await.unwrap();
-    }
-    */
-
     #[tokio::test]
     async fn zmq_consumer_state_table_bridge() {
         let (zmq_endpoint, _deleter) = random_zmq_endpoint();
