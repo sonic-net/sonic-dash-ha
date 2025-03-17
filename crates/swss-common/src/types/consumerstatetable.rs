@@ -6,18 +6,24 @@ use std::{os::fd::BorrowedFd, ptr::null, time::Duration};
 #[derive(Debug)]
 pub struct ConsumerStateTable {
     ptr: SWSSConsumerStateTable,
-    _db: DbConnector,
+    db: DbConnector,
+    table_name: String,
 }
 
 impl ConsumerStateTable {
     pub fn new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Result<Self> {
+        let table_name_string = String::from(table_name);
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let ptr = unsafe {
             swss_try!(p_cst => SWSSConsumerStateTable_new(db.ptr, table_name.as_ptr(), pop_batch_size, pri, p_cst))?
         };
-        Ok(Self { ptr, _db: db })
+        Ok(Self {
+            ptr,
+            db,
+            table_name: table_name_string,
+        })
     }
 
     pub fn pops(&self) -> Result<Vec<KeyOpFieldValues>> {
@@ -46,6 +52,18 @@ impl ConsumerStateTable {
         };
         Ok(SelectResult::from_raw(res))
     }
+
+    pub fn db_connector(&self) -> &DbConnector {
+        &self.db
+    }
+
+    pub fn db_connector_mut(&mut self) -> &mut DbConnector {
+        &mut self.db
+    }
+
+    pub fn table_name(&self) -> &str {
+        &self.table_name
+    }
 }
 
 impl Drop for ConsumerStateTable {
@@ -60,4 +78,5 @@ unsafe impl Send for ConsumerStateTable {}
 #[cfg(feature = "async")]
 impl ConsumerStateTable {
     async_util::impl_read_data_async!();
+    async_util::impl_basic_async_method!(pops_async <= pops(&self) -> Result<Vec<KeyOpFieldValues>>);
 }
