@@ -1,0 +1,70 @@
+[
+  {
+    "name": "trace_route_request",
+    "topo": "2-swbusd",
+    "description": "verify trace route",
+    "steps": [
+      {
+        "requests": [
+          {
+            "client": "swbusd1-client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 64,
+                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
+                "destination": "region-a.cluster-a.10.0.0.2-dpu0/local-mgmt/0"
+              },
+              "body": {
+                "TraceRouteRequest": {}
+              }
+            }
+          }
+        ],
+        "responses": [
+          {
+            "client": "swbusd1-client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 63,
+                "source": "region-a.cluster-a.10.0.0.1-dpu0",
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0"
+              },
+              "body": {
+                "Response": {
+                  "request_id": 0,
+                  "error_code": 1,
+                  "error_message": "",
+                  "response_body": null
+                }
+              }
+            }
+          },
+          {
+            "client": "swbusd1-client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 62,
+                "source": "region-a.cluster-a.10.0.0.2-dpu0",
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0"
+              },
+              "body": {
+                "Response": {
+                  "request_id": 0,
+                  "error_code": 1,
+                  "error_message": "",
+                  "response_body": null
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]
