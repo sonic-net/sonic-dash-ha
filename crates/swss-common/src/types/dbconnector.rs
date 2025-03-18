@@ -12,9 +12,25 @@ pub struct DbConnector {
 /// Details about how a DbConnector is connected to Redis
 #[derive(Debug, Clone)]
 pub enum DbConnectionInfo {
-    Tcp { hostname: String, port: u16, db_id: i32 },
-    Unix { sock_path: String, db_id: i32 },
-    Named { db_name: String, is_tcp_conn: bool },
+    Tcp {
+        hostname: String,
+        port: u16,
+        db_id: i32,
+    },
+    Unix {
+        sock_path: String,
+        db_id: i32,
+    },
+    Named {
+        db_name: String,
+        is_tcp_conn: bool,
+    },
+    Keyed {
+        db_name: String,
+        is_tcp_conn: bool,
+        container_name: String,
+        netns: String,
+    },
 }
 
 impl DbConnector {
@@ -39,6 +55,20 @@ impl DbConnector {
                     swss_try!(p_db => SWSSDBConnector_new_named(db_name.as_ptr(), timeout_ms, *is_tcp_conn as u8, p_db))?
                 }
             }
+            DbConnectionInfo::Keyed {
+                db_name,
+                is_tcp_conn,
+                container_name,
+                netns,
+            } => {
+                let db_name = cstr(db_name);
+                let container_name = cstr(container_name);
+                let netns = cstr(netns);
+                unsafe {
+                    swss_try!(p_db => SWSSDBConnector_new_keyed(db_name.as_ptr(), timeout_ms, *is_tcp_conn as u8,
+                                                                container_name.as_ptr(), netns.as_ptr(), p_db))?
+                }
+            }
         };
 
         Ok(Self { ptr, connection })
@@ -50,6 +80,31 @@ impl DbConnector {
     pub fn new_named(db_name: impl Into<String>, is_tcp_conn: bool, timeout_ms: u32) -> Result<DbConnector> {
         let db_name = db_name.into();
         Self::new(DbConnectionInfo::Named { db_name, is_tcp_conn }, timeout_ms)
+    }
+
+    /// Create a DbConnector from a named and keyed entry in the SONiC db config.
+    ///
+    /// Timeout of 0 means block indefinitely.
+    /// `container_name` and `netns` are used to construct a `swss::SonicDBKey`.
+    pub fn new_keyed(
+        db_name: impl Into<String>,
+        is_tcp_conn: bool,
+        timeout_ms: u32,
+        container_name: impl Into<String>,
+        netns: impl Into<String>,
+    ) -> Result<DbConnector> {
+        let db_name = db_name.into();
+        let container_name = container_name.into();
+        let netns = netns.into();
+        Self::new(
+            DbConnectionInfo::Keyed {
+                db_name,
+                is_tcp_conn,
+                container_name,
+                netns,
+            },
+            timeout_ms,
+        )
     }
 
     /// Create a DbConnector over a tcp socket.
