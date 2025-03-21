@@ -72,7 +72,7 @@ impl CmdHandler for TraceRouteCmd {
                 }
                 _ => {
                     let src_sp = match result.msg {
-                        Some(msg) => format!("{}", msg.header.unwrap().source.unwrap().to_longest_path()),
+                        Some(msg) => msg.header.unwrap().source.unwrap().to_longest_path().to_string(),
                         None => "".to_string(),
                     };
                     info!(
