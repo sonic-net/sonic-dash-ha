@@ -126,7 +126,16 @@ where
         match message.body {
             Some(swbus_message::Body::TraceRouteRequest(_)) => {
                 info!("Received traceroute request: {:?}", message);
-                // self.process_ping_request(&message);
+
+                let id = self.mux.generate_message_id();
+                let my_sp = self.mux.get_my_service_path();
+                let response = SwbusMessage::new_response(&message, Some(&my_sp), SwbusErrorCode::Ok, "", id, None);
+
+                self.mux.route_message(response).await?;
+
+                if message.header.as_ref().unwrap().destination.as_ref().unwrap() != &my_sp {
+                    self.mux.route_message(message).await?;
+                }
             }
             _ => {
                 self.mux.route_message(message).await?;

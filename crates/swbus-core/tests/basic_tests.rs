@@ -11,4 +11,5 @@ async fn test_all() {
     // use the shared runtime. It will panic with "fatal runtime error: thread::set_current should only be called once per thread".
     run_tests(&mut topo, "tests/data/test_ping.json", None).await;
     run_tests(&mut topo, "tests/data/test_show_route.json", None).await;
+    run_tests(&mut topo, "tests/data/test_trace_route.json", None).await;
 }

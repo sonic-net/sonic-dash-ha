@@ -326,7 +326,7 @@ impl SwbusMessage {
     /// send response to the sender of the request
     pub fn new_response(
         request: &SwbusMessage,
-        dest: Option<&ServicePath>,
+        source: Option<&ServicePath>,
         error_code: SwbusErrorCode,
         error_message: &str,
         request_id: u64,
@@ -342,7 +342,7 @@ impl SwbusMessage {
         };
 
         // if dest is not provided, use the source of the request
-        let dest_sp = match dest {
+        let src_sp = match source {
             Some(sp) => sp.clone(),
             None => request
                 .header
@@ -355,7 +355,7 @@ impl SwbusMessage {
 
         SwbusMessage {
             header: Some(SwbusMessageHeader::new(
-                dest_sp,
+                src_sp,
                 request
                     .header
                     .as_ref()
@@ -376,18 +376,8 @@ impl PingRequest {
 }
 
 impl TraceRouteRequest {
-    pub fn new(trace_id: &str) -> Self {
-        TraceRouteRequest {
-            trace_id: trace_id.to_string(),
-        }
-    }
-}
-
-impl TraceRouteResponse {
-    pub fn new(trace_id: &str) -> Self {
-        TraceRouteResponse {
-            trace_id: trace_id.to_string(),
-        }
+    pub fn new() -> Self {
+        TraceRouteRequest {}
     }
 }
 
@@ -488,14 +478,8 @@ mod tests {
 
     #[test]
     fn trace_route_request_can_be_created() {
-        let request = TraceRouteRequest::new("mock-trace-id");
+        let request = TraceRouteRequest::new();
         test_packing_with_swbus_message(swbus_message::Body::TraceRouteRequest(request));
-    }
-
-    #[test]
-    fn trace_route_response_can_be_created() {
-        let response = TraceRouteResponse::new("mock-trace-id");
-        test_packing_with_swbus_message(swbus_message::Body::TraceRouteResponse(response));
     }
 
     #[test]
