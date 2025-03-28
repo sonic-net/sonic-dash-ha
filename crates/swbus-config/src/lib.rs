@@ -11,7 +11,6 @@ use thiserror::Error;
 use tracing::*;
 
 const CONFIG_DB: &str = "CONFIG_DB";
-pub const SWBUSD_PORT: u16 = 23606;
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct SwbusConfig {
@@ -74,15 +73,33 @@ pub type Result<T, E = SwbusConfigError> = core::result::Result<T, E>;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct ConfigDBDPUEntry {
-    #[serde(rename = "type")]
-    pub dpu_type: Option<String>,
     pub state: Option<String>,
-    pub slot_id: u32,
-    pub pa_ipv4: Option<String>,
-    pub pa_ipv6: Option<String>,
+    pub swbus_port: Option<u16>, // Optional field for local port
+    pub dpu_id: u32,
     pub npu_ipv4: Option<String>,
     pub npu_ipv6: Option<String>,
-    pub probe_ip: Option<String>,
+}
+
+impl ConfigDBDPUEntry {
+    pub fn to_remote_dpu(&self) -> ConfigDBRemoteDPUEntry {
+        ConfigDBRemoteDPUEntry {
+            swbus_port: self.swbus_port,
+            dpu_type: Some("cluster".to_string()),
+            dpu_id: self.dpu_id,
+            npu_ipv4: self.npu_ipv4.clone(),
+            npu_ipv6: self.npu_ipv6.clone(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct ConfigDBRemoteDPUEntry {
+    #[serde(rename = "type")]
+    pub dpu_type: Option<String>,
+    pub swbus_port: Option<u16>, // Optional field for local port
+    pub dpu_id: u32,
+    pub npu_ipv4: Option<String>,
+    pub npu_ipv6: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -97,20 +114,9 @@ pub struct ConfigDBDeviceMetadataEntry {
 #[instrument]
 fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, cluster: &str) -> Result<Vec<RouteConfig>> {
     let mut routes = Vec::new();
-    let slot_id = dpu_entry.slot_id;
+    let dpu_id = dpu_entry.dpu_id;
 
-    debug!("Collecting routes for local dpu{}", slot_id);
-    let dpu_type = dpu_entry
-        .dpu_type
-        .as_ref()
-        .ok_or(SwbusConfigError::InvalidConfig("DPU type not found".into()))?;
-    if dpu_type != "local" && dpu_type != "cluster" {
-        // ignore external DPUs, not for DASH smartswitch
-        return Err(SwbusConfigError::InvalidConfig(format!(
-            "Unsupported DPU type: {}",
-            dpu_type
-        )));
-    }
+    debug!("Collecting routes for local dpu{}", dpu_id);
 
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4.as_ref() {
         if npu_ipv4.parse::<Ipv4Addr>().is_err() {
@@ -120,7 +126,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
             )));
         }
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, slot_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, dpu_id), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
             scope: RouteScope::Cluster,
@@ -135,7 +141,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
             )));
         }
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, slot_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, dpu_id), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
             scope: RouteScope::Cluster,
@@ -143,7 +149,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     }
 
     if routes.is_empty() {
-        SwbusConfigError::InvalidConfig(format!("No valid routes found in local dpu{}", slot_id));
+        SwbusConfigError::InvalidConfig(format!("No valid routes found in local dpu{}", dpu_id));
     }
 
     debug!("Routes collected: {:?}", &routes);
@@ -152,19 +158,19 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
 
 #[instrument]
 fn peer_config_from_dpu_entry(
-    dpu_id: &str,
-    dpu_entry: ConfigDBDPUEntry,
+    key: &str,
+    dpu_entry: ConfigDBRemoteDPUEntry,
     region: &str,
     cluster: &str,
 ) -> Result<Vec<PeerConfig>> {
     let mut peers = Vec::new();
 
-    debug!("Collecting peer info for DPU: {}", dpu_id);
+    debug!("Collecting peer info for DPU: {}", key);
     let dpu_type = dpu_entry
         .dpu_type
         .as_ref()
         .ok_or(SwbusConfigError::InvalidConfig("DPU type not found".to_string()))?;
-    if dpu_type != "local" && dpu_type != "cluster" {
+    if dpu_type != "cluster" {
         // ignore external DPUs, not for DASH smartswitch
         return Err(SwbusConfigError::InvalidConfig(format!(
             "Unsupported DPU type: {}",
@@ -172,17 +178,22 @@ fn peer_config_from_dpu_entry(
         )));
     }
 
-    let slot_id = dpu_entry.slot_id;
+    let swbusd_port = dpu_entry.swbus_port.ok_or(SwbusConfigError::InvalidConfig(format!(
+        "swbusd_port is not found in dpu {} is not found",
+        key
+    )))?;
+
+    let dpu_id = dpu_entry.dpu_id;
 
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4 {
         let npu_ipv4 = npu_ipv4
             .parse::<Ipv4Addr>()
             .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv4 address: {}", npu_ipv4)))?;
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, slot_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, dpu_id), "", "", "", "");
         peers.push(PeerConfig {
             id: sp,
-            endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), SWBUSD_PORT + slot_id as u16),
+            endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), swbusd_port),
             conn_type: ConnectionType::Cluster,
         });
     }
@@ -192,16 +203,16 @@ fn peer_config_from_dpu_entry(
             .parse::<Ipv6Addr>()
             .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {}", npu_ipv6)))?;
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, slot_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, dpu_id), "", "", "", "");
         peers.push(PeerConfig {
             id: sp,
-            endpoint: SocketAddr::new(IpAddr::V6(npu_ipv6), SWBUSD_PORT + slot_id as u16),
+            endpoint: SocketAddr::new(IpAddr::V6(npu_ipv6), swbusd_port),
             conn_type: ConnectionType::Cluster,
         });
     }
 
     if peers.is_empty() {
-        error!("No valid peers found in DPU: {}", dpu_id);
+        error!("No valid peers found in DPU: {}", key);
     }
 
     debug!("Peer info collected: {:?}", &peers);
@@ -229,7 +240,7 @@ fn get_device_info() -> Result<(String, String)> {
 }
 
 #[instrument]
-pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
+pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
     let mut peers = Vec::new();
     let mut myroutes: Option<Vec<RouteConfig>> = None;
     let mut myendpoint: Option<SocketAddr> = None;
@@ -242,43 +253,38 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
     let keys = table
         .get_keys()
         .map_err(|e| ("Failed to get keys from DPU table".into(), e))?;
+
     for key in keys {
         let dpu: ConfigDBDPUEntry = from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
 
-        if dpu.dpu_type.as_ref().is_none() {
-            error!("Missing type in DPU entry {}", key);
-            continue;
-        }
-        let dpu_type = dpu.dpu_type.as_ref().unwrap();
-        if dpu_type != "local" && dpu_type != "cluster" {
-            // ignore external DPUs, not for DASH smartswitch
-            debug!("Unsupported DPU type: {} in {}", dpu_type, key);
-            continue;
-        }
-
         // find the DPU entry for the slot
-        if dpu_type == "local" && dpu.slot_id == slot_id {
+        if dpu.dpu_id == dpu_id {
+            // Check if the DPU entry is valid and has the required fields
+            let swbusd_port = dpu.swbus_port.ok_or(SwbusConfigError::InvalidConfig(format!(
+                "swbusd_port is not found in dpu{} is not found",
+                dpu_id
+            )))?;
+
             myroutes = Some(route_config_from_dpu_entry(&dpu, &region, &cluster).map_err(|e| {
-                error!("Failed to collect routes for {}: {}", slot_id, e);
+                error!("Failed to collect routes for dpu{}: {}", dpu_id, e);
                 e
             })?);
 
             if let Some(npu_ipv4) = dpu.npu_ipv4 {
                 myendpoint = Some(SocketAddr::new(
                     IpAddr::V4(npu_ipv4.parse().expect("not expecting error")),
-                    SWBUSD_PORT + slot_id as u16,
+                    swbusd_port,
                 ));
             } else if let Some(npu_ipv6) = dpu.npu_ipv6 {
                 myendpoint = Some(SocketAddr::new(
                     IpAddr::V6(npu_ipv6.parse().expect("not expecting error")),
-                    SWBUSD_PORT + slot_id as u16,
+                    swbusd_port,
                 ));
             }
             continue;
         }
-
-        let dpu: ConfigDBDPUEntry = from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
-        let peer = peer_config_from_dpu_entry(&key, dpu, &region, &cluster).map_err(|e| {
+        let remote_dpu = dpu.to_remote_dpu();
+        let peer = peer_config_from_dpu_entry(&key, remote_dpu, &region, &cluster).map_err(|e| {
             error!("Failed to collect peers from {}: {}", key, e);
             e
         })?;
@@ -287,11 +293,30 @@ pub fn swbus_config_from_db(slot_id: u32) -> Result<SwbusConfig> {
     if myroutes.is_none() {
         return Err(SwbusConfigError::InvalidConfig(format!(
             "DPU at slot {} is not found",
-            slot_id
+            dpu_id
         )));
     }
 
-    info!("successfully load swbus config from configdb for dpu {}", slot_id);
+    let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
+    let table = Table::new(db, "REMOTE_DPU").map_err(|e| ("opening REMOTE_DPU table".into(), e))?;
+
+    let keys = table
+        .get_keys()
+        .map_err(|e| ("Failed to get keys from REMOTE_DPU table".into(), e))?;
+
+    for key in keys {
+        let remote_dpu: ConfigDBRemoteDPUEntry =
+            from_table(&table, &key).map_err(|e| (format!("reading REMOTE_DPU entry {}", key), e))?;
+
+        let peer = peer_config_from_dpu_entry(&key, remote_dpu, &region, &cluster).map_err(|e| {
+            error!("Failed to collect peers from {}: {}", key, e);
+            e
+        })?;
+
+        peers.extend(peer);
+    }
+
+    info!("successfully load swbus config from configdb for dpu {}", dpu_id);
 
     Ok(SwbusConfig {
         endpoint: myendpoint.unwrap(),
@@ -310,19 +335,12 @@ pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
     Ok(swbus_config)
 }
 
-#[cfg(test)]
-mod tests {
+pub mod test_utils {
     use super::*;
-    use std::io::Write;
     use swss_common::{DbConnector, Table};
-    use swss_common_testing::*;
     use swss_serde::to_table;
-    use tempfile::tempdir;
 
-    #[test]
-    fn test_load_from_configdb() {
-        let _ = Redis::start_config_db();
-
+    pub fn populate_configdb_for_test() {
         let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
         let table = Table::new(db, "DEVICE_METADATA").unwrap();
 
@@ -334,41 +352,74 @@ mod tests {
         };
         to_table(&metadata, &table, "localhost").unwrap();
 
-        let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
+        let db: DbConnector = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
         let table = Table::new(db, "DPU").unwrap();
-        for s in 0..2 {
+        // create local dpu table first
+        for d in 0..2 {
+            let dpu = ConfigDBDPUEntry {
+                state: Some("active".to_string()),
+                dpu_id: d,
+                npu_ipv4: Some("10.0.1.0".into()),
+                npu_ipv6: Some("2001:db8:1::0".into()),
+                swbus_port: Some(23606 + d as u16),
+            };
+            to_table(&dpu, &table, &format!("dpu{}", d)).unwrap();
+        }
+
+        let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
+        // create remote dpu entries
+        let table = Table::new(db, "REMOTE_DPU").unwrap();
+        for s in 1..3 {
             for d in 0..2 {
-                let dpu = ConfigDBDPUEntry {
-                    dpu_type: if s == 0 {
-                        Some("local".to_string())
-                    } else {
-                        Some("cluster".to_string())
-                    },
-                    state: Some("active".to_string()),
-                    slot_id: d,
-                    pa_ipv4: Some(format!("10.0.0.{}", s * 8 + d)),
-                    pa_ipv6: Some(format!("2001:db8::{}", s * 8 + d)),
+                let dpu = ConfigDBRemoteDPUEntry {
+                    dpu_type: Some("cluster".to_string()),
+                    dpu_id: d,
                     npu_ipv4: Some(format!("10.0.1.{}", s)),
                     npu_ipv6: Some(format!("2001:db8:1::{}", s)),
-                    probe_ip: None,
+                    swbus_port: Some(23606 + d as u16),
                 };
-                to_table(&dpu, &table, &format!("dpu{}", s * 8 + d)).unwrap();
-
-                assert_eq!(
-                    table
-                        .hget(&format!("dpu{}", s * 8 + d), "type")
-                        .unwrap()
-                        .as_ref()
-                        .unwrap(),
-                    if s == 0 { "local" } else { "cluster" }
-                );
+                let key = format!("dpu{}_{}", s, d);
+                to_table(&dpu, &table, &key).unwrap();
+                assert_eq!(table.hget(&key, "type").unwrap().as_ref().unwrap(), "cluster");
             }
         }
+    }
+
+    // This function can be used to clean up the test database after tests
+    pub fn cleanup_configdb_for_test() {
+        // clean up
+        let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
+        let table = Table::new(db, "DPU").unwrap();
+        for d in 0..2 {
+            table.del(&format!("dpu{}", d)).unwrap();
+        }
+        for s in 1..3 {
+            for d in 0..2 {
+                table.del(&format!("dpu{}_{}", s, d)).unwrap();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::*;
+    use std::io::Write;
+    use swss_common_testing::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_load_from_configdb() {
+        let _ = Redis::start_config_db();
+
+        // Populate the CONFIG_DB for testing
+        populate_configdb_for_test();
 
         let mut config_fromdb = swbus_config_from_db(0).unwrap();
 
         assert_eq!(config_fromdb.routes.len(), 2);
-        assert_eq!(config_fromdb.peers.len(), 6);
+        assert_eq!(config_fromdb.peers.len(), 10);
 
         // create equivalent config in yaml
         let yaml_content = r#"
@@ -396,7 +447,19 @@ mod tests {
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::1-dpu1"
             endpoint: "[2001:db8:1::1]:23607"
+            conn_type: "Cluster"
+          - id: "region-a.cluster-a.10.0.1.2-dpu0"
+            endpoint: "10.0.1.2:23606"
+            conn_type: "Cluster"
+          - id: "region-a.cluster-a.2001:db8:1::2-dpu0"
+            endpoint: "[2001:db8:1::2]:23606"
             conn_type: "Cluster"   
+          - id: "region-a.cluster-a.10.0.1.2-dpu1"
+            endpoint: "10.0.1.2:23607"
+            conn_type: "Cluster"
+          - id: "region-a.cluster-a.2001:db8:1::2-dpu1"
+            endpoint: "[2001:db8:1::2]:23607"
+            conn_type: "Cluster"               
         "#;
 
         let dir = tempdir().unwrap();
@@ -413,14 +476,7 @@ mod tests {
         expected.peers.sort_by(|a, b| a.id.cmp(&b.id));
         assert_eq!(config_fromdb, expected);
 
-        // clean up
-        let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
-        let table = Table::new(db, "DPU").unwrap();
-        for s in 0..2 {
-            for d in 0..2 {
-                table.del(&format!("dpu{}", s * 8 + d)).unwrap();
-            }
-        }
+        cleanup_configdb_for_test();
     }
 
     #[test]
