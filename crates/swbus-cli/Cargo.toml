@@ -24,12 +24,14 @@ uuid.workspace = true
 # Log and error handling
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde_json.workspace = true
 
 # Internal dependencies
 swbus-edge.workspace = true
 swbus-core.workspace = true
 swbus-proto.workspace = true
 swbus-config.workspace = true
+swbus-cli-data = { path = "../swbus-cli-data" }
 
 [dev-dependencies]
 swss-common-testing.workspace = true

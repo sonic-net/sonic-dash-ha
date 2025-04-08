@@ -147,6 +147,7 @@ message RequestResponse {
   string error_message = 30;
   oneof ResponseBody {
     RouteQueryResult route_query_result = 100;
+    ManagementQueryResult management_query_result = 110;
   }
 }
 
@@ -210,15 +211,21 @@ message ManagementRequestArg {
   string name = 10;
   string value = 20;
 }
-
+enum ManagementRequestType {
+  MANAGEMENT_REQUEST_TYPE_SWBUSD_GET_ROUTES = 0;
+  MANAGEMENT_REQUEST_TYPE_HAMGRD_GET_ACTOR_STATE = 1;
+}
 //
 // Management requests for debugging purpose
 //
 message ManagementRequest {
-  string request = 10;
+  ManagementRequestType request = 10;
   repeated ManagementRequestArg arguments = 20;
 }
 
+message ManagementQueryResult {
+  string value = 10;
+}
 //
 // Route data request
 //

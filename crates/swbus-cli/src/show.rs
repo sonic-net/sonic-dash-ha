@@ -1,5 +1,6 @@
 use crate::wait_for_response;
 use clap::Parser;
+use swbus_cli_data::hamgr::actor_state::ActorState;
 use swbus_proto::swbus::*;
 use tabled::{Table, Tabled};
 use tokio::sync::mpsc;
@@ -16,17 +17,21 @@ pub struct ShowCmd {
 #[derive(Parser, Debug)]
 enum ShowSubCmd {
     Route(ShowRouteCmd),
-    Connections(ShowConnectionsCmd),
+    Actor(ShowActorCmd),
 }
 
 #[derive(Parser, Debug)]
 pub struct ShowRouteCmd {}
 
 #[derive(Parser, Debug)]
-pub struct ShowConnectionsCmd {}
+pub struct ShowActorCmd {
+    /// The name of the actor to show
+    #[arg(value_parser = ServicePath::from_string)]
+    actor_path: ServicePath,
+}
 
 trait ShowCmdHandler {
-    fn create_request(&self) -> ManagementRequest;
+    fn create_request(&self, ctx: &super::CommandContext, src_sp: &ServicePath) -> SwbusMessage;
     fn process_response(&self, response: &RequestResponse);
 }
 
@@ -52,17 +57,12 @@ impl super::CmdHandler for ShowCmd {
 
         let sub_cmd: &dyn ShowCmdHandler = match &self.subcommand {
             ShowSubCmd::Route(show_route_args) => show_route_args,
-            ShowSubCmd::Connections(show_connections_args) => show_connections_args,
+            ShowSubCmd::Actor(show_actor_args) => show_actor_args,
         };
 
-        let mgmt_request = sub_cmd.create_request();
-        let swbusd_sp = ctx.sp.to_swbusd_service_path();
-        let header = SwbusMessageHeader::new(src_sp.clone(), swbusd_sp, ctx.id_generator.generate());
-        let request_id = header.id;
-        let request_msg = SwbusMessage {
-            header: Some(header),
-            body: Some(swbus_message::Body::ManagementRequest(mgmt_request)),
-        };
+        let request_msg = sub_cmd.create_request(&ctx, &src_sp);
+
+        let request_id = request_msg.header.as_ref().unwrap().id;
 
         // Send request
         ctx.runtime.lock().await.send(request_msg).await.unwrap();
@@ -92,8 +92,15 @@ impl super::CmdHandler for ShowCmd {
 }
 
 impl ShowCmdHandler for ShowRouteCmd {
-    fn create_request(&self) -> ManagementRequest {
-        ManagementRequest::new("show_route")
+    fn create_request(&self, ctx: &super::CommandContext, src_sp: &ServicePath) -> SwbusMessage {
+        let mgmt_req = ManagementRequest::new(ManagementRequestType::SwbusdGetRoutes);
+        let swbusd_sp = ctx.sp.to_swbusd_service_path();
+        let header = SwbusMessageHeader::new(src_sp.clone(), swbusd_sp, ctx.id_generator.generate());
+
+        SwbusMessage {
+            header: Some(header),
+            body: Some(swbus_message::Body::ManagementRequest(mgmt_req)),
+        }
     }
 
     fn process_response(&self, response: &RequestResponse) {
@@ -129,12 +136,32 @@ impl ShowCmdHandler for ShowRouteCmd {
     }
 }
 
-impl ShowCmdHandler for ShowConnectionsCmd {
-    fn create_request(&self) -> ManagementRequest {
-        ManagementRequest::new("show_connections")
+impl ShowCmdHandler for ShowActorCmd {
+    fn create_request(&self, ctx: &super::CommandContext, src_sp: &ServicePath) -> SwbusMessage {
+        let mgmt_req = ManagementRequest::new(ManagementRequestType::HamgrdGetActorState);
+        let dest_sp = &self.actor_path;
+        let header = SwbusMessageHeader::new(src_sp.clone(), dest_sp.clone(), ctx.id_generator.generate());
+
+        SwbusMessage {
+            header: Some(header),
+            body: Some(swbus_message::Body::ManagementRequest(mgmt_req)),
+        }
     }
 
-    fn process_response(&self, _response: &RequestResponse) {
-        info!("not implemented")
+    fn process_response(&self, response: &RequestResponse) {
+        let result = match &response.response_body {
+            Some(request_response::ResponseBody::ManagementQueryResult(ref result)) => &result.value,
+            _ => {
+                info!("Expecting RouteQueryResult but got something else: {:?}", response);
+                return;
+            }
+        };
+
+        let state: ActorState = serde_json::from_str(&result).unwrap();
+        // convert to table
+        // let incoming_state_table = Table::new(state.incoming_state);
+        // info!("{}", incoming_state_table);
+        // let internal_state_table = Table::new(state.internal_state);
+        // info!("{}", internal_state_table);
     }
 }

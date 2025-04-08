@@ -6,7 +6,7 @@ use getset::Getters;
 use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
-use swbus_proto::swbus::{swbus_message, SwbusMessage};
+use swbus_proto::swbus::{swbus_message, ManagementRequestType, SwbusMessage};
 use tracing::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -128,8 +128,15 @@ impl SwbusNextHop {
         message: &SwbusMessage,
         mgmt_request: &ManagementRequest,
     ) -> Result<SwbusMessage> {
-        match mgmt_request.request.as_str() {
-            "show_route" => {
+        let request_type = ManagementRequestType::try_from(mgmt_request.request).map_err(|_| {
+            SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                format!("Invalid management request: {:?}", mgmt_request.request),
+            )
+        })?;
+
+        match request_type {
+            ManagementRequestType::SwbusdGetRoutes => {
                 debug!("Received show_route request");
                 let routes = mux.export_routes(None);
                 let response_msg = SwbusMessage::new_response(

@@ -392,9 +392,9 @@ impl TraceRouteResponse {
 }
 
 impl ManagementRequest {
-    pub fn new(request: &str) -> Self {
+    pub fn new(request: ManagementRequestType) -> Self {
         ManagementRequest {
-            request: request.to_string(),
+            request: request.into(),
             arguments: Vec::<ManagementRequestArg>::new(),
         }
     }

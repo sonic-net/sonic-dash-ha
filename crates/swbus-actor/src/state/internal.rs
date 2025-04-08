@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use swbus_cli_data::hamgr::actor_state::{InternalStateEntry, KeyValue};
 use swss_common::{FieldValues, Table};
 
 /// Internal state table - SWSS `Table`s.
@@ -41,6 +42,34 @@ impl Internal {
         for entry in self.table.values_mut() {
             entry.commit_changes().await;
         }
+    }
+
+    pub(crate) fn dump_state(&self) -> Vec<InternalStateEntry> {
+        self.table
+            .iter()
+            .map(|(key, entry)| InternalStateEntry {
+                key: key.clone(),
+                swss_table: entry.swss_table.get_name().to_string(),
+                swss_key: entry.swss_key.clone(),
+                fvs: entry
+                    .fvs
+                    .iter()
+                    .map(|(key, value)| KeyValue {
+                        key: key.clone(),
+                        value: value.to_string_lossy().into_owned(),
+                    })
+                    .collect(),
+                mutated: entry.mutated,
+                backup_fvs: entry
+                    .backup_fvs
+                    .iter()
+                    .map(|(key, value)| KeyValue {
+                        key: key.clone(),
+                        value: value.to_string_lossy().into_owned(),
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 }
 
