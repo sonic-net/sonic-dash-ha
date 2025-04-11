@@ -68,7 +68,7 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
             "version": 2001,
             "message": {
               "key": "",
-              "data": "{\"Get\":{\"key\":\"count\"}}"
+              "data": "{\n  \"Get\": {\n    \"key\": \"count\"\n  }\n}"
             }
           }
         ],
@@ -95,7 +95,7 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
       }
       "#;
 
-    let expected = serde_json::from_str(&expected_json).unwrap();
+    let expected = serde_json::from_str(expected_json).unwrap();
     match timeout(Duration::from_secs(3), mgmt_resp_queue_rx.recv()).await {
         Ok(Some(msg)) => match msg.body {
             Some(Body::Response(ref response)) => {
@@ -108,16 +108,16 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
 
                         assert_eq!(state, expected);
                     }
-                    _ => assert!(false, "message body is not a ManagementQueryResult"),
+                    _ => panic!("message body is not a ManagementQueryResult"),
                 }
             }
-            _ => assert!(false, "message body is not a Response"),
+            _ => panic!("message body is not a Response"),
         },
         Ok(None) => {
-            assert!(false, "channel broken");
+            panic!("channel broken");
         }
         Err(_) => {
-            assert!(false, "request timeout: didn't receive response");
+            panic!("request timeout: didn't receive response");
         }
     }
 }

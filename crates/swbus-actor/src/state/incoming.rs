@@ -95,7 +95,7 @@ impl Incoming {
                 version: entry.version,
                 message: ActorMessageDump {
                     key: entry.msg.key.clone(),
-                    data: entry.msg.data.to_string(),
+                    data: format!("{:#}", entry.msg.data),
                 },
                 source: entry.source.to_longest_path(),
                 request_id: entry.request_id,

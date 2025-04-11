@@ -14,7 +14,7 @@
                 "flag": 0,
                 "ttl": 1,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
-                "destination": "region-a.cluster-a.10.0.0.1-dpu0/local-mgmt/0"
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0"
               },
               "body": {
                 "ManagementRequest": {
@@ -33,7 +33,7 @@
                 "version": 1,
                 "flag": 0,
                 "ttl": 63,
-                "source": "region-a.cluster-a.10.0.0.1-dpu0/local-mgmt/0",
+                "source": "region-a.cluster-a.10.0.0.1-dpu0",
                 "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0"
               },
               "body": {

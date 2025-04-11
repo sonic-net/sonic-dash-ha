@@ -156,6 +156,33 @@ impl ServicePath {
         }
         RouteScope::Client
     }
+
+    /// copy the fields from the other service path starting from the first non-empty one
+    pub fn join(&mut self, other: &ServicePath) {
+        vec![
+            &mut self.region_id,
+            &mut self.cluster_id,
+            &mut self.node_id,
+            &mut self.service_type,
+            &mut self.service_id,
+            &mut self.resource_type,
+            &mut self.resource_id,
+        ]
+        .into_iter()
+        .zip(vec![
+            &other.region_id,
+            &other.cluster_id,
+            &other.node_id,
+            &other.service_type,
+            &other.service_id,
+            &other.resource_type,
+            &other.resource_id,
+        ])
+        .skip_while(|(_, b)| b.is_empty())
+        .for_each(|(a, b)| {
+            *a = b.clone();
+        });
+    }
 }
 
 impl fmt::Display for ServicePath {
@@ -458,6 +485,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn service_path_join() {
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("other-region.cluster.node/stype/sid/rtype/rid").unwrap();
+        service_path.join(&other);
+        assert_eq!(service_path, other);
+
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("/other-stype/sid").unwrap();
+        let expected = ServicePath::from_string("region.cluster.node/other-stype/sid").unwrap();
+        service_path.join(&other);
+        assert_eq!(service_path, expected);
+
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("").unwrap();
+        let expected = service_path.clone();
+        service_path.join(&other);
+        assert_eq!(service_path, expected);
+    }
     #[test]
     fn request_response_can_be_created() {
         let response = RequestResponse::ok(create_mock_message_id());
