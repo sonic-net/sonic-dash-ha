@@ -47,9 +47,9 @@ impl LoggerConfigChangeHandler for LoggerConfigHandler {
 
 /// log initialization
 /// There are multiple options to initialize log:
-/// 1. Set RUST_LOG or {program_name}_LOG_LEVEL env var to the desired log level. If the log env is not set and link_swsscommon_logger is false,
+/// * Set RUST_LOG or {program_name}_LOG_LEVEL env var to the desired log level. If the log env is not set and link_swsscommon_logger is false,
 ///   use DEFAULT_LOG_LEVEL. Otherwise, use swsscommon logger described next
-/// 2. If link_swsscommon_logger is set, use swsscommon logger to get log settings from config_db, which supports dynamic log level change
+/// * If link_swsscommon_logger is set, use swsscommon logger to get log settings from config_db, which supports dynamic log level change
 ///   by modifying config_db. The settings include
 ///   - log_level: emerg, alert, crit, error, warn, notice, info, debug
 ///   - output: stdout, stderr, syslog. Rust doesn't support dynamically changing log output. We will only support default output (syslog in linux, file in windows)
