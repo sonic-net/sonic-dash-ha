@@ -73,6 +73,7 @@ Connected to the server
 ## show hamgrd actor
 The command displays actor state in hamgrd
 
+```
 sonic-dash-ha$ target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg show hamgrd actor --help
 Usage: swbus-cli show hamgrd actor <ACTOR_PATH>
 
@@ -81,7 +82,11 @@ Arguments:
 
 Options:
   -h, --help  Print help
+```
 
+Here is an example of the command.
+
+```
 sonic-dash-ha$ target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg show hamgrd actor '/hamgrd/0/actor/actor1'
 Starting edge runtime with URI: http://127.0.0.1:50001
 Connected to the server
@@ -135,3 +140,4 @@ Connected to the server
 │      │ -----------+--------------- │                     │                     │
 │      │  mutated   | false          │                     │                     │
 └──────┴─────────────────────────────┴─────────────────────┴─────────────────────┘
+```
