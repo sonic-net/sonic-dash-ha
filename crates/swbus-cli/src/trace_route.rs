@@ -6,12 +6,15 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tracing::info;
 
-const MAX_HOP: u8 = 10;
 #[derive(Parser, Debug)]
 pub struct TraceRouteCmd {
     /// Timeout in seconds for each request
     #[arg(short = 't', long, default_value_t = 1)]
     timeout: u32,
+
+    /// Max hop count
+    #[arg(short = 'c', long, default_value_t = 10)]
+    max_hop: u32,
 
     /// The destination service path of the request
     #[arg(value_parser = ServicePath::from_string)]
@@ -29,9 +32,14 @@ impl CmdHandler for TraceRouteCmd {
         ctx.runtime.lock().await.add_handler(src_sp.clone(), recv_queue_tx);
 
         // Send ping messages
-        info!("traceroute to {}, {} hops max", self.dest.to_longest_path(), MAX_HOP);
+        info!(
+            "traceroute to {}, {} hops max",
+            self.dest.to_longest_path(),
+            self.max_hop
+        );
 
-        let header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
+        let mut header = SwbusMessageHeader::new(src_sp.clone(), self.dest.clone(), ctx.id_generator.generate());
+        header.ttl = self.max_hop;
         let header_id = header.id;
         let trace_route_msg = SwbusMessage {
             header: Some(header),
@@ -40,7 +48,7 @@ impl CmdHandler for TraceRouteCmd {
         let start = Instant::now();
         ctx.runtime.lock().await.send(trace_route_msg).await.unwrap();
 
-        for i in 0..MAX_HOP {
+        for i in 0..self.max_hop {
             // wait on the channel to receive response or timeout
             let result = wait_for_response(&mut recv_queue_rx, header_id, self.timeout).await;
             match result.error_code {
