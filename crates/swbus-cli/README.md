@@ -48,7 +48,7 @@ Response received: ping_seq=3, ttl=62, time=5.913ms
 Response received: ping_seq=4, ttl=62, time=5.893ms
 ```
 
-## show route
+## show swbusd route
 The command displays route table in the local swbusd
 ```
 Usage: swbus-cli show route
@@ -58,7 +58,7 @@ Options:
 ```
 Here is an example.
 ```
-sonic-dash-ha$ ./target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg show route
+sonic-dash-ha$ ./target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg show swbusd route
 Starting edge runtime with URI: http://127.0.0.1:50001
 Connected to the server
 +----------------------------------------+-----------+-----------------------------+---------------------+----------------------------------------+
@@ -69,3 +69,69 @@ Connected to the server
 | region-a.cluster-a.10.0.0.1-dpu0/cli/0 | 1         | swbs-from://127.0.0.1:43806 | ROUTE_SCOPE_LOCAL   | region-a.cluster-a.10.0.0.1-dpu0/cli/0 |
 +----------------------------------------+-----------+-----------------------------+---------------------+----------------------------------------+
 ```
+
+## show hamgrd actor
+The command displays actor state in hamgrd
+
+sonic-dash-ha$ target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg show hamgrd actor --help
+Usage: swbus-cli show hamgrd actor <ACTOR_PATH>
+
+Arguments:
+  <ACTOR_PATH>  The service path of the actor relative to the swbusd e.g. "/hamgrd/0/actor/actor1"
+
+Options:
+  -h, --help  Print help
+
+sonic-dash-ha$ target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg show hamgrd actor '/hamgrd/0/actor/actor1'
+Starting edge runtime with URI: http://127.0.0.1:50001
+Connected to the server
+┌──────┬────────────────────────────────────────────────────────┐
+│                        Incoming State                         │
+├──────┼────────────────────────────────────────────────────────┤
+│ key  │ details                                                │
+├──────┼────────────────────────────────────────────────────────┤
+│ abc  │  attribute     | value                                 │
+│      │ ---------------+-------------------------------------- │
+│      │  source        | test.test.test/test/test/test/client  │
+│      │ ---------------+-------------------------------------- │
+│      │  request-id    | 1                                     │
+│      │ ---------------+-------------------------------------- │
+│      │  version       | 2001                                  │
+│      │ ---------------+-------------------------------------- │
+│      │  message/key   |                                       │
+│      │ ---------------+-------------------------------------- │
+│      │  message/value | {                                     │
+│      │                |   "Get": {                            │
+│      │                |     "key": "count"                    │
+│      │                |   }                                   │
+│      │                | }                                     │
+├──────┼────────────────────────────────────────────────────────┤
+│ abcd │  attribute     | value                                 │
+│      │ ---------------+-----------------------------------    │
+│      │  source        | test.test.test/test/test/test/xyz     │
+│      │ ---------------+-----------------------------------    │
+│      │  request-id    | 2                                     │
+│      │ ---------------+-----------------------------------    │
+│      │  version       | 1001                                  │
+│      │ ---------------+-----------------------------------    │
+│      │  message/key   |                                       │
+│      │ ---------------+-----------------------------------    │
+│      │  message/value | {                                     │
+│      │                |   "Get": {                            │
+│      │                |     "key": "count"                    │
+│      │                |   }                                   │
+│      │                | }                                     │
+└──────┴────────────────────────────────────────────────────────┘
+┌──────┬─────────────────────────────┬─────────────────────┬─────────────────────┐
+│                                 Internal State                                 │
+├──────┼─────────────────────────────┼─────────────────────┼─────────────────────┤
+│ key  │ table_meta                  │ fvs                 │ backup_fvs          │
+├──────┼─────────────────────────────┼─────────────────────┼─────────────────────┤
+│ data │  attribute | value          │  attribute | value  │  attribute | value  │
+│      │ -----------+--------------- │ -----------+------- │ -----------+------- │
+│      │  table     | kv-actor-data  │  count     | 1000   │  count     | 999    │
+│      │ -----------+--------------- │                     │                     │
+│      │  key       | kv-actor-data  │                     │                     │
+│      │ -----------+--------------- │                     │                     │
+│      │  mutated   | false          │                     │                     │
+└──────┴─────────────────────────────┴─────────────────────┴─────────────────────┘
