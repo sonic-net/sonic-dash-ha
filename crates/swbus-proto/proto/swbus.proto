@@ -196,14 +196,9 @@ message RouteQueryResultEntry {
 message PingRequest {}
 
 //
-// Trace route request and response.
+// Trace route request
 //
 message TraceRouteRequest {
-  string trace_id = 10;
-}
-
-message TraceRouteResponse {
-  string trace_id = 10;
 }
 
 message ManagementRequestArg {
@@ -244,7 +239,6 @@ message SwbusMessage {
 
     // Trace route
     TraceRouteRequest trace_route_request = 410;
-    TraceRouteResponse trace_route_response = 420;
 
     // Management request
     ManagementRequest management_request = 510;

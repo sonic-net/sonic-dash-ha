@@ -31,10 +31,6 @@ impl<A: Actor> ActorDriver<A> {
         loop {
             tokio::select! {
                 _ = self.state.outgoing.drive_resend_loop() => unreachable!("drive_resend_loop never returns"),
-                // received = self.state.incoming.recv() => match received {
-                //     Received::ActorMessage { key } => self.handle_message(&key).await,
-                //     Received::Ack { id } => self.state.outgoing.ack_message(id),
-                // }
                 maybe_msg = self.swbus_edge.recv() => self.handle_swbus_message(maybe_msg.expect("swbus-edge died")).await,
             }
         }
@@ -43,31 +39,25 @@ impl<A: Actor> ActorDriver<A> {
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
-            MessageBody::Request { payload } => {
-                match self.state.incoming.handle_request(id, source, &payload).await {
-                    Ok(key) => self.handle_actor_message(&key).await,
-                    // TODO: This is an obscure error scenario, do we handle it?
-                    Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
-                }
-            }
+            MessageBody::Request { payload } => match self.state.incoming.handle_request(id, source, &payload).await {
+                Ok(key) => self.handle_actor_message(&key).await,
+                Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
+            },
             MessageBody::Response {
                 request_id,
                 error_code,
                 error_message,
-            } => {
-                if error_code == SwbusErrorCode::Ok {
-                    self.state.outgoing.ack_message(request_id);
-                } else {
-                    // TODO: What to do with error messages?
-                    eprintln!("error response to {request_id}: ({error_code:?}) {error_message}");
-                }
-            }
+            } => self
+                .state
+                .outgoing
+                .handle_response(request_id, error_code, &error_message, source),
         }
     }
 
     /// Handle an actor message in the incoming state table, triggering `Actor::handle_message`.
     async fn handle_actor_message(&mut self, key: &str) {
         let res = self.actor.handle_message(&mut self.state, key).await;
+
         let (error_code, error_message) = match res {
             Ok(()) => {
                 self.state.internal.commit_changes().await;
@@ -81,13 +71,13 @@ impl<A: Actor> ActorDriver<A> {
             }
         };
 
-        let entry = self.state.incoming.get_entry(key).unwrap();
+        let (request_id, destination) = self.state.incoming.request_handled(key, error_code, &error_message);
 
         self.swbus_edge
             .send(OutgoingMessage {
-                destination: entry.source.clone(),
+                destination,
                 body: MessageBody::Response {
-                    request_id: entry.request_id,
+                    request_id,
                     error_code,
                     error_message,
                 },
