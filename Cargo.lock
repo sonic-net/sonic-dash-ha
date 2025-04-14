@@ -466,6 +466,7 @@ dependencies = [
  "futures-util",
  "serde_json",
  "swss-common",
+ "thiserror",
  "tokio",
 ]
 

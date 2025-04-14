@@ -66,33 +66,51 @@ enum StartFlags {
     StartKube,
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Unable to parse JSON file")]
+    JSONParse(#[from] serde_json::Error),
+    #[error("Unexpected structure of JSON file")]
+    JSONData(String),
+    #[error("Docker error")]
+    Docker(#[from] bollard::errors::Error),
+    #[error("Unable to open file")]
+    IO(#[from] std::io::Error),
+    #[error("Unable to get/set data to swsscommon")]
+    Swsscommon(#[from] swss_common::Exception),
+    #[error("UTF-8 parsing error")]
+    UTF8(#[from] std::str::Utf8Error),
+}
+
 impl<'a> Container<'a> {
-    fn get_config_data(field: &str) -> Option<serde_json::Value> {
-        let mut file = match File::open(SONIC_CTR_CONFIG) {
-            Ok(f) => f,
-            Err(_e) => return None,
-        };
+    fn get_config_data(field: &str) -> Result<serde_json::Value, Error> {
+        let mut file = File::open(SONIC_CTR_CONFIG)?;
         let mut file_contents = String::new();
-        file.read_to_string(&mut file_contents).unwrap();
-        let data: serde_json::Value = serde_json::from_str(&file_contents).unwrap();
-        data.as_object().unwrap().get(field).cloned()
+        file.read_to_string(&mut file_contents)?;
+        let data: serde_json::Value = serde_json::from_str(&file_contents)?;
+        data.as_object()
+            .ok_or(Error::JSONData(
+                "config file isn't an object at the top level".to_string(),
+            ))?
+            .get(field)
+            .ok_or(Error::JSONData(format!("field {} not found", field)))
+            .cloned()
     }
 
-    fn read_data(db_connector: &DbConnector, key: &str, fields: &mut HashMap<&str, String>) {
+    fn read_data(db_connector: &DbConnector, key: &str, fields: &mut HashMap<&str, String>) -> Result<(), Error> {
         let table_name = if key == DB_SERVER_KEY {
             DB_SERVER_TABLE
         } else {
             DB_FEATURE_TABLE
         };
 
-        let data = db_connector
-            .hgetall(&format!("{}|{}", table_name, key))
-            .expect("Unable to get data");
+        let data = db_connector.hgetall(&format!("{}|{}", table_name, key))?;
         for (field, default) in fields.iter_mut() {
             if let Some(value) = data.get(field as &str) {
-                *default = value.to_str().unwrap().to_string()
+                *default = value.to_str()?.to_string()
             }
         }
+        Ok(())
     }
 
     pub fn new(feature: &str) -> Container {
@@ -102,46 +120,44 @@ impl<'a> Container<'a> {
         }
     }
 
-    fn read_config(&self) -> HashMap<&'static str, String> {
+    fn read_config(&self) -> Result<HashMap<&'static str, String>, Error> {
         let mut fields: HashMap<&str, String> = HashMap::from([
             (DB_FIELD_SET_OWNER, "local".to_string()),
             (DB_FIELD_NO_FALLBACK, "False".to_string()),
             (DB_FIELD_STATE, "disabled".to_string()),
         ]);
-        Self::read_data(&self.db_connections.config_db, self.feature, &mut fields);
-        fields
+        Self::read_data(&self.db_connections.config_db, self.feature, &mut fields)?;
+        Ok(fields)
     }
 
-    fn read_state(&self) -> HashMap<&'static str, String> {
+    fn read_state(&self) -> Result<HashMap<&'static str, String>, Error> {
         let mut fields: HashMap<&str, String> = HashMap::from([
             (DB_FIELD_CURRENT_OWNER, "local".to_string()),
             (DB_FIELD_REMOTE_STATE, "none".to_string()),
             (DB_FIELD_CONTAINER_ID, "".to_string()),
         ]);
-        Self::read_data(&self.db_connections.state_db, self.feature, &mut fields);
-        fields
+        Self::read_data(&self.db_connections.state_db, self.feature, &mut fields)?;
+        Ok(fields)
     }
 
-    fn read_server_state(&self) -> HashMap<&'static str, String> {
+    fn read_server_state(&self) -> Result<HashMap<&'static str, String>, Error> {
         let mut fields: HashMap<&str, String> = HashMap::from([
             (DB_FIELD_ST_SER_CONNECTED, "false".to_string()),
             (DB_FIELD_ST_SER_UPDATE_TS, "".to_string()),
         ]);
-        Self::read_data(&self.db_connections.state_db, DB_SERVER_KEY, &mut fields);
-        fields
+        Self::read_data(&self.db_connections.state_db, DB_SERVER_KEY, &mut fields)?;
+        Ok(fields)
     }
 
-    fn set_label(&self, feature: &str, create: bool) {
+    fn set_label(&self, feature: &str, create: bool) -> Result<(), Error> {
         if self.db_connections.remote_ctr_enabled {
-            self.db_connections
-                .state_db
-                .hset(
-                    DB_KUBE_LABEL_TABLE,
-                    &format!("{}|{}_enabled", DB_KUBE_LABEL_SET_KEY, feature),
-                    &CxxString::new(if create { "true" } else { "false" }),
-                )
-                .expect("Unable to set label of container in Redis");
+            self.db_connections.state_db.hset(
+                DB_KUBE_LABEL_TABLE,
+                &format!("{}|{}_enabled", DB_KUBE_LABEL_SET_KEY, feature),
+                &CxxString::new(if create { "true" } else { "false" }),
+            )?;
         }
+        Ok(())
     }
 
     fn update_data(&self, data: &HashMap<&str, &str>) {
@@ -193,10 +209,10 @@ impl<'a> Container<'a> {
         }
     }
 
-    pub async fn start(&self) {
-        let feature_config = self.read_config();
-        let feature_state = self.read_state();
-        let server_state = self.read_server_state();
+    pub async fn start(&self) -> Result<(), Error> {
+        let feature_config = self.read_config()?;
+        let feature_state = self.read_state()?;
+        let server_state = self.read_server_state()?;
 
         let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
         let mut data: HashMap<&str, &str> =
@@ -220,7 +236,7 @@ impl<'a> Container<'a> {
             data.insert(DB_FIELD_CURRENT_OWNER, "local");
             data.insert(DB_FIELD_CONTAINER_ID, self.feature);
             if start_val == StartFlags::StartLocal {
-                self.set_label(self.feature, false);
+                self.set_label(self.feature, false)?;
                 data.insert(DB_FIELD_REMOTE_STATE, "none");
             }
         }
@@ -228,36 +244,34 @@ impl<'a> Container<'a> {
         self.update_data(&data);
 
         if start_val & StartFlags::StartLocal != enumset::EnumSet::empty() {
-            let docker = Docker::connect_with_local_defaults().unwrap();
+            let docker = Docker::connect_with_local_defaults()?;
             docker
                 .start_container(self.feature, None::<StartContainerOptions<String>>)
-                .await
-                .expect("Unable to start container");
+                .await?;
         }
 
         if start_val & StartFlags::StartKube != enumset::EnumSet::empty() {
-            self.set_label(self.feature, true);
+            self.set_label(self.feature, true)?;
         }
+
+        Ok(())
     }
 
-    pub async fn stop(&self, timeout: Option<i64>) {
-        let feature_config = self.read_config();
-        let feature_state = self.read_state();
+    pub async fn stop(&self, timeout: Option<i64>) -> Result<(), Error> {
+        let feature_config = self.read_config()?;
+        let feature_state = self.read_state()?;
         let docker_id = self.container_id();
         let remove_label = feature_config.get(DB_FIELD_SET_OWNER).unwrap() != "local";
 
-        let docker = Docker::connect_with_local_defaults().unwrap();
+        let docker = Docker::connect_with_local_defaults()?;
 
         if remove_label {
-            self.set_label(self.feature, false);
+            self.set_label(self.feature, false)?;
         }
 
         if !docker_id.is_empty() {
             let stop_options = timeout.map(|timeout| StopContainerOptions { t: timeout });
-            docker
-                .stop_container(self.feature, stop_options)
-                .await
-                .expect("Unable to stop container");
+            docker.stop_container(self.feature, stop_options).await?;
         }
 
         let timestamp = format!("{}", Local::now().format("%Y-%m-%d %H:%M:%S"));
@@ -272,45 +286,48 @@ impl<'a> Container<'a> {
         }
 
         self.update_data(&data);
+
+        Ok(())
     }
 
-    pub async fn kill(&self) {
-        let feature_config = self.read_config();
-        let feature_state = self.read_state();
+    pub async fn kill(&self) -> Result<(), Error> {
+        let feature_config = self.read_config()?;
+        let feature_state = self.read_state()?;
         let docker_id = self.container_id();
         let remove_label = (feature_config.get(DB_FIELD_SET_OWNER).unwrap() != "local")
             || (feature_state.get(DB_FIELD_CURRENT_OWNER).unwrap() != "local");
 
         if remove_label {
-            self.set_label(self.feature, false);
+            self.set_label(self.feature, false)?;
         }
 
         if feature_config.get(DB_FIELD_SET_OWNER).unwrap() == "local" {
             let current_state = feature_state.get(DB_FIELD_STATE).unwrap();
             if current_state != "enabled" && current_state != "always_enabled" {
                 println!("{} is not enabled", self.feature);
-                return;
+                return Ok(());
             }
         }
 
-        let docker = Docker::connect_with_local_defaults().unwrap();
+        let docker = Docker::connect_with_local_defaults()?;
 
         if !docker_id.is_empty() {
             docker
                 .kill_container(self.feature, Some(KillContainerOptions { signal: "SIGINT" }))
-                .await
-                .expect("Unable to kill container");
+                .await?;
         }
+
+        Ok(())
     }
 
-    pub async fn wait(&self) {
-        let feature_config = self.read_config();
+    pub async fn wait(&self) -> Result<(), Error> {
+        let feature_config = self.read_config()?;
         //let mut feature_state = read_state(&db_connections, feature);
         let mut feature_state;
         let mut docker_id = self.container_id();
         let mut pend_wait_seconds: u32 = 0;
 
-        let docker = Docker::connect_with_local_defaults().unwrap();
+        let docker = Docker::connect_with_local_defaults()?;
 
         if *docker_id == *self.feature {
             let version_option = self.container_version(&docker).await;
@@ -320,10 +337,10 @@ impl<'a> Container<'a> {
         }
 
         if docker_id.is_empty() && feature_config.get(DB_FIELD_NO_FALLBACK).unwrap() == "False" {
-            pend_wait_seconds = Self::get_config_data(SONIC_CTR_CONFIG_PEND_SECS)
-                .and_then(|value| value.as_u64())
-                .map(|value| value as u32)
-                .unwrap_or(DEFAULT_PEND_SECS);
+            pend_wait_seconds = match Self::get_config_data(SONIC_CTR_CONFIG_PEND_SECS) {
+                Ok(value) => value.as_u64().map(|value| value as u32).unwrap_or(DEFAULT_PEND_SECS),
+                Err(_) => DEFAULT_PEND_SECS,
+            }
         }
 
         while docker_id.is_empty() {
@@ -335,7 +352,7 @@ impl<'a> Container<'a> {
             }
 
             sleep(Duration::from_secs(WAIT_POLL_SECS as u64));
-            feature_state = self.read_state();
+            feature_state = self.read_state()?;
 
             docker_id = Cow::Borrowed(feature_state.get(DB_FIELD_CONTAINER_ID).unwrap());
 
@@ -352,7 +369,8 @@ impl<'a> Container<'a> {
                 }),
             )
             .try_collect::<Vec<_>>()
-            .await
-            .expect("Unable to wait for container");
+            .await?;
+
+        Ok(())
     }
 }

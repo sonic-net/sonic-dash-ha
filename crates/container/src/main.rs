@@ -27,16 +27,28 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), container::Error> {
     let cli = Cli::parse();
 
     let container = Container::new(&cli.name);
 
     match cli.action {
-        Action::Start => container.start().await,
-        Action::Wait => container.wait().await,
-        Action::Stop => container.stop(cli.timeout).await,
-        Action::Kill => container.kill().await,
-        Action::Id => println!("{}", container.container_id()),
-    };
+        Action::Start => container
+            .start()
+            .await
+            .inspect_err(|e| eprintln!("Unable to start container: {e}")),
+        Action::Wait => container
+            .wait()
+            .await
+            .inspect_err(|e| eprintln!("Unable to wait on container: {e}")),
+        Action::Stop => container
+            .stop(cli.timeout)
+            .await
+            .inspect_err(|e| eprintln!("Unable to stop container: {e}")),
+        Action::Kill => container
+            .kill()
+            .await
+            .inspect_err(|e| eprintln!("Unable to kill container: {e}")),
+        Action::Id => Ok(println!("{}", container.container_id())),
+    }
 }
