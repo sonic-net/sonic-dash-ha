@@ -5,7 +5,7 @@ use swbus_proto::{
     result::Result,
     swbus::{
         swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage,
-        SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse,
+        SwbusMessageHeader,
     },
 };
 use tokio::sync::{
@@ -92,12 +92,10 @@ impl SimpleSwbusEdgeClient {
                 SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
                 Body::Response(RequestResponse::ok(id)),
             )),
-            Body::TraceRouteRequest(TraceRouteRequest { trace_id }) => {
-                HandleReceivedMessage::Respond(SwbusMessage::new(
-                    SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
-                    Body::TraceRouteResponse(TraceRouteResponse { trace_id }),
-                ))
-            }
+            Body::TraceRouteRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
+                SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
+                Body::Response(RequestResponse::ok(id)),
+            )),
             _ => HandleReceivedMessage::Ignore,
         }
     }
