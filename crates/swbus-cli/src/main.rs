@@ -148,7 +148,7 @@ async fn main() {
     let swbus_config = get_swbus_config(args.config_file.as_deref()).unwrap();
     let mut sp: Option<ServicePath> = None;
     for route in &swbus_config.routes {
-        if route.scope == RouteScope::Cluster {
+        if route.scope == RouteScope::InCluster {
             sp = Some(route.key.clone());
             break;
         }
@@ -162,6 +162,7 @@ async fn main() {
     let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
         format!("http://{}", swbus_config.endpoint),
         sp.clone(),
+        ConnectionType::Client,
     )));
     let runtime_clone = runtime.clone();
     tokio::spawn(async move {
@@ -180,8 +181,8 @@ async fn main() {
     }
 
     match args.subcommand {
-        CliSubCmd::Ping(ping_args) => ping_args.handle(&ctx).await,
-        CliSubCmd::Show(show_args) => show_args.handle(&ctx).await,
+        CliSubCmd::Ping(ping_sub_cmd) => ping_sub_cmd.handle(&ctx).await,
+        CliSubCmd::Show(show_sub_cmd) => show_sub_cmd.handle(&ctx).await,
     };
 }
 
@@ -300,6 +301,6 @@ mod tests {
         assert!(config
             .routes
             .iter()
-            .any(|r| r.scope == RouteScope::Cluster && r.key == expected_sp));
+            .any(|r| r.scope == RouteScope::InCluster && r.key == expected_sp));
     }
 }

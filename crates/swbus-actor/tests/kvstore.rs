@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{mem, time::Duration};
 use swbus_actor::{Actor, ActorMessage, ActorRuntime, Result, State};
-use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
+use swbus_edge::{swbus_proto::swbus::ConnectionType, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::Table;
 use swss_common_testing::Redis;
 use tokio::{
@@ -15,7 +15,7 @@ fn sp(name: &str) -> ServicePath {
 
 #[tokio::test]
 async fn echo() {
-    let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"));
+    let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"), ConnectionType::InNode);
     swbus_edge.start().await.unwrap();
     let actor_runtime = ActorRuntime::new(swbus_edge.into());
     swbus_actor::set_global_runtime(actor_runtime);
