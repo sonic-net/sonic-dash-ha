@@ -52,6 +52,6 @@ async fn main() -> Result<(), container::Error> {
         Action::Id => {
             println!("{}", container.container_id());
             Ok(())
-        },
+        }
     }
 }
