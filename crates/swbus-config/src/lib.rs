@@ -4,6 +4,7 @@ use std::io;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::str::FromStr;
 use swbus_proto::swbus::*;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
@@ -76,18 +77,21 @@ pub struct ConfigDBDPUEntry {
     pub state: Option<String>,
     pub swbus_port: Option<u16>, // Optional field for local port
     pub dpu_id: u32,
-    pub npu_ipv4: Option<String>,
-    pub npu_ipv6: Option<String>,
+    #[serde(skip)]
+    pub npu_ipv4: Option<Ipv4Addr>,
+    #[serde(skip)]
+    pub npu_ipv6: Option<Ipv6Addr>,
 }
 
 impl ConfigDBDPUEntry {
+    // DPU entry in other slots are considered remote
     pub fn to_remote_dpu(&self) -> ConfigDBRemoteDPUEntry {
         ConfigDBRemoteDPUEntry {
             swbus_port: self.swbus_port,
             dpu_type: Some("cluster".to_string()),
             dpu_id: self.dpu_id,
-            npu_ipv4: self.npu_ipv4.clone(),
-            npu_ipv6: self.npu_ipv6.clone(),
+            npu_ipv4: self.npu_ipv4.map(|ip| ip.to_string()),
+            npu_ipv6: self.npu_ipv6.map(|ip| ip.to_string()),
         }
     }
 }
@@ -119,13 +123,6 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     debug!("Collecting routes for local dpu{}", dpu_id);
 
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4.as_ref() {
-        if npu_ipv4.parse::<Ipv4Addr>().is_err() {
-            return Err(SwbusConfigError::InvalidConfig(format!(
-                "Invalid IPv4 address: {}",
-                npu_ipv4
-            )));
-        }
-
         let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, dpu_id), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
@@ -134,13 +131,6 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     }
 
     if let Some(npu_ipv6) = dpu_entry.npu_ipv6.as_ref() {
-        if npu_ipv6.parse::<Ipv6Addr>().is_err() {
-            return Err(SwbusConfigError::InvalidConfig(format!(
-                "Invalid IPv6 address: {}",
-                npu_ipv6
-            )));
-        }
-
         let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, dpu_id), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
@@ -240,12 +230,48 @@ fn get_device_info() -> Result<(String, String)> {
 }
 
 #[instrument]
+fn get_loopback_address() -> Result<(Option<Ipv4Addr>, Option<Ipv6Addr>)> {
+    let mut my_ipv4 = None;
+    let mut my_ipv6 = None;
+    let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting to config_db".into(), e))?;
+    let table = Table::new(db, "LOOPBACK_INTERFACE").map_err(|e| ("opening LOOPBACK_INTERFACE table".into(), e))?;
+    let keys = table
+        .get_keys()
+        .map_err(|e| ("Failed to get keys from LOOPBACK_INTERFACE table".into(), e))?;
+    for key in keys {
+        let addr = key.split("/").next().unwrap_or("");
+        match IpAddr::from_str(addr) {
+            Ok(IpAddr::V4(v4_addr)) => my_ipv4 = Some(v4_addr),
+            Ok(IpAddr::V6(v6_addr)) => my_ipv6 = Some(v6_addr),
+            Err(_) => continue,
+        }
+    }
+    if my_ipv4.is_none() && my_ipv6.is_none() {
+        return Err(SwbusConfigError::InvalidConfig(
+            "No valid loopback address found".into(),
+        ));
+    }
+
+    info!(
+        "loopback0 ipv4 address: {}",
+        my_ipv4.map_or("none".to_string(), |ip| ip.to_string())
+    );
+    info!(
+        "loopback0 ipv6 address: {}",
+        my_ipv6.map_or("none".to_string(), |ip| ip.to_string())
+    );
+    Ok((my_ipv4, my_ipv6))
+}
+
+#[instrument]
 pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
     let mut peers = Vec::new();
     let mut myroutes: Option<Vec<RouteConfig>> = None;
     let mut myendpoint: Option<SocketAddr> = None;
 
     let (region, cluster) = get_device_info()?;
+
+    let (my_ipv4, my_ipv6) = get_loopback_address()?;
 
     let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting config_db".into(), e))?;
     let table = Table::new(db, "DPU").map_err(|e| ("opening DPU table".into(), e))?;
@@ -255,7 +281,11 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
         .map_err(|e| ("Failed to get keys from DPU table".into(), e))?;
 
     for key in keys {
-        let dpu: ConfigDBDPUEntry = from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
+        let mut dpu: ConfigDBDPUEntry =
+            from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
+
+        dpu.npu_ipv4 = my_ipv4;
+        dpu.npu_ipv6 = my_ipv6;
 
         // find the DPU entry for the slot
         if dpu.dpu_id == dpu_id {
@@ -271,15 +301,9 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
             })?);
 
             if let Some(npu_ipv4) = dpu.npu_ipv4 {
-                myendpoint = Some(SocketAddr::new(
-                    IpAddr::V4(npu_ipv4.parse().expect("not expecting error")),
-                    swbusd_port,
-                ));
+                myendpoint = Some(SocketAddr::new(std::net::IpAddr::V4(npu_ipv4), swbusd_port));
             } else if let Some(npu_ipv6) = dpu.npu_ipv6 {
-                myendpoint = Some(SocketAddr::new(
-                    IpAddr::V6(npu_ipv6.parse().expect("not expecting error")),
-                    swbusd_port,
-                ));
+                myendpoint = Some(SocketAddr::new(std::net::IpAddr::V6(npu_ipv6), swbusd_port));
             }
             continue;
         }
@@ -337,6 +361,7 @@ pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
 
 pub mod test_utils {
     use super::*;
+    use swss_common::CxxString;
     use swss_common::{DbConnector, Table};
     use swss_serde::to_table;
 
@@ -352,6 +377,12 @@ pub mod test_utils {
         };
         to_table(&metadata, &table, "localhost").unwrap();
 
+        let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
+
+        let table = Table::new(db, "LOOPBACK_INTERFACE").unwrap();
+        table.hset("10.0.1.0", "NULL", &CxxString::new("NULL")).unwrap();
+        table.hset("2001:db8:1::", "NULL", &CxxString::new("NULL")).unwrap();
+
         let db: DbConnector = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
         let table = Table::new(db, "DPU").unwrap();
         // create local dpu table first
@@ -359,8 +390,8 @@ pub mod test_utils {
             let dpu = ConfigDBDPUEntry {
                 state: Some("active".to_string()),
                 dpu_id: d,
-                npu_ipv4: Some("10.0.1.0".into()),
-                npu_ipv6: Some("2001:db8:1::0".into()),
+                npu_ipv4: None,
+                npu_ipv6: None,
                 swbus_port: Some(23606 + d as u16),
             };
             to_table(&dpu, &table, &format!("dpu{}", d)).unwrap();
@@ -427,7 +458,7 @@ mod tests {
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "Cluster"
-          - key: "region-a.cluster-a.2001:db8:1::0-dpu0"
+          - key: "region-a.cluster-a.2001:db8:1::-dpu0"
             scope: "Cluster"
         peers:
           - id: "region-a.cluster-a.10.0.1.0-dpu1"
