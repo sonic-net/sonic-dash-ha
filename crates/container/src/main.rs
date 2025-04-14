@@ -49,6 +49,9 @@ async fn main() -> Result<(), container::Error> {
             .kill()
             .await
             .inspect_err(|e| eprintln!("Unable to kill container: {e}")),
-        Action::Id => Ok(println!("{}", container.container_id())),
+        Action::Id => {
+            println!("{}", container.container_id());
+            Ok(())
+        },
     }
 }
