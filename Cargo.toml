@@ -14,6 +14,7 @@ members = [
     "crates/swbus-config",
     "crates/swbus-actor",
     "crates/swss-common-bridge",
+    "crates/container",
 ]
 exclude = []
 
@@ -77,6 +78,10 @@ atomic_enum = "0.3"
 tempfile = "3"
 tabled = "0.17"
 futures-core = "0.3"
+futures-util = "0.3"
+chrono = "0.4"
+enumset = "1"
+bollard = { version = "0.17.1", features = ["chrono"] }
 uuid = { version = "1.15", features = ["v4"] }
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
