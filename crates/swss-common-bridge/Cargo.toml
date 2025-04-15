@@ -12,6 +12,7 @@ edition.workspace = true
 swss-common = { path = "../swss-common", features = ["async"] }
 swbus-edge = { path = "../swbus-edge" }
 tokio.workspace = true
+tokio-util.workspace = true
 swbus-actor = { path = "../swbus-actor" }
 
 [lints]

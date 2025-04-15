@@ -7,6 +7,23 @@ use swbus_edge::{
 };
 use swss_common::{FieldValues, KeyOpFieldValues, KeyOperation, ProducerStateTable, Table, ZmqProducerStateTable};
 use tokio::task::JoinHandle;
+use tokio_util::task::AbortOnDropHandle;
+
+pub struct ProducerBridge {
+    _task: AbortOnDropHandle<()>,
+}
+
+impl ProducerBridge {
+    pub fn spawn<T>(rt: Arc<SwbusEdgeRuntime>, addr: ServicePath, table: T) -> Self
+    where
+        T: ProducerTable,
+    {
+        let task = spawn_producer_bridge(rt, addr, table);
+        ProducerBridge {
+            _task: AbortOnDropHandle::new(task),
+        }
+    }
+}
 
 pub fn spawn_producer_bridge<T>(rt: Arc<SwbusEdgeRuntime>, addr: ServicePath, mut table: T) -> JoinHandle<()>
 where
@@ -89,8 +106,10 @@ impl_producertable! { ProducerStateTable ZmqProducerStateTable Table }
 
 #[cfg(test)]
 mod test {
-    use super::{spawn_producer_bridge, ProducerTable};
-    use crate::consumer::ConsumerTable;
+    use crate::{
+        consumer::ConsumerTable,
+        producer::{ProducerBridge, ProducerTable},
+    };
     use std::{sync::Arc, time::Duration};
     use swbus_actor::ActorMessage;
     use swbus_edge::{
@@ -135,7 +154,7 @@ mod test {
         let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true);
 
         // Spawn the bridge
-        spawn_producer_bridge(rt, sp("mytable-bridge"), producer_table);
+        let _bridge = ProducerBridge::spawn(rt, sp("mytable-bridge"), producer_table);
 
         // Send some updates to the bridge
         let mut kfvs = random_kfvs();

@@ -9,12 +9,30 @@ use swss_common::{
     ConsumerStateTable, FieldValues, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table, ZmqConsumerStateTable,
 };
 use tokio::task::JoinHandle;
+use tokio_util::task::AbortOnDropHandle;
 
-/// Spawn a consumer table to actor bridge task.
-///
-/// `dest_generator` is a function that takes a `&KeyOpFieldValues` read from `table`
-/// and generates the `ServicePath` address and `String` input table key that
-/// the data will be sent to.
+pub struct ConsumerBridge {
+    _task: AbortOnDropHandle<()>,
+}
+
+impl ConsumerBridge {
+    /// Spawn a consumer table to actor bridge task.
+    ///
+    /// `dest_generator` is a function that takes a `&KeyOpFieldValues` read from `table`
+    /// and generates the `ServicePath` address and `String` input table key that
+    /// the data will be sent to.
+    pub fn spawn<T, F>(rt: Arc<SwbusEdgeRuntime>, addr: ServicePath, table: T, dest_generator: F) -> Self
+    where
+        T: ConsumerTable,
+        F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
+    {
+        let task = spawn_consumer_bridge(rt, addr, table, dest_generator);
+        ConsumerBridge {
+            _task: AbortOnDropHandle::new(task),
+        }
+    }
+}
+
 pub fn spawn_consumer_bridge<T, F>(
     rt: Arc<SwbusEdgeRuntime>,
     addr: ServicePath,
