@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use swbus_cli_data::hamgr::actor_state::{InternalStateEntry, KeyValue};
 use swss_common::{FieldValues, Table};
 
+use super::get_unix_time;
+
 /// Internal state table - SWSS `Table`s.
 #[derive(Default, Debug)]
 pub struct Internal {
@@ -84,6 +86,10 @@ struct InternalTableEntry {
 
     // FVs that will be restored if an actor callback fails
     backup_fvs: FieldValues,
+
+    /// Last time changes were written to the table, in unix seconds.
+    /// `None` if the table was never written to.
+    last_updated_time: Option<u64>,
 }
 
 impl InternalTableEntry {
@@ -102,6 +108,7 @@ impl InternalTableEntry {
             fvs,
             mutated: false,
             backup_fvs,
+            last_updated_time: None,
         }
     }
 
@@ -123,6 +130,7 @@ impl InternalTableEntry {
             .set_async(&self.swss_key, self.fvs.clone())
             .await
             .expect("Table::set threw an exception");
+        self.last_updated_time = Some(get_unix_time());
     }
 
     fn drop_changes(&mut self) {

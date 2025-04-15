@@ -1,5 +1,6 @@
 mod ping;
 mod show;
+mod trace_route;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::sync::Arc;
@@ -30,6 +31,7 @@ struct Command {
 #[derive(Parser, Debug)]
 enum CliSubCmd {
     Ping(ping::PingCmd),
+    TraceRoute(trace_route::TraceRouteCmd),
     Show(show::ShowCmd),
 }
 
@@ -182,6 +184,7 @@ async fn main() {
     match args.subcommand {
         CliSubCmd::Ping(ping_args) => ping_args.handle(&ctx).await,
         CliSubCmd::Show(show_args) => show_args.handle(&ctx).await,
+        CliSubCmd::TraceRoute(trace_route_args) => trace_route_args.handle(&ctx).await,
     };
 }
 

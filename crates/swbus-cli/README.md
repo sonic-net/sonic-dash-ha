@@ -48,6 +48,31 @@ Response received: ping_seq=3, ttl=62, time=5.913ms
 Response received: ping_seq=4, ttl=62, time=5.893ms
 ```
 
+## trace-route
+The command is similar to trace-route command in Linux. The request will be routed to the destination. Every hop along the path will send a response back, which allows us to see the path the request going through.
+
+```
+Usage: swbus-cli trace-route [OPTIONS] <DEST>
+
+Arguments:
+  <DEST>  The destination service path of the request
+
+Options:
+  -t, --timeout <TIMEOUT>  Timeout in seconds for each request [default: 1]
+  -c, --max-hop <MAX_HOP>  Max hop count [default: 10]
+  -h, --help               Print help
+```
+
+Here is an example of the command.
+```
+sonic-dash-ha$ target/debug/swbus-cli -c crates/swbusd/sample/swbusd1.cfg trace-route region-a.cluster-a.10.0.0.2-dpu0
+traceroute to region-a.cluster-a.10.0.0.2-dpu0, 10 hops max
+Starting edge runtime with URI: http://127.0.0.1:50001
+Connected to the server
+1  region-a.cluster-a.10.0.0.1-dpu0  5.336ms  1 hops
+2  region-a.cluster-a.10.0.0.2-dpu0  7.757ms  2 hops
+```
+
 ## show swbusd route
 The command displays route table in the local swbusd
 ```
