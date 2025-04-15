@@ -104,6 +104,10 @@ impl Incoming {
                 },
                 source: entry.source.to_longest_path(),
                 request_id: entry.request_id,
+                created_time: entry.created_time,
+                last_updated_time: entry.last_updated_time,
+                response: entry.response.clone(),
+                acked: entry.acked,
             })
             .collect()
     }

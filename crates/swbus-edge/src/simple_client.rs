@@ -7,7 +7,6 @@ use swbus_proto::{
     swbus::{
         request_response::ResponseBody, swbus_message::Body, DataRequest, ManagementQueryResult, ManagementRequest,
         ManagementRequestType, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage, SwbusMessageHeader,
-        TraceRouteRequest,
     },
 };
 use tokio::sync::{

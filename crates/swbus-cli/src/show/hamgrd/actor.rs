@@ -1,5 +1,6 @@
 use crate::show::ShowCmdHandler;
 use crate::CommandContext;
+use chrono::{DateTime, Local};
 use clap::Parser;
 use swbus_cli_data::hamgr::actor_state::ActorState;
 use swbus_cli_data::hamgr::actor_state::IncomingStateEntry;
@@ -28,6 +29,17 @@ struct IncomingStateDisplay {
     details: String,
 }
 
+fn unix_secs_to_string(unix_secs: u64) -> String {
+    let naive = DateTime::from_timestamp(unix_secs as i64, 0);
+    match naive {
+        Some(naive) => {
+            let datetime: DateTime<Local> = naive.with_timezone(&Local);
+            datetime.format("%Y:%m:%d %H:%M:%S").to_string()
+        }
+        None => "INV".to_string(),
+    }
+}
+
 impl IncomingStateDisplay {
     fn from_incoming_state(state: &IncomingStateEntry) -> Self {
         let details = vec![
@@ -50,6 +62,22 @@ impl IncomingStateDisplay {
             KeyValue {
                 attribute: "message/value".to_string(),
                 value: state.message.data.clone(),
+            },
+            KeyValue {
+                attribute: "created-time".to_string(),
+                value: unix_secs_to_string(state.created_time),
+            },
+            KeyValue {
+                attribute: "last-updated-time".to_string(),
+                value: unix_secs_to_string(state.last_updated_time),
+            },
+            KeyValue {
+                attribute: "response".to_string(),
+                value: state.response.clone(),
+            },
+            KeyValue {
+                attribute: "acked".to_string(),
+                value: state.acked.to_string(),
             },
         ];
         let table = Table::new(details).with(Style::ascii().remove_frame()).to_string();
@@ -82,6 +110,15 @@ impl InternalStateDisplay {
             KeyValue {
                 attribute: "mutated".to_string(),
                 value: state.mutated.to_string(),
+            },
+            KeyValue {
+                attribute: "last-updated-time".to_string(),
+                value: {
+                    match state.last_updated_time {
+                        Some(last_updated_time) => unix_secs_to_string(last_updated_time),
+                        None => "".to_string(),
+                    }
+                },
             },
         ];
         let table_meta = Table::new(table_meta).with(Style::ascii().remove_frame()).to_string();

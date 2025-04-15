@@ -70,6 +70,7 @@ impl Internal {
                         value: value.to_string_lossy().into_owned(),
                     })
                     .collect(),
+                last_updated_time: entry.last_updated_time,
             })
             .collect()
     }
