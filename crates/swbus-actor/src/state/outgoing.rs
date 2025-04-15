@@ -6,9 +6,11 @@ use std::{
 };
 use swbus_edge::{
     simple_client::{MessageId, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::{ServicePath, SwbusMessage},
+    swbus_proto::swbus::{ServicePath, SwbusErrorCode, SwbusMessage},
 };
 use tokio::time::{interval, Interval};
+
+use super::get_unix_time;
 
 const RESEND_TIME: Duration = Duration::from_secs(60);
 
@@ -20,6 +22,9 @@ pub struct Outgoing {
 
     /// Messages that will be sent if the actor logic succeeds, or dropped if it fails.
     queued_messages: Vec<UnackedMessage>,
+
+    /// Record of sent messages, purely for GetActorState
+    sent_messages: HashMap<String, SentMessageEntry>,
 }
 
 impl Outgoing {
@@ -46,6 +51,7 @@ impl Outgoing {
             resend_interval,
             unacked_messages: HashMap::new(),
             queued_messages: Vec::new(),
+            sent_messages: HashMap::new(),
         }
     }
 
@@ -58,6 +64,18 @@ impl Outgoing {
                 .expect("Sending swbus message failed");
 
             let id = msg.swbus_message.header.as_ref().unwrap().id;
+            let actor_msg = msg.actor_message.clone();
+
+            // Update the table for GetActorState
+            match self.sent_messages.get_mut(msg.key()) {
+                Some(entry) => entry.new_message_sent(actor_msg, id),
+                None => {
+                    let key = msg.key().to_string();
+                    self.sent_messages.insert(key, SentMessageEntry::new(actor_msg, id));
+                }
+            }
+
+            // Add to unacked messages/resend queue
             self.unacked_messages.insert(id, msg);
         }
     }
@@ -67,9 +85,29 @@ impl Outgoing {
         self.queued_messages.clear();
     }
 
-    /// Received a successful response for a prior request.
-    pub(crate) fn ack_message(&mut self, id: MessageId) {
-        self.unacked_messages.remove(&id);
+    /// Handle a response to a sent message.
+    pub(crate) fn handle_response(
+        &mut self,
+        id: MessageId,
+        error_code: SwbusErrorCode,
+        error_message: &str,
+        source: ServicePath,
+    ) {
+        let Some(unacked_message) = self.unacked_messages.get(&id) else {
+            // Response for message that was already acked. Ignore it.
+            return;
+        };
+
+        // Update the table for GetActorState
+        self.sent_messages
+            .get_mut(unacked_message.key())
+            .unwrap()
+            .response_received(id, error_code, error_message, source);
+
+        // Response was successfully acked. Remove it from unacked messages/resend queue
+        if error_code == SwbusErrorCode::Ok {
+            self.unacked_messages.remove(&id);
+        }
     }
 
     /// Run the resend/maintenence loop. Returned future must be polled to run it.
@@ -88,6 +126,9 @@ impl Outgoing {
                         .send_raw(msg.swbus_message.clone())
                         .await
                         .expect("Sending swbus message failed");
+
+                    // Update the table for GetActorState
+                    self.sent_messages.get_mut(msg.key()).unwrap().message_resent();
                 }
             }
         }
@@ -96,8 +137,85 @@ impl Outgoing {
 
 #[derive(Debug)]
 struct UnackedMessage {
-    #[allow(unused)] // TODO: use this for some kind of debugging help
     actor_message: ActorMessage,
     swbus_message: SwbusMessage,
     time_sent: Instant,
+}
+
+impl UnackedMessage {
+    fn key(&self) -> &str {
+        &self.actor_message.key
+    }
+}
+
+struct SentMessageEntry {
+    /// The most recent message sent with this key.
+    msg: ActorMessage,
+    /// The id of the most recent message sent with this key.
+    id: MessageId,
+    /// The first time a message was sent with this key, in unix seconds.
+    #[allow(dead_code)] // TODO: GetActorState will read this when it is implemented
+    created_time: u64,
+    /// The most recent time a message was sent with this key, in unix seconds.
+    last_updated_time: u64,
+    /// The most recent time a message was sent OR resent with this key, in unix seconds.
+    last_sent_time: u64,
+    /// How many times this key has been updated.
+    version: u64,
+    /// Whether the latest message has been acked.
+    acked: bool,
+    /// The latest response to the latest message.
+    response: Option<String>,
+    /// Where the latest response came from.
+    response_source: Option<ServicePath>,
+}
+
+impl SentMessageEntry {
+    fn new(msg: ActorMessage, id: MessageId) -> Self {
+        Self {
+            msg,
+            id,
+            created_time: get_unix_time(),
+            last_updated_time: get_unix_time(),
+            last_sent_time: get_unix_time(),
+            version: 1,
+            acked: false,
+            response: None,
+            response_source: None,
+        }
+    }
+
+    fn new_message_sent(&mut self, msg: ActorMessage, id: MessageId) {
+        self.msg = msg;
+        self.id = id;
+        self.last_updated_time = get_unix_time();
+        self.last_sent_time = get_unix_time();
+        self.version += 1;
+        self.acked = false;
+        self.response = None;
+        self.response_source = None;
+    }
+
+    fn message_resent(&mut self) {
+        self.last_sent_time = get_unix_time();
+    }
+
+    fn response_received(
+        &mut self,
+        request_id: MessageId,
+        response_code: SwbusErrorCode,
+        response_message: &str,
+        response_source: ServicePath,
+    ) {
+        if request_id == self.id {
+            self.response_source = Some(response_source);
+            if response_code == SwbusErrorCode::Ok {
+                self.acked = true;
+                self.response = Some(String::from("Ok"));
+            } else {
+                self.acked = false;
+                self.response = Some(format!("{response_code:?} ({response_message})"));
+            }
+        }
+    }
 }
