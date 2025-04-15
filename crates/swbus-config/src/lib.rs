@@ -230,7 +230,7 @@ fn get_device_info() -> Result<(String, String)> {
 }
 
 #[instrument]
-fn get_loopback_address() -> Result<(Option<Ipv4Addr>, Option<Ipv6Addr>)> {
+fn get_loopback_address(lb_index: u32) -> Result<(Option<Ipv4Addr>, Option<Ipv6Addr>)> {
     let mut my_ipv4 = None;
     let mut my_ipv6 = None;
     let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting to config_db".into(), e))?;
@@ -238,7 +238,13 @@ fn get_loopback_address() -> Result<(Option<Ipv4Addr>, Option<Ipv6Addr>)> {
     let keys = table
         .get_keys()
         .map_err(|e| ("Failed to get keys from LOOPBACK_INTERFACE table".into(), e))?;
-    for key in keys {
+
+    let lb_prefix = format!("Loopback{}|", lb_index);
+    for mut key in keys {
+        if !key.starts_with(lb_prefix.as_str()) {
+            continue;
+        }
+        key = key.replace(lb_prefix.as_str(), "");
         let addr = key.split("/").next().unwrap_or("");
         match IpAddr::from_str(addr) {
             Ok(IpAddr::V4(v4_addr)) => my_ipv4 = Some(v4_addr),
@@ -252,12 +258,14 @@ fn get_loopback_address() -> Result<(Option<Ipv4Addr>, Option<Ipv6Addr>)> {
         ));
     }
 
-    info!(
-        "loopback0 ipv4 address: {}",
+    debug!(
+        "Loopback{} ipv4 address: {}",
+        lb_index,
         my_ipv4.map_or("none".to_string(), |ip| ip.to_string())
     );
-    info!(
-        "loopback0 ipv6 address: {}",
+    debug!(
+        "Loopback{} ipv6 address: {}",
+        lb_index,
         my_ipv6.map_or("none".to_string(), |ip| ip.to_string())
     );
     Ok((my_ipv4, my_ipv6))
@@ -271,7 +279,8 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
 
     let (region, cluster) = get_device_info()?;
 
-    let (my_ipv4, my_ipv6) = get_loopback_address()?;
+    // Get the Loopback0 address
+    let (my_ipv4, my_ipv6) = get_loopback_address(0)?;
 
     let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting config_db".into(), e))?;
     let table = Table::new(db, "DPU").map_err(|e| ("opening DPU table".into(), e))?;
@@ -380,9 +389,18 @@ pub mod test_utils {
         let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
 
         let table = Table::new(db, "LOOPBACK_INTERFACE").unwrap();
-        table.hset("10.0.1.0", "NULL", &CxxString::new("NULL")).unwrap();
-        table.hset("2001:db8:1::", "NULL", &CxxString::new("NULL")).unwrap();
-
+        table
+            .hset("Loopback0|10.0.1.0/32", "NULL", &CxxString::new("NULL"))
+            .unwrap();
+        table
+            .hset("Loopback0|2001:db8:1::/128", "NULL", &CxxString::new("NULL"))
+            .unwrap();
+        table
+            .hset("Loopback1|11.0.1.0/32", "NULL", &CxxString::new("NULL"))
+            .unwrap();
+        table
+            .hset("Loopback1|2001:dd8:1::/128", "NULL", &CxxString::new("NULL"))
+            .unwrap();
         let db: DbConnector = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
         let table = Table::new(db, "DPU").unwrap();
         // create local dpu table first
