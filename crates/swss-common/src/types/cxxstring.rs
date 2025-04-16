@@ -1,4 +1,5 @@
 use crate::bindings::*;
+use serde::{Deserialize, Serialize};
 use std::{
     borrow::{Borrow, Cow},
     fmt::Debug,
@@ -43,6 +44,48 @@ impl CxxString {
     /// Like `String::as_str`, this method is unnecessary where deref coercion can be used.
     pub fn as_cxx_str(&self) -> &CxxStr {
         self
+    }
+}
+
+impl Serialize for CxxString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.as_cxx_str().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for CxxString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct CxxStringVisitor;
+
+        impl serde::de::Visitor<'_> for CxxStringVisitor {
+            type Value = CxxString;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("string or bytes")
+            }
+
+            fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(CxxString::new(v))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(CxxString::new(v))
+            }
+        }
+
+        deserializer.deserialize_bytes(CxxStringVisitor)
     }
 }
 
@@ -274,3 +317,12 @@ impl PartialEq<String> for CxxStr {
 /// is protected by `CxxString::into_raw` requiring an owned `self`. By the same logic, `Send` is
 /// unnecessary to implement (you can never obtain a value to send).
 unsafe impl Sync for CxxStr {}
+
+impl Serialize for CxxStr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.to_str() {
+            Ok(s) => serializer.serialize_str(s),
+            Err(_) => serializer.serialize_bytes(self.as_bytes()),
+        }
+    }
+}

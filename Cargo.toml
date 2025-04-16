@@ -10,9 +10,10 @@ members = [
     "crates/swss-serde",
     "crates/swbus-edge", 
     "crates/swbus-proto",
-    "crates/swbus-cli", 
+    "crates/swbus-cli",
     "crates/swbus-config",
     "crates/swbus-actor",
+    "crates/swss-common-bridge",
     "crates/container",
 ]
 exclude = []
@@ -35,7 +36,7 @@ unused_import_braces = 'warn'
 [workspace.dependencies]
 # Async framework
 tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
 
 # Log and error handling
@@ -49,7 +50,7 @@ human-panic = "2"
 better-panic = "0.3"
 signal-hook = "0.3"
 
-# Serializatoin
+# Serialization
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 serde_yaml = "0.9"
