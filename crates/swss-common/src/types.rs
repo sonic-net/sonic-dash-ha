@@ -156,6 +156,33 @@ pub struct KeyOpFieldValues {
     pub field_values: FieldValues,
 }
 
+impl KeyOpFieldValues {
+    pub fn set<K, I, F, V>(key: K, fvs: I) -> Self
+    where
+        K: Into<String>,
+        I: IntoIterator<Item = (F, V)>,
+        F: Into<String>,
+        V: Into<CxxString>,
+    {
+        Self {
+            key: key.into(),
+            operation: KeyOperation::Set,
+            field_values: fvs.into_iter().map(|(f, v)| (f.into(), v.into())).collect(),
+        }
+    }
+
+    pub fn del<K>(key: K) -> Self
+    where
+        K: Into<String>,
+    {
+        Self {
+            key: key.into(),
+            operation: KeyOperation::Del,
+            field_values: HashMap::new(),
+        }
+    }
+}
+
 /// Intended for testing, ordered by key.
 impl PartialOrd for KeyOpFieldValues {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {

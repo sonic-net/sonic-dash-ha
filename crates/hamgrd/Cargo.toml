@@ -13,3 +13,14 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+swbus-edge = { path = "../swbus-edge" }
+swbus-actor = { path = "../swbus-actor" }
+swss-common = { path = "../swss-common" }
+swss-common-bridge = { path = "../swss-common-bridge" }
+swss-serde = { path = "../swss-serde" }
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

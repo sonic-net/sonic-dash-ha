@@ -80,5 +80,6 @@ unsafe impl Send for SubscriberStateTable {}
 #[cfg(feature = "async")]
 impl SubscriberStateTable {
     async_util::impl_read_data_async!();
+    async_util::impl_basic_async_method!(new_async <= new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Result<Self>);
     async_util::impl_basic_async_method!(pops_async <= pops(&self) -> Result<Vec<KeyOpFieldValues>>);
 }
