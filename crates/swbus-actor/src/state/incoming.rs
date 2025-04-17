@@ -1,6 +1,8 @@
 use crate::actor_message::ActorMessage;
 use anyhow::{anyhow, Result};
 use std::{collections::HashMap, sync::Arc};
+use swbus_cli_data::hamgr::actor_state::ActorMessage as ActorMessageDump;
+use swbus_cli_data::hamgr::actor_state::IncomingStateEntry;
 use swbus_edge::{
     simple_client::{MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
@@ -65,6 +67,7 @@ impl Incoming {
                             request_id: id,
                             error_code: SwbusErrorCode::InvalidPayload,
                             error_message: format!("{e:#}"),
+                            response_body: None,
                         },
                     })
                     .await
@@ -87,6 +90,26 @@ impl Incoming {
         let entry = self.table.get_mut(key).unwrap();
         entry.update_handled(error_code, error_message);
         (entry.request_id, entry.source.clone())
+    }
+
+    pub(crate) fn dump_state(&self) -> Vec<IncomingStateEntry> {
+        self.table
+            .iter()
+            .map(|(key, entry)| IncomingStateEntry {
+                key: key.clone(),
+                version: entry.version,
+                message: ActorMessageDump {
+                    key: entry.msg.key.clone(),
+                    data: format!("{:#}", entry.msg.data),
+                },
+                source: entry.source.to_longest_path(),
+                request_id: entry.request_id,
+                created_time: entry.created_time,
+                last_updated_time: entry.last_updated_time,
+                response: entry.response.clone(),
+                acked: entry.acked,
+            })
+            .collect()
     }
 }
 

@@ -63,6 +63,7 @@ where
                         request_id: msg.id,
                         error_code,
                         error_message,
+                        response_body: None,
                     },
                 })
                 .await

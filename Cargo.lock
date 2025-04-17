@@ -1949,6 +1949,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "swbus-cli-data",
  "swbus-edge",
  "swss-common",
  "swss-common-testing",
@@ -1960,8 +1961,11 @@ name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "serde_json",
  "serde_yaml",
+ "swbus-cli-data",
  "swbus-config",
  "swbus-core",
  "swbus-edge",
@@ -1976,6 +1980,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "swbus-cli-data"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
