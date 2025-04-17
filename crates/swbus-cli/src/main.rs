@@ -1,5 +1,6 @@
 mod ping;
 mod show;
+mod trace_route;
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ struct Command {
 #[derive(Parser, Debug)]
 enum CliSubCmd {
     Ping(ping::PingCmd),
+    TraceRoute(trace_route::TraceRouteCmd),
     Show(show::ShowCmd),
 }
 
@@ -189,17 +191,16 @@ async fn main() {
     match args.subcommand {
         CliSubCmd::Ping(ping_args) => ping_args.handle(&ctx).await,
         CliSubCmd::Show(show_args) => show_args.handle(&ctx).await,
+        CliSubCmd::TraceRoute(trace_route_args) => trace_route_args.handle(&ctx).await,
     };
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swbus_config::*;
+    use swbus_config::test_utils::*;
     use swbus_proto::swbus::{swbus_message, SwbusMessage};
-    use swss_common::{DbConnector, Table};
     use swss_common_testing::*;
-    use swss_serde::to_table;
 
     #[tokio::test]
     async fn test_response_result_from_code() {
@@ -259,42 +260,15 @@ mod tests {
     #[test]
     fn test_get_swbus_config() {
         let slot = 1;
-        let npu_ipv4 = "10.0.1.1";
+        let npu_ipv4 = "10.0.1.0";
         let _ = Redis::start_config_db();
 
-        let db = DbConnector::new_named("CONFIG_DB", false, 0).unwrap();
-        let table = Table::new(db, "DEVICE_METADATA").unwrap();
-
-        let metadata = ConfigDBDeviceMetadataEntry {
-            region: Some("region-a".to_string()),
-            cluster: Some("cluster-a".to_string()),
-            device_type: Some("SpineRouter".to_string()),
-            sub_type: Some("SmartSwitch".to_string()),
-        };
-        to_table(&metadata, &table, "localhost").unwrap();
-
-        let db = DbConnector::new_named("CONFIG_DB", false, 0).unwrap();
-        let table = Table::new(db, "DPU").unwrap();
-        for d in 0..2 {
-            let dpu = ConfigDBDPUEntry {
-                dpu_type: Some("local".to_string()),
-                state: Some("active".to_string()),
-                slot_id: d,
-                pa_ipv4: Some(format!("10.0.0.{}", d)),
-                pa_ipv6: Some(format!("2001:db8::{}", d)),
-                npu_ipv4: Some(npu_ipv4.to_string()),
-                npu_ipv6: Some("2001:db8:1::1".to_string()),
-                probe_ip: None,
-            };
-            to_table(&dpu, &table, &format!("dpu{}", d)).unwrap();
-        }
+        // Mock the config database with a sample configuration
+        populate_configdb_for_test();
 
         std::env::set_var("DEV", slot.to_string());
         let config = get_swbus_config(None).unwrap();
-        assert_eq!(
-            config.endpoint.to_string(),
-            format!("{}:{}", npu_ipv4, SWBUSD_PORT + slot)
-        );
+        assert_eq!(config.endpoint.to_string(), format!("{}:{}", npu_ipv4, 23606 + slot));
         let expected_sp = ServicePath::with_node(
             "region-a",
             "cluster-a",
@@ -308,5 +282,7 @@ mod tests {
             .routes
             .iter()
             .any(|r| r.scope == RouteScope::Cluster && r.key == expected_sp));
+
+        cleanup_configdb_for_test();
     }
 }

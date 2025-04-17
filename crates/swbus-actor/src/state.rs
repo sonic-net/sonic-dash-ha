@@ -61,3 +61,11 @@ impl State {
         &mut self.outgoing
     }
 }
+
+fn get_unix_time() -> u64 {
+    use std::time::SystemTime;
+
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
