@@ -49,6 +49,8 @@ lazy_static.workspace = true
 # used in tests/
 swbus-edge.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "serde"] }
+sonic-common.workspace = true
+
 [build-dependencies]
 tonic-build.workspace = true
 

@@ -8,7 +8,6 @@ use swbus_edge::edge_runtime::SwbusEdgeRuntime;
 use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 use tokio::time::{self, Duration, Instant};
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, Layer};
@@ -41,7 +40,7 @@ struct CommandContext {
     debug: bool,
     // The source servicepath of swbus-cli
     sp: ServicePath,
-    runtime: Arc<Mutex<SwbusEdgeRuntime>>,
+    runtime: Arc<SwbusEdgeRuntime>,
     id_generator: MessageIdGenerator,
 }
 
@@ -159,14 +158,22 @@ async fn main() {
     let mut sp = sp.unwrap();
     sp.service_type = "swbus-cli".to_string();
     sp.service_id = Uuid::new_v4().to_string();
-    let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
-        format!("http://{}", swbus_config.endpoint),
-        sp.clone(),
-    )));
-    let runtime_clone = runtime.clone();
-    tokio::spawn(async move {
-        runtime_clone.lock().await.start().await.unwrap();
-    });
+    let mut runtime = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), sp.clone());
+    runtime.start().await.unwrap();
+    let runtime = Arc::new(runtime);
+
+    let start = Instant::now();
+    // wait until swbusd is connected
+    loop {
+        if runtime.swbusd_connected().await {
+            break;
+        }
+        if start.elapsed() > Duration::from_secs(10) {
+            error!("Failed to connect to swbusd");
+            return;
+        }
+        time::sleep(Duration::from_millis(100)).await;
+    }
 
     let ctx = CommandContext {
         debug: args.debug,
