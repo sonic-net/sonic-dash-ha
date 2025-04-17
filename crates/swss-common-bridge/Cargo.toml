@@ -1,0 +1,22 @@
+[package]
+name = "swss-common-bridge"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+swss-common = { path = "../swss-common", features = ["async"] }
+swbus-edge = { path = "../swbus-edge" }
+tokio.workspace = true
+tokio-util.workspace = true
+swbus-actor = { path = "../swbus-actor" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+swss-common-testing = { path = "../swss-common-testing" }
