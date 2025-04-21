@@ -7,8 +7,8 @@ pub mod state;
 use std::future::Future;
 
 pub use actor_message::ActorMessage;
-pub use anyhow::{Error, Result};
-pub use runtime::{set_global_runtime, spawn, ActorRuntime};
+pub use anyhow::{Context, Error, Result};
+pub use runtime::{get_global_runtime, set_global_runtime, set_global_runtime_if_unset, spawn, ActorRuntime};
 pub use serde_json as json;
 pub use state::State;
 
