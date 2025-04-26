@@ -92,6 +92,7 @@ swbus-config = { version = "0.1.0", path = "crates/swbus-config" }
 swss-serde = { version = "0.1.0", path = "crates/swss-serde" }
 swss-common = { version = "0.1.0", path = "crates/swss-common" }
 swss-common-testing = { version = "0.1.0", path = "crates/swss-common-testing" }
+swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
 
 # Dev dependencies
 criterion = "0.5"

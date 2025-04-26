@@ -6,7 +6,7 @@ use getset::Getters;
 use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
-use swbus_proto::swbus::{swbus_message, SwbusMessage};
+use swbus_proto::swbus::{swbus_message, ManagementRequestType, SwbusMessage};
 use tracing::*;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -95,6 +95,21 @@ impl SwbusNextHop {
         message: SwbusMessage,
     ) -> Result<Option<SwbusMessage>> {
         // process message locally
+        let dest_sp = message.header.as_ref().unwrap().destination.as_ref().unwrap();
+        if !dest_sp.service_type.is_empty() {
+            // local nexthop uses swbusd service path. If the dest sp is to a local service and
+            // there is no route to the service, the packet will be routed to here. We need to
+            // return no route error in this case.
+            let response = SwbusMessage::new_response(
+                &message,
+                None,
+                SwbusErrorCode::NoRoute,
+                "Route not found",
+                mux.generate_message_id(),
+                None,
+            );
+            return Ok(Some(response));
+        }
         let response = match message.body.as_ref() {
             Some(swbus_message::Body::PingRequest(_)) => self.process_ping_request(mux, message).unwrap(),
             Some(swbus_message::Body::ManagementRequest(mgmt_request)) => {
@@ -128,8 +143,15 @@ impl SwbusNextHop {
         message: &SwbusMessage,
         mgmt_request: &ManagementRequest,
     ) -> Result<SwbusMessage> {
-        match mgmt_request.request.as_str() {
-            "show_route" => {
+        let request_type = ManagementRequestType::try_from(mgmt_request.request).map_err(|_| {
+            SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                format!("Invalid management request: {:?}", mgmt_request.request),
+            )
+        })?;
+
+        match request_type {
+            ManagementRequestType::SwbusdGetRoutes => {
                 debug!("Received show_route request");
                 let routes = mux.export_routes(None);
                 let response_msg = SwbusMessage::new_response(
