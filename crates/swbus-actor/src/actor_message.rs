@@ -23,8 +23,13 @@ impl ActorMessage {
 
     /// Deserialize the JSON value of `self.data` into a rust type.
     pub fn deserialize_data<T: DeserializeOwned>(&self) -> Result<T> {
-        serde_json::from_value(self.data.clone())
-            .with_context(|| format!("deserializing ActorMessage::data into {}", type_name::<T>()))
+        serde_json::from_value(self.data.clone()).with_context(|| {
+            format!(
+                "deserializing ActorMessage (key={}) into {}",
+                self.key,
+                type_name::<T>(),
+            )
+        })
     }
 
     /// Serialize the message into an swbus message payload that can be decoded with [`Self::deserialize`].
