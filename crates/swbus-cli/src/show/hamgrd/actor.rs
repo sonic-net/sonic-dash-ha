@@ -2,9 +2,8 @@ use crate::show::ShowCmdHandler;
 use crate::CommandContext;
 use chrono::{DateTime, Local};
 use clap::Parser;
-use swbus_cli_data::hamgr::actor_state::ActorState;
-use swbus_cli_data::hamgr::actor_state::IncomingStateEntry;
-use swbus_cli_data::hamgr::actor_state::InternalStateEntry;
+use serde_json::to_string_pretty;
+use swbus_actor::state::{incoming::IncomingTableEntry, internal::InternalTableData, ActorStateDump};
 use swbus_proto::swbus::*;
 use tabled::settings::{object::Rows, style::Style, Alignment, Modify, Panel};
 use tabled::{Table, Tabled};
@@ -41,11 +40,11 @@ fn unix_secs_to_string(unix_secs: u64) -> String {
 }
 
 impl IncomingStateDisplay {
-    fn from_incoming_state(state: &IncomingStateEntry) -> Self {
+    fn from_incoming_state((key, state): (&String, &IncomingTableEntry)) -> Self {
         let details = vec![
             KeyValue {
                 attribute: "source".to_string(),
-                value: state.source.clone(),
+                value: state.source.to_longest_path(),
             },
             KeyValue {
                 attribute: "request-id".to_string(),
@@ -57,11 +56,11 @@ impl IncomingStateDisplay {
             },
             KeyValue {
                 attribute: "message/key".to_string(),
-                value: state.message.key.clone(),
+                value: state.msg.key.clone(),
             },
             KeyValue {
                 attribute: "message/value".to_string(),
-                value: state.message.data.clone(),
+                value: to_string_pretty(&state.msg.data).unwrap_or("INV".to_string()),
             },
             KeyValue {
                 attribute: "created-time".to_string(),
@@ -82,7 +81,7 @@ impl IncomingStateDisplay {
         ];
         let table = Table::new(details).with(Style::ascii().remove_frame()).to_string();
         IncomingStateDisplay {
-            key: state.key.clone(),
+            key: key.clone(),
             details: table,
         }
     }
@@ -97,11 +96,11 @@ struct InternalStateDisplay {
 }
 
 impl InternalStateDisplay {
-    fn from_internal_state(state: &InternalStateEntry) -> Self {
+    fn from_internal_state((key, state): (&String, &InternalTableData)) -> Self {
         let table_meta = vec![
             KeyValue {
                 attribute: "table".to_string(),
-                value: state.swss_table.clone(),
+                value: state.swss_table_name.clone(),
             },
             KeyValue {
                 attribute: "key".to_string(),
@@ -126,9 +125,9 @@ impl InternalStateDisplay {
         let fvs = state
             .fvs
             .iter()
-            .map(|kv| KeyValue {
-                attribute: kv.key.clone(),
-                value: kv.value.clone(),
+            .map(|(key, value)| KeyValue {
+                attribute: key.clone(),
+                value: value.to_string_lossy().into_owned(),
             })
             .collect::<Vec<KeyValue>>();
         let fvs = Table::new(fvs).with(Style::ascii().remove_frame()).to_string();
@@ -136,15 +135,15 @@ impl InternalStateDisplay {
         let backup_fvs = state
             .backup_fvs
             .iter()
-            .map(|kv| KeyValue {
-                attribute: kv.key.clone(),
-                value: kv.value.clone(),
+            .map(|(key, value)| KeyValue {
+                attribute: key.clone(),
+                value: value.to_string_lossy().into_owned(),
             })
             .collect::<Vec<KeyValue>>();
 
         let backup_fvs = Table::new(backup_fvs).with(Style::ascii().remove_frame()).to_string();
         InternalStateDisplay {
-            key: state.key.clone(),
+            key: key.clone(),
             table_meta,
             fvs,
             backup_fvs,
@@ -174,11 +173,11 @@ impl ShowCmdHandler for ShowActorCmd {
             }
         };
 
-        let state: ActorState = serde_json::from_str(result).unwrap();
+        let state: ActorStateDump = serde_json::from_str(result).unwrap();
 
         // convert to table for display
         let incoming_state_display = state
-            .incoming_state
+            .incoming
             .iter()
             .map(IncomingStateDisplay::from_incoming_state)
             .collect::<Vec<IncomingStateDisplay>>();
@@ -192,7 +191,7 @@ impl ShowCmdHandler for ShowActorCmd {
 
         // convert to table for display
         let internal_state_display = state
-            .internal_state
+            .internal
             .iter()
             .map(InternalStateDisplay::from_internal_state)
             .collect::<Vec<InternalStateDisplay>>();

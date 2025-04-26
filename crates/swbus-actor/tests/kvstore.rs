@@ -11,7 +11,7 @@ use tokio::{
 };
 
 use std::sync::Arc;
-use swbus_cli_data::hamgr::actor_state::ActorState;
+use swbus_actor::state::ActorStateDump;
 use swbus_edge::swbus_proto::swbus::{
     request_response::ResponseBody, swbus_message::Body, ManagementRequest, ManagementRequestType, SwbusErrorCode,
     SwbusMessage, SwbusMessageHeader,
@@ -60,47 +60,52 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
     swbus_edge.send(request_msg).await.unwrap();
     let expected_json = r#"
     {
-        "incoming_state": [
-            {
-            "key": "",
-            "source": "test.test.test/test/test/test/client",
+        "incoming": {
+            "": {
+            "msg": {
+                "key": "",
+                "data": {
+                "Get": {
+                    "key": "count"
+                }
+                }
+            },
+            "source": {
+                "region_id": "test",
+                "cluster_id": "test",
+                "node_id": "test",
+                "service_type": "test",
+                "service_id": "test",
+                "resource_type": "test",
+                "resource_id": "client"
+            },
             "request_id": 0,
             "version": 2001,
-            "message": {
-                "key": "",
-                "data": "{\n  \"Get\": {\n    \"key\": \"count\"\n  }\n}"
-            },
             "created_time": 0,
             "last_updated_time": 0,
             "response": "Ok",
             "acked": true
             }
-        ],
-        "internal_state": [
-            {
-            "key": "data",
-            "swss_table": "kv-actor-data",
+        },
+        "internal": {
+            "data": {
+            "swss_table_name": "kv-actor-data",
             "swss_key": "kv-actor-data",
-            "fvs": [
-                {
-                "key": "count",
-                "value": "1000"
-                }
-            ],
+            "fvs": {
+                "count": "1000"
+            },
             "mutated": false,
-            "backup_fvs": [
-                {
-                "key": "count",
-                "value": "999"
-                }
-            ],
+            "backup_fvs": {
+                "count": "999"
+            },
             "last_updated_time": 0
             }
-        ]
-    }
+        }
+    }    
+    
     "#;
 
-    let expected = serde_json::from_str(expected_json).unwrap();
+    let expected: ActorStateDump = serde_json::from_str(expected_json).unwrap();
     match timeout(Duration::from_secs(3), mgmt_resp_queue_rx.recv()).await {
         Ok(Some(msg)) => match msg.body {
             Some(Body::Response(ref response)) => {
@@ -109,7 +114,7 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
                 match response.response_body {
                     Some(ResponseBody::ManagementQueryResult(ref result)) => {
                         println!("{}", &result.value);
-                        let state: ActorState = serde_json::from_str(&result.value).unwrap();
+                        let state: ActorStateDump = serde_json::from_str(&result.value).unwrap();
 
                         assert_eq!(state, expected);
                     }

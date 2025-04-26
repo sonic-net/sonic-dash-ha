@@ -1,8 +1,7 @@
 use crate::actor_message::ActorMessage;
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
-use swbus_cli_data::hamgr::actor_state::ActorMessage as ActorMessageDump;
-use swbus_cli_data::hamgr::actor_state::IncomingStateEntry;
 use swbus_edge::{
     simple_client::{MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
@@ -92,27 +91,12 @@ impl Incoming {
         (entry.request_id, entry.source.clone())
     }
 
-    pub(crate) fn dump_state(&self) -> Vec<IncomingStateEntry> {
-        self.table
-            .iter()
-            .map(|(key, entry)| IncomingStateEntry {
-                key: key.clone(),
-                version: entry.version,
-                message: ActorMessageDump {
-                    key: entry.msg.key.clone(),
-                    data: format!("{:#}", entry.msg.data),
-                },
-                source: entry.source.to_longest_path(),
-                request_id: entry.request_id,
-                created_time: entry.created_time,
-                last_updated_time: entry.last_updated_time,
-                response: entry.response.clone(),
-                acked: entry.acked,
-            })
-            .collect()
+    pub(crate) fn dump_state(&self) -> HashMap<String, IncomingTableEntry> {
+        self.table.clone()
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IncomingTableEntry {
     /// The latest request to this key.
     pub msg: ActorMessage,
@@ -165,5 +149,16 @@ impl IncomingTableEntry {
             self.acked = false;
             self.response = format!("{error_code:?} ({error_message})");
         }
+    }
+}
+
+impl PartialEq for IncomingTableEntry {
+    // Skip request_id, create_time and last_update_time in comparison during test
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+            && self.version == other.version
+            && self.msg == other.msg
+            && self.response == other.response
+            && self.acked == other.acked
     }
 }

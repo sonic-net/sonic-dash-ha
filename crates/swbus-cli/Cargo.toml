@@ -32,7 +32,7 @@ swbus-edge.workspace = true
 swbus-core.workspace = true
 swbus-proto.workspace = true
 swbus-config.workspace = true
-swbus-cli-data = { path = "../swbus-cli-data" }
+swbus-actor.workspace = true
 
 [dev-dependencies]
 swss-common-testing.workspace = true

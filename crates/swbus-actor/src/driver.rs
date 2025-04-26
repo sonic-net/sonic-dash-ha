@@ -1,7 +1,6 @@
-use crate::{Actor, State};
+use crate::{state::ActorStateDump, Actor, State};
 use std::collections::HashMap;
 use std::sync::Arc;
-use swbus_cli_data::hamgr::actor_state::ActorState;
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, MessageResponseBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ManagementRequestType, ServicePath, SwbusErrorCode},
@@ -135,12 +134,7 @@ impl<A: Actor> ActorDriver<A> {
             }
         }
     }
-    fn dump_state(&self) -> ActorState {
-        let internal_state = self.state.internal.dump_state();
-        let incoming_state = self.state.incoming.dump_state();
-        ActorState {
-            incoming_state,
-            internal_state,
-        }
+    fn dump_state(&self) -> ActorStateDump {
+        self.state.dump_state()
     }
 }
