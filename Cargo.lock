@@ -788,14 +788,18 @@ name = "hamgrd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "serde",
  "serde_json",
+ "sonic-common",
  "swbus-actor",
+ "swbus-config",
  "swbus-edge",
  "swss-common",
  "swss-common-bridge",
  "swss-serde",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2310,6 +2314,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.52.0",
