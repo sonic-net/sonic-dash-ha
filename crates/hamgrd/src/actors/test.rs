@@ -149,7 +149,10 @@ pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
 
 pub async fn setup_actor_runtime() {
     if get_global_runtime().is_none() {
-        let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("swbus-edge-runtime", "swbus-edge-runtime"));
+        let mut swbus_edge = SwbusEdgeRuntime::new(
+            "none".to_string(),
+            ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
+        );
         swbus_edge.start().await.unwrap();
         let actor_runtime = ActorRuntime::new(Arc::new(swbus_edge));
         set_global_runtime_if_unset(actor_runtime);

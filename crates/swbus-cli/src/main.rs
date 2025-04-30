@@ -133,8 +133,11 @@ fn get_swbus_config(config_file: Option<&str>) -> Result<SwbusConfig> {
             Ok(config)
         }
         None => {
-            let slot = std::env::var("DEV").context("Environment DEV is not found")?;
-            let slot: u32 = slot.parse().context("Invalid slot id")?;
+            let dev = std::env::var("DEV").context("Environment DEV is not found")?;
+            // Remove the prefix "dpu" from the slot id
+            let dev = &dev[3..];
+            let slot: u32 = dev.parse().context("Invalid slot id")?;
+
             let config = swbus_config_from_db(slot).context("Failed to get swbusd config from db")?;
             Ok(config)
         }
@@ -148,17 +151,12 @@ async fn main() {
     init_logger(args.debug);
 
     let swbus_config = get_swbus_config(args.config_file.as_deref()).unwrap();
-    let mut sp: Option<ServicePath> = None;
-    for route in &swbus_config.routes {
-        if route.scope == RouteScope::Cluster {
-            sp = Some(route.key.clone());
-            break;
-        }
-    }
-    if sp.is_none() {
-        error!("No cluster route found, please check the config");
-    }
-    let mut sp = sp.unwrap();
+
+    let mut sp = swbus_config.get_swbusd_service_path().unwrap_or_else(|| {
+        error!("No cluster route found in swbusd config");
+        std::process::exit(1);
+    });
+
     sp.service_type = "swbus-cli".to_string();
     sp.service_id = Uuid::new_v4().to_string();
     let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
@@ -259,9 +257,9 @@ mod tests {
         // Mock the config database with a sample configuration
         populate_configdb_for_test();
 
-        std::env::set_var("DEV", slot.to_string());
+        std::env::set_var("DEV", format!("dpu{}", slot));
         let config = get_swbus_config(None).unwrap();
-        assert_eq!(config.endpoint.to_string(), format!("{}:{}", npu_ipv4, 23606 + slot));
+        assert_eq!(config.endpoint.to_string(), format!("{}:{}", "0.0.0.0", 23606 + slot));
         let expected_sp = ServicePath::with_node(
             "region-a",
             "cluster-a",

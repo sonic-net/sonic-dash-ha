@@ -17,7 +17,6 @@ use tracing::{error, info};
 pub const RECEIVE_TIMEOUT: u32 = 3;
 
 /// The Topo struct contains the server jobs and clients' TX and RX of its message queues.
-
 pub struct TopoRuntime {
     pub name: String,
     /// The server jobs are the tokio tasks that run the swbusd servers.
