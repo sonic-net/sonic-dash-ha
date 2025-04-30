@@ -1,12 +1,11 @@
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use swbus_actor::{spawn, Actor, ActorMessage, State};
 use swbus_edge::swbus_proto::swbus::ServicePath;
 use swss_common::{KeyOpFieldValues, SubscriberStateTable, Table};
 use swss_common_bridge::consumer::spawn_consumer_bridge;
 
-pub async fn spawn_dpu_actors(vdpu_assignment: HashMap<String, String>) -> Result<()> {
+pub async fn spawn_dpu_actors() -> Result<()> {
     // Get a list of DPUs from CONFIG_DB::DPU
     let config_db = crate::db_named("CONFIG_DB").await?;
     let mut dpu_table = Table::new_async(config_db, "DPU").await?;
@@ -19,7 +18,7 @@ pub async fn spawn_dpu_actors(vdpu_assignment: HashMap<String, String>) -> Resul
         let actor = DpuActor {
             id: dpu_id.clone(),
             dpu: dpu.clone(),
-            vdpu_addr: crate::sp("vdpu", &vdpu_assignment[dpu_id]),
+            vdpu_addr: None,
         };
         spawn(actor, crate::sp("dpu", dpu_id));
     }
@@ -86,7 +85,7 @@ struct DpuActor {
     dpu: Dpu,
 
     /// The vdpu actor to send updates to
-    vdpu_addr: ServicePath,
+    vdpu_addr: Option<ServicePath>,
 }
 
 impl Actor for DpuActor {
@@ -108,7 +107,10 @@ impl Actor for DpuActor {
         // Send an update to the vdpu
         let up = pmon_dpu_up && bfd_dpu_up;
         let msg = ActorMessage::new(&self.id, &DpuActorState { up })?;
-        outgoing.send(self.vdpu_addr.clone(), msg);
+
+        if let Some(vdpu_addr) = &self.vdpu_addr {
+            outgoing.send(vdpu_addr.clone(), msg);
+        }
 
         Ok(())
     }
@@ -138,7 +140,7 @@ mod test {
             dpu: Dpu {
                 pa_ipv4: "1.2.3.4".into(),
             },
-            vdpu_addr: sp("vdpu", "test-vdpu"),
+            vdpu_addr: Some(sp("vdpu", "test-vdpu")),
         };
         swbus_actor::spawn(dpu_actor, sp("dpu", "test-dpu"));
 
