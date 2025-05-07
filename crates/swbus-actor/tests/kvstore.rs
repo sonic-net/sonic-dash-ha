@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{mem, time::Duration};
-use swbus_actor::{Actor, ActorMessage, ActorRuntime, Result, State};
+use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, Result, State};
 use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::Table;
 use swss_common_testing::Redis;
@@ -72,7 +72,7 @@ impl Actor for KVClient {
         Ok(())
     }
 
-    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
         assert_eq!(key, "kv-get");
         let KVGetResult { key, val } = state.incoming().get(key)?.deserialize_data::<KVGetResult>()?;
 
@@ -108,7 +108,7 @@ impl Actor for KVStore {
         Ok(())
     }
 
-    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
         let (internal, incoming, outgoing) = state.get_all();
         let entry = incoming.get_entry(key).unwrap();
         match entry.msg.deserialize_data::<KVMessage>()? {
