@@ -1,8 +1,8 @@
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use swbus_actor::{spawn, Actor, ActorMessage, State};
+use swbus_actor::{spawn, Actor, ActorMessage, Context, State};
 use swbus_edge::swbus_proto::swbus::ServicePath;
-use swss_common::{KeyOpFieldValues, SubscriberStateTable, Table};
+use swss_common::{FieldValues, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table};
 use swss_common_bridge::consumer::spawn_consumer_bridge;
 
 pub async fn spawn_dpu_actors() -> Result<()> {
@@ -30,7 +30,7 @@ pub async fn spawn_dpu_actors() -> Result<()> {
         let chassis_state_db = crate::db_named("CHASSIS_STATE_DB").await?;
         let dpu_state_sst = SubscriberStateTable::new_async(chassis_state_db, "DPU_STATE", None, None).await?;
         let addr = crate::sp("swss-common-bridge", "DPU_STATE");
-        spawn_consumer_bridge(rt, addr, dpu_state_sst, |kfv| {
+        spawn_consumer_bridge(rt, addr, dpu_state_sst, |kfv: &KeyOpFieldValues| {
             (crate::sp("DPU", &kfv.key), "DPU_STATE".to_owned())
         });
     }
@@ -77,7 +77,7 @@ struct DashBfdProbeState {
     v4_bfd_up_sessions: Vec<String>,
 }
 
-struct DpuActor {
+pub struct DpuActor {
     /// The id of this dpu
     id: String,
 
@@ -87,10 +87,39 @@ struct DpuActor {
     /// The vdpu actor to send updates to
     vdpu_addr: Option<ServicePath>,
 }
+impl DpuActor {
+    pub fn new(key: String, dpu_fvs: &FieldValues) -> Result<Self> {
+        let dpu: Dpu = swss_serde::from_field_values(dpu_fvs)?;
+        let actor = DpuActor {
+            id: key,
+            dpu: dpu.clone(),
+            vdpu_addr: None,
+        };
+        Ok(actor)
+    }
+
+    pub fn name() -> &'static str {
+        "DPU"
+    }
+
+    // returns the main Db table name that this actor is associated to
+    pub fn table_name() -> &'static str {
+        "DPU"
+    }
+}
 
 impl Actor for DpuActor {
-    async fn handle_message(&mut self, state: &mut State, _key: &str) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
+
+        if key == Self::table_name() {
+            let dpu_entry = incoming.get_entry(key)?;
+            let dpu_kfv: KeyOpFieldValues = dpu_entry.msg.deserialize_data()?;
+            if dpu_entry.source.resource_type == "swss-common-bridge" && dpu_kfv.operation == KeyOperation::Del {
+                context.stop();
+                return Ok(());
+            }
+        }
 
         // Check pmon state from DPU_STATE table
         let dpu_state_kfv: KeyOpFieldValues = incoming.get("DPU_STATE")?.deserialize_data()?;
@@ -130,6 +159,7 @@ mod test {
         },
         sp,
     };
+    use std::time::Duration;
 
     #[tokio::test]
     async fn dpu_actor() {
@@ -142,7 +172,7 @@ mod test {
             },
             vdpu_addr: Some(sp("vdpu", "test-vdpu")),
         };
-        swbus_actor::spawn(dpu_actor, sp("dpu", "test-dpu"));
+        let handle = swbus_actor::spawn(dpu_actor, sp("dpu", "test-dpu"));
 
         #[rustfmt::skip]
         let commands = [
@@ -170,7 +200,11 @@ mod test {
             recv! { key: "test-dpu", data: { "up": false }, addr: sp("vdpu", "test-vdpu") },
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "1.2.3.5,1.2.3.6,1.2.3.7,1.2.3.4" }} },
             recv! { key: "test-dpu", data: { "up": true }, addr: sp("vdpu", "test-vdpu") },
+            send! { key: DpuActor::table_name(), data: { "key": DpuActor::table_name(), "operation": "Del", "field_values": {"pa_ipv4": "1.2.3.4" }}, addr: sp("swss-common-bridge", DpuActor::table_name()) },
         ];
         test::run_commands(sp("dpu", "test-dpu"), &commands).await;
+        if let Err(_) = tokio::time::timeout(Duration::from_secs(1), handle).await {
+            panic!("timeout waiting for actor to terminate");
+        }
     }
 }

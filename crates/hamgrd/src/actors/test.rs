@@ -14,19 +14,27 @@ async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time:
 
 #[macro_export]
 macro_rules! send {
-    (key: $key:expr, data: $data:tt $(, addr: $addr:expr)? $(, $fail:ident)?) => {
+    (key: $key:expr, data: $data:tt) => {
+        send!(@build $key, $data, sp("test", "test"), false)
+    };
+    (key: $key:expr, data: $data:tt, addr: $addr:expr) => {
+        send!(@build $key, $data, $addr, false)
+    };
+    (key: $key:expr, data: $data:tt, fail) => {
+        send!(@build $key, $data, sp("test", "test"), true)
+    };
+    (key: $key:expr, data: $data:tt, addr: $addr:expr, fail) => {
+        send!(@build $key, $data, $addr, true)
+    };
+
+    (@build $key:expr, $data:tt, $addr:expr, $fail:expr) => {
         $crate::actors::test::Command::Send {
             key: String::from($key),
             data: serde_json::json!($data),
-            addr: send!(@addr $($addr)?),
-            fail: send!(@fail $($fail)?),
-
+            addr: $addr,
+            fail: $fail,
         }
     };
-    (@addr) => { sp("test", "test") };
-    (@addr $addr:expr) => { $addr };
-    (@fail) => { false };
-    (@fail fail) => { true };
 }
 pub use send;
 
@@ -128,11 +136,12 @@ pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
             Recv { key, data, addr } => {
                 let client = &clients[addr];
                 print!("Receiving {key}, ");
-                let am = match timeout(client.recv()).await {
+                let (am, request_id) = match timeout(client.recv()).await {
                     Ok(Some(IncomingMessage {
                         body: MessageBody::Request { payload },
+                        id: request_id,
                         ..
-                    })) => ActorMessage::deserialize(&payload).unwrap(),
+                    })) => (ActorMessage::deserialize(&payload).unwrap(), request_id),
                     Err(_) => {
                         println!("got Timeout");
                         panic!("Timed out waiting for request")
@@ -143,6 +152,17 @@ pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
                 println!("got {}", am.key);
                 assert_eq!(&am.key, key);
                 assert_eq!(&am.data, data);
+
+                let ack = OutgoingMessage {
+                    destination: aut.clone(),
+                    body: MessageBody::Response {
+                        request_id,
+                        error_code: SwbusErrorCode::Ok,
+                        error_message: "".to_string(),
+                        response_body: None,
+                    },
+                };
+                client.send(ack).await.unwrap();
             }
         }
     }

@@ -1,6 +1,8 @@
 use crate::{driver::ActorDriver, Actor};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
+use tokio::task::JoinHandle;
+use tracing::info;
 
 /// Global structures shared by all actors.
 pub struct ActorRuntime {
@@ -13,11 +15,13 @@ impl ActorRuntime {
     }
 
     /// Spawn an actor on this runtime, reachable by sending Swbus requests to `addr`.
-    pub fn spawn<A: Actor>(&self, actor: A, addr: ServicePath) {
+    pub fn spawn<A: Actor>(&self, actor: A, addr: ServicePath) -> JoinHandle<()> {
         // TODO: Add privacy option
+        info!("Spawning actor at {}", addr.to_longest_path());
         let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), addr, true);
         let actor_driver = ActorDriver::new(actor, swbus_client);
-        tokio::task::spawn(actor_driver.run());
+
+        tokio::task::spawn(actor_driver.run())
     }
 
     pub fn get_swbus_edge(&self) -> Arc<SwbusEdgeRuntime> {
@@ -51,11 +55,11 @@ pub fn get_global_runtime() -> RwLockReadGuard<'static, Option<ActorRuntime>> {
 /// Spawn an actor on the global runtime.
 ///
 /// Panics if called before [`set_global_runtime`] is called.
-pub fn spawn<A: Actor>(actor: A, addr: ServicePath) {
+pub fn spawn<A: Actor>(actor: A, addr: ServicePath) -> JoinHandle<()> {
     GLOBAL_RUNTIME
         .read()
         .unwrap()
         .as_ref()
         .expect("You must call actor::set_global_runtime() before calling actor::spawn()")
-        .spawn(actor, addr);
+        .spawn(actor, addr)
 }

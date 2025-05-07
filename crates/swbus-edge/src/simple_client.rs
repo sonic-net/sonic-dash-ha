@@ -169,6 +169,10 @@ impl SimpleSwbusEdgeClient {
         };
         (id, msg)
     }
+
+    pub fn get_service_path(self: &Arc<Self>) -> &ServicePath {
+        &self.source
+    }
 }
 
 #[allow(clippy::large_enum_variant)]
