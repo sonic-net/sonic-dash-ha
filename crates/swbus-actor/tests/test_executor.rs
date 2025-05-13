@@ -120,7 +120,10 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
     let redis = Redis::start();
     let (notify_done, mut recv_done) = channel::<()>(1);
 
-    let mut swbus_edge = SwbusEdgeRuntime::new("<none>".into(), sp("edge"));
+    let mut swbus_edge = SwbusEdgeRuntime::new(
+        "<none>".into(),
+        ServicePath::from_string("test.test.test/test/test").unwrap(),
+    );
     swbus_edge.start().await.unwrap();
     let actor_rt = ActorRuntime::new(Arc::new(swbus_edge));
     swbus_actor::set_global_runtime(actor_rt);
@@ -134,10 +137,10 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
             env: Environment::default(),
         };
 
-        swbus_actor::spawn(actor, sp(&s));
+        swbus_actor::spawn(actor, "test", &s);
     }
 
-    if let Err(_) = timeout(Duration::from_secs(5), recv_done.recv()).await {
+    if timeout(Duration::from_secs(5), recv_done.recv()).await.is_err() {
         Some("test timed out")
     } else {
         None

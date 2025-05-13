@@ -2,7 +2,7 @@ use crate::{Actor, Context, State};
 use std::sync::Arc;
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::{ServicePath, SwbusErrorCode},
+    swbus_proto::swbus::SwbusErrorCode,
 };
 use tracing::info;
 
@@ -50,9 +50,29 @@ impl<A: Actor> ActorDriver<A> {
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
-                match self.state.incoming.handle_request(id, source.clone(), &payload).await {
-                    Ok(key) => self.handle_actor_message(&key).await,
-                    Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
+                let res = self.state.incoming.handle_request(id, source.clone(), &payload).await;
+                let (error_code, error_message) = match &res {
+                    Ok(_) => (SwbusErrorCode::Ok, String::new()),
+                    Err(e) => {
+                        eprintln!("Incoming state table failed to handle request: {e:#}");
+                        (SwbusErrorCode::Fail, format!("{e:#}"))
+                    }
+                };
+
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source.clone(),
+                        body: MessageBody::Response {
+                            request_id: id,
+                            error_code,
+                            error_message,
+                        },
+                    })
+                    .await
+                    .expect("failed to send swbus message");
+
+                if let Ok(key) = res {
+                    self.handle_actor_message(&key).await;
                 }
             }
             MessageBody::Response {
@@ -83,18 +103,6 @@ impl<A: Actor> ActorDriver<A> {
             }
         };
 
-        let (request_id, destination) = self.state.incoming.request_handled(key, error_code, &error_message);
-
-        self.swbus_edge
-            .send(OutgoingMessage {
-                destination,
-                body: MessageBody::Response {
-                    request_id,
-                    error_code,
-                    error_message,
-                },
-            })
-            .await
-            .expect("failed to send swbus message");
+        self.state.incoming.request_handled(key, error_code, &error_message);
     }
 }

@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
-use swbus_actor::{get_global_runtime, set_global_runtime_if_unset, ActorMessage, ActorRuntime};
+use swbus_actor::{ActorMessage, ActorRuntime};
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
@@ -15,13 +15,13 @@ async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time:
 #[macro_export]
 macro_rules! send {
     (key: $key:expr, data: $data:tt) => {
-        send!(@build $key, $data, sp("test", "test"), false)
+        send!(@build $key, $data, swbus_edge::swbus_proto::swbus::ServicePath::from_string("unknown.unknown.unknown/hamgrd/0/test/test").unwrap(), false)
     };
     (key: $key:expr, data: $data:tt, addr: $addr:expr) => {
         send!(@build $key, $data, $addr, false)
     };
     (key: $key:expr, data: $data:tt, fail) => {
-        send!(@build $key, $data, sp("test", "test"), true)
+        send!(@build $key, $data, swbus_edge::swbus_proto::swbus::ServicePath::from_string("unknown.unknown.unknown/hamgrd/0/test/test").unwrap(), true)
     };
     (key: $key:expr, data: $data:tt, addr: $addr:expr, fail) => {
         send!(@build $key, $data, $addr, true)
@@ -50,8 +50,6 @@ macro_rules! recv {
 }
 pub use recv;
 
-use crate::sp;
-
 pub enum Command {
     Send {
         key: String,
@@ -66,7 +64,7 @@ pub enum Command {
     },
 }
 
-pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
+pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[Command]) {
     use Command::*;
 
     let mut clients: HashMap<ServicePath, SimpleSwbusEdgeClient> = HashMap::new();
@@ -76,7 +74,7 @@ pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
         match cmd {
             Send { addr, .. } | Recv { addr, .. } => {
                 if !clients.contains_key(addr) {
-                    let client = SimpleSwbusEdgeClient::new(get_swbus_edge(), addr.clone(), true);
+                    let client = SimpleSwbusEdgeClient::new(runtime.get_swbus_edge(), addr.clone(), true);
                     clients.insert(addr.clone(), client);
                 }
             }
@@ -166,18 +164,11 @@ pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
     }
 }
 
-pub async fn setup_actor_runtime() {
-    if get_global_runtime().is_none() {
-        let mut swbus_edge = SwbusEdgeRuntime::new(
-            "none".to_string(),
-            ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
-        );
-        swbus_edge.start().await.unwrap();
-        let actor_runtime = ActorRuntime::new(Arc::new(swbus_edge));
-        set_global_runtime_if_unset(actor_runtime);
-    }
-}
-
-fn get_swbus_edge() -> Arc<SwbusEdgeRuntime> {
-    swbus_actor::get_global_runtime().as_ref().unwrap().get_swbus_edge()
+pub async fn create_actor_runtime() -> ActorRuntime {
+    let mut swbus_edge = SwbusEdgeRuntime::new(
+        "none".to_string(),
+        ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
+    );
+    swbus_edge.start().await.unwrap();
+    ActorRuntime::new(Arc::new(swbus_edge))
 }

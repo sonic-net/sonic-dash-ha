@@ -12,17 +12,18 @@ pub mod ha_set;
 pub mod test;
 use anyhow::Result as AnyhowResult;
 use std::sync::Arc;
-use swbus_actor::{spawn, Actor, ActorMessage, State};
+use swbus_actor::{spawn, Actor, ActorMessage};
 use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{FieldValues, KeyOpFieldValues, KeyOperation};
+use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
+use swss_common_bridge::consumer::spawn_consumer_bridge;
 use tokio::sync::mpsc::{channel, Receiver};
-
+use tracing::error;
 pub struct ActorCreator<F, T>
 where
-    F: Fn(String, &FieldValues) -> AnyhowResult<T>,
+    F: Fn(String) -> AnyhowResult<T>,
     T: Actor,
 {
     sp: ServicePath,
@@ -34,7 +35,7 @@ where
 // Connection worker facade
 impl<F, T> ActorCreator<F, T>
 where
-    F: Fn(String, &FieldValues) -> AnyhowResult<T>,
+    F: Fn(String) -> AnyhowResult<T>,
     T: Actor,
 {
     pub fn new(sp: ServicePath, rt: Arc<SwbusEdgeRuntime>, public: bool, create_fn: F) -> Self {
@@ -73,10 +74,14 @@ where
                     self.id_generator.generate(),
                     None,
                 );
-                self.rt.send(response).await;
+                if self.rt.send(response).await.is_err() {
+                    error!("Failed to send response to swbus");
+                }
             } else {
                 // forward the message to the actor that is just spawned
-                self.rt.send(msg).await;
+                if self.rt.send(msg).await.is_err() {
+                    error!("Failed to send response to swbus");
+                }
             }
         }
     }
@@ -109,13 +114,15 @@ where
                             "actor doesn't exist: won't create actor for DEL kfv".to_string(),
                         ));
                     }
-                    let actor = (self.create_fn)(kfv.key, &kfv.field_values).map_err(|e| {
+                    let actor = (self.create_fn)(kfv.key.clone()).map_err(|e| {
+                        let mut sp = self.sp.clone();
+                        sp.resource_id = kfv.key.clone();
                         SwbusError::input(
-                            SwbusErrorCode::InvalidPayload,
-                            "cannot decode as ActorMessage".to_string(),
+                            SwbusErrorCode::Fail,
+                            format!("Failed to create actor {}. Error: {}", sp.to_swbusd_service_path(), e),
                         )
                     })?;
-                    spawn(actor, destination.clone());
+                    spawn(actor, &destination.resource_type, &destination.resource_id);
                 }
                 Err(_) => {
                     // log a message
@@ -128,4 +135,22 @@ where
         }
         Ok(())
     }
+}
+
+pub async fn spawn_consumer_bridge_for_actor(
+    edge_runtime: Arc<SwbusEdgeRuntime>,
+    db_name: &'static str,
+    table_name: &'static str,
+    actor_name: &'static str,
+) -> AnyhowResult<()> {
+    let db = crate::db_named(db_name).await?;
+
+    let sst = SubscriberStateTable::new_async(db, table_name, None, None).await?;
+
+    let addr = crate::sp("swss-common-bridge", table_name);
+    spawn_consumer_bridge(edge_runtime, addr, sst, |kfv: &KeyOpFieldValues| {
+        (crate::sp(actor_name, &kfv.key), table_name.to_owned())
+    });
+
+    Ok(())
 }
