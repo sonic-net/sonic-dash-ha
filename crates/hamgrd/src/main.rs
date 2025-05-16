@@ -3,7 +3,7 @@ use clap::Parser;
 use sonic_common::log;
 use std::{sync::Arc, time::Duration};
 use swbus_actor::{set_global_runtime, ActorRuntime};
-use swbus_config::{swbus_config_from_db, swbus_config_from_yaml};
+use swbus_config::swbus_config_from_db;
 use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::DbConnector;
 use tokio::signal;
