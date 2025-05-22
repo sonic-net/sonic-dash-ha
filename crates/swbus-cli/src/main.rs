@@ -258,7 +258,7 @@ mod tests {
 
         std::env::set_var("DEV", format!("dpu{}", slot));
         let config = get_swbus_config(None).unwrap();
-        assert_eq!(config.endpoint.to_string(), format!("{}:{}", "0.0.0.0", 23606 + slot));
+        assert_eq!(config.endpoint.to_string(), format!("{}:{}", "10.0.1.0", 23606 + slot));
         let expected_sp = ServicePath::with_node(
             "region-a",
             "cluster-a",
