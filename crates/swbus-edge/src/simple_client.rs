@@ -46,6 +46,10 @@ impl SimpleSwbusEdgeClient {
         }
     }
 
+    pub fn get_edge_runtime(&self) -> &Arc<SwbusEdgeRuntime> {
+        &self.rt
+    }
+
     /// Receive a message.
     ///
     /// Returns `None` when no more messages will ever be received.

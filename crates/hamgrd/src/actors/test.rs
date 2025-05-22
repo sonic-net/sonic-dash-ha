@@ -166,11 +166,11 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
     }
 }
 
-pub async fn create_actor_runtime() -> ActorRuntime {
-    let mut swbus_edge = SwbusEdgeRuntime::new(
+pub async fn create_edge_runtime() -> SwbusEdgeRuntime {
+    let mut swbus_edge: SwbusEdgeRuntime = SwbusEdgeRuntime::new(
         "none".to_string(),
         ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
     );
     swbus_edge.start().await.unwrap();
-    ActorRuntime::new(Arc::new(swbus_edge))
+    swbus_edge
 }

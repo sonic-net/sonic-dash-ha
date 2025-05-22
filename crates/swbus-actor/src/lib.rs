@@ -11,7 +11,8 @@ pub use anyhow::{Error, Result};
 pub use runtime::{get_global_runtime, set_global_runtime, set_global_runtime_if_unset, spawn, ActorRuntime};
 pub use serde_json as json;
 pub use state::State;
-
+use std::sync::Arc;
+use swbus_edge::SwbusEdgeRuntime;
 /// An actor that can be run.
 pub trait Actor: Send + 'static {
     /// Callback run upon spawn. Allows actors to setup the internal state table and send initial messages to get started.
@@ -38,20 +39,22 @@ pub trait Actor: Send + 'static {
 
 pub struct Context {
     stopped: bool,
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self::new()
-    }
+    edge_runtime: Arc<SwbusEdgeRuntime>,
 }
 
 impl Context {
-    pub fn new() -> Self {
-        Context { stopped: false }
+    pub fn new(edge_runtime: Arc<SwbusEdgeRuntime>) -> Self {
+        Context {
+            stopped: false,
+            edge_runtime,
+        }
     }
 
     pub fn stop(&mut self) {
         self.stopped = true;
+    }
+
+    pub fn get_edge_runtime(&self) -> &Arc<SwbusEdgeRuntime> {
+        &self.edge_runtime
     }
 }

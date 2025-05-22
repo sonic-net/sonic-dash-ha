@@ -1,13 +1,14 @@
 use crate::core_client::SwbusCoreClient;
 use crate::message_handler_proxy::SwbusMessageHandlerProxy;
 use crate::message_router::SwbusMessageRouter;
+use crate::RuntimeEnv;
 use std::io;
+use std::sync::RwLock;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
 use tracing::info;
-
 pub(crate) const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
 pub struct SwbusEdgeRuntime {
@@ -16,6 +17,7 @@ pub struct SwbusEdgeRuntime {
     sender_to_message_router: Sender<SwbusMessage>,
     //base service path with service type and service id
     base_sp: ServicePath,
+    runtime_env: RwLock<Option<Box<dyn RuntimeEnv>>>,
 }
 
 impl SwbusEdgeRuntime {
@@ -31,6 +33,7 @@ impl SwbusEdgeRuntime {
             message_router,
             sender_to_message_router: local_msg_tx,
             base_sp,
+            runtime_env: RwLock::new(None),
         }
     }
 
@@ -49,12 +52,14 @@ impl SwbusEdgeRuntime {
     /// Add handler that can be reached from any swbus client.
     pub fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
+        info!("Added handler for service path: {}", svc_path.to_longest_path());
         self.message_router.add_route(svc_path, proxy);
     }
 
     /// Add handler that can only be reached from within this edge runtime.
     pub fn add_private_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
+        info!("Added private handler for service path: {}", svc_path.to_longest_path());
         self.message_router.add_private_route(svc_path, proxy);
     }
 
@@ -69,6 +74,17 @@ impl SwbusEdgeRuntime {
                     format!("Message router channel is broken: {}", e),
                 ),
             )),
+        }
+    }
+
+    pub fn get_runtime_env(&self) -> std::sync::RwLockReadGuard<'_, Option<Box<dyn RuntimeEnv>>> {
+        self.runtime_env.read().unwrap()
+    }
+
+    pub fn set_runtime_env(&mut self, runtime_env: Box<dyn RuntimeEnv>) {
+        let mut guard = self.runtime_env.write().unwrap();
+        if guard.is_none() {
+            *guard = Some(runtime_env);
         }
     }
 }

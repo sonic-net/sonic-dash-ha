@@ -1,18 +1,21 @@
 use anyhow::{anyhow, Ok};
 use clap::Parser;
 use sonic_common::log;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::{sync::Arc, time::Duration};
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
-use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
+use swbus_edge::{swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
 use swss_common::DbConnector;
 use tokio::signal;
 use tokio::time::timeout;
 use tracing::error;
 mod actors;
+mod db_structs;
 mod ha_actor_messages;
 use actors::dpu::DpuActor;
 use anyhow::Result;
+use std::any::Any;
 
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
@@ -40,14 +43,17 @@ async fn main() {
     swbus_sp.service_type = "hamgrd".into();
     swbus_sp.service_id = "0".into();
 
+    let runtime_data = RuntimeData::new(args.slot_id, swbus_config.npu_ipv4, swbus_config.npu_ipv6);
+
     // Setup swbus and actor runtime
     let mut swbus_edge = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), swbus_sp);
+    swbus_edge.set_runtime_env(Box::new(runtime_data));
+
     swbus_edge.start().await.unwrap();
     let swbus_edge = Arc::new(swbus_edge);
     let actor_runtime = ActorRuntime::new(swbus_edge.clone());
     set_global_runtime(actor_runtime);
 
-    //actors::dpu::spawn_dpu_actors().await.unwrap();
     start_actor_creators(&swbus_edge).await.unwrap();
 
     init_actor_supporting_services(&swbus_edge).await.unwrap();
@@ -83,4 +89,65 @@ async fn init_actor_supporting_services(edge_runtime: &Arc<SwbusEdgeRuntime>) ->
     DpuActor::init_supporting_services(edge_runtime).await?;
     //HaSetActor::init_supporting_services(edge_runtime).await?;
     Ok(())
+}
+
+pub fn get_slot_id(swbus_edge: &Arc<SwbusEdgeRuntime>) -> u32 {
+    let runtime_env = swbus_edge.get_runtime_env();
+    //let raw_ptr = guard.as_any() as *const dyn Any;
+    let inner = runtime_env.as_ref().unwrap().as_ref();
+    let runtime_env = inner.as_any().downcast_ref::<RuntimeData>().unwrap();
+    runtime_env.dpu_id
+}
+
+pub fn get_npu_ipv4(swbus_edge: &Arc<SwbusEdgeRuntime>) -> Option<Ipv4Addr> {
+    let runtime_env = swbus_edge.get_runtime_env();
+    //let raw_ptr = guard.as_any() as *const dyn Any;
+    let inner = runtime_env.as_ref().unwrap().as_ref();
+    let runtime_env = inner.as_any().downcast_ref::<RuntimeData>().unwrap();
+    runtime_env.npu_ipv4
+}
+
+pub fn get_npu_ipv6(swbus_edge: &Arc<SwbusEdgeRuntime>) -> Option<Ipv6Addr> {
+    let runtime_env = swbus_edge.get_runtime_env();
+    //let raw_ptr = guard.as_any() as *const dyn Any;
+    let inner = runtime_env.as_ref().unwrap().as_ref();
+    let runtime_env = inner.as_any().downcast_ref::<RuntimeData>().unwrap();
+    runtime_env.npu_ipv6
+}
+pub struct RuntimeData {
+    dpu_id: u32,
+    npu_ipv4: Option<Ipv4Addr>,
+    npu_ipv6: Option<Ipv6Addr>,
+}
+
+impl RuntimeEnv for RuntimeData {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl RuntimeData {
+    pub fn new(dpu_id: u32, npu_ipv4: Option<Ipv4Addr>, npu_ipv6: Option<Ipv6Addr>) -> Self {
+        Self {
+            dpu_id,
+            npu_ipv4,
+            npu_ipv6,
+        }
+    }
+
+    pub fn dpu_id(&self) -> u32 {
+        self.dpu_id
+    }
+
+    pub fn npu_ipv4(&self) -> Option<Ipv4Addr> {
+        self.npu_ipv4
+    }
+
+    pub fn npu_ipv6(&self) -> Option<Ipv6Addr> {
+        self.npu_ipv6
+    }
 }

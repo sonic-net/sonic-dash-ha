@@ -18,11 +18,12 @@ pub(crate) struct ActorDriver<A> {
 impl<A: Actor> ActorDriver<A> {
     pub(crate) fn new(actor: A, swbus_edge: SimpleSwbusEdgeClient) -> Self {
         let swbus_edge = Arc::new(swbus_edge);
+        let edge_runtime = swbus_edge.get_edge_runtime().clone();
         ActorDriver {
             actor,
             state: State::new(swbus_edge.clone()),
             swbus_edge,
-            context: Context::new(),
+            context: Context::new(edge_runtime),
         }
     }
 
@@ -35,7 +36,14 @@ impl<A: Actor> ActorDriver<A> {
         loop {
             tokio::select! {
                 _ = self.state.outgoing.drive_resend_loop() => unreachable!("drive_resend_loop never returns"),
-                maybe_msg = self.swbus_edge.recv() => self.handle_swbus_message(maybe_msg.expect("swbus-edge died")).await,
+                maybe_msg = self.swbus_edge.recv() => {
+                    if let Some(maybe_msg) = maybe_msg {
+                        self.handle_swbus_message(maybe_msg).await;
+                    } else {
+                        //recv returns None when the message is not for actors
+                        continue;
+                    }
+                }
             }
             if self.context.stopped {
                 info!(
