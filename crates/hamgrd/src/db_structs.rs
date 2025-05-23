@@ -24,7 +24,7 @@ pub struct DashHaGlobalConfig {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct Dpu {
     pub state: Option<String>,
     pub vip_ipv4: Option<String>,
@@ -82,5 +82,6 @@ mod test {
         let kfv: KeyOpFieldValues = serde_json::from_str(json).unwrap();
         let dpu: Dpu = swss_serde::from_field_values(&kfv.field_values).unwrap();
         assert!(dpu.pa_ipv4 == "1.2.3.4");
+        assert!(dpu.dpu_id == 1);
     }
 }

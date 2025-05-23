@@ -111,15 +111,11 @@ impl SwbusMessageRouter {
             return;
         }
 
-        // Try stripping the service id
-        partial_dest.service_id.clear();
-        if try_route(routes, &partial_dest, privacy, &message).await {
-            return;
-        }
-
-        // Try stripping the service type
-        partial_dest.service_type.clear();
-        if try_route(routes, &partial_dest, privacy, &message).await {
+        if partial_dest == swbus_client.get_service_path() {
+            error!(
+                "No handler found for message to local service path. Drop message {:?}",
+                message
+            );
             return;
         }
 

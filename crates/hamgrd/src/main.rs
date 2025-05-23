@@ -56,7 +56,6 @@ async fn main() {
 
     start_actor_creators(&swbus_edge).await.unwrap();
 
-    init_actor_supporting_services(&swbus_edge).await.unwrap();
     // Wait for Ctrl+C to exit
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
 }
@@ -82,12 +81,6 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
     //VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
     //HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
-    Ok(())
-}
-
-async fn init_actor_supporting_services(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-    DpuActor::init_supporting_services(edge_runtime).await?;
-    //HaSetActor::init_supporting_services(edge_runtime).await?;
     Ok(())
 }
 

@@ -1,15 +1,17 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, spawn_zmq_producer_bridge, ActorCreator};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
-use swss_common_bridge::consumer::spawn_consumer_bridge;
+use swss_common_bridge::consumer::{spawn_consumer_bridge, ConsumerBridge};
+use tracing::{debug, error, info};
 
+use super::spawn_consumer_bridge_for_actor_with_selector;
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/pmon/smartswitch-pmon.md#dpu_state-definition>
 #[derive(Serialize, Deserialize)]
 struct DpuState {
@@ -40,6 +42,7 @@ pub struct DpuActor {
     dpu: Option<Dpu>,
 
     is_local: bool,
+    bridges: Vec<ConsumerBridge>,
 }
 
 impl DpuActor {
@@ -48,6 +51,7 @@ impl DpuActor {
             id: key,
             dpu: None,
             is_local: false,
+            bridges: Vec::new(),
         };
         Ok(actor)
     }
@@ -70,30 +74,32 @@ impl DpuActor {
         );
 
         tokio::task::spawn(dpu_ac.run());
+
+        // Spawn a consumer bridge for DPU table. This bridge will send messages to the actor with sp DPU/<dpu_name>. Message key is DPU.
+        // spawn_consumer_bridge_for_actor(
+        //     edge_runtime.clone(),
+        //     "CONFIG_DB",
+        //     Self::table_name(),
+        //     Self::name(),
+        //     None,
+        //     true,
+        // )
+        // .await?;
         let config_db = crate::db_named("CONFIG_DB").await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
         let addr = crate::sp("swss-common-bridge", Self::table_name());
-        spawn_consumer_bridge(edge_runtime.clone(), addr, sst, |kfv: &KeyOpFieldValues| {
-            (crate::sp(Self::name(), &kfv.key), Self::table_name().to_owned())
-        });
-        Ok(())
-    }
-
-    pub async fn init_supporting_services(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-        spawn_consumer_bridge_for_actor(
+        spawn_consumer_bridge(
             edge_runtime.clone(),
-            "CHASSIS_STATE_DB",
-            "DPU_STATE",
-            Self::name(),
-            None,
-            false,
-        )
-        .await?;
+            addr,
+            sst,
+            |kfv: &KeyOpFieldValues| (crate::sp(Self::name(), &kfv.key), Self::table_name().to_owned()),
+            |_| true,
+        );
         Ok(())
     }
 
     async fn handle_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        let (_internal, incoming, _outgoing) = state.get_all();
+        let (_internal, incoming, outgoing) = state.get_all();
         let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
             context.stop();
@@ -102,47 +108,76 @@ impl DpuActor {
 
         self.dpu = Some(swss_serde::from_field_values(&dpu_kfv.field_values)?);
         let dpu = self.dpu.as_ref().unwrap();
+
         if dpu.dpu_id == crate::get_slot_id(context.get_edge_runtime()) {
-            if self.is_local == false {
+            if !self.is_local {
                 self.is_local = true;
 
                 let zmq_endpoint = format!("{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
 
                 // DASH_HA_GLOBAL_CONFIG from common-bridge sent to this actor instance only.
                 // Key is DASH_HA_GLOBAL_CONFIG
-                spawn_consumer_bridge_for_actor(
-                    context.get_edge_runtime().clone(),
-                    "CONFIG_DB",
-                    "DASH_HA_GLOBAL_CONFIG",
-                    Self::name(),
-                    Some(&self.id),
-                    true,
-                )
-                .await?;
+                self.bridges.push(
+                    spawn_consumer_bridge_for_actor(
+                        context.get_edge_runtime().clone(),
+                        "CONFIG_DB",
+                        "DASH_HA_GLOBAL_CONFIG",
+                        Self::name(),
+                        Some(&self.id),
+                        true,
+                    )
+                    .await?,
+                );
 
                 // REMOTE_DPU from common-bridge sent to this actor instance only.
                 // Key is REMOTE_DPU|<remote_dpu_id>
-                spawn_consumer_bridge_for_actor(
-                    context.get_edge_runtime().clone(),
-                    "CONFIG_DB",
-                    "REMOTE_DPU",
-                    Self::name(),
-                    Some(&self.id),
-                    false,
-                )
-                .await?;
+                self.bridges.push(
+                    spawn_consumer_bridge_for_actor(
+                        context.get_edge_runtime().clone(),
+                        "CONFIG_DB",
+                        "REMOTE_DPU",
+                        Self::name(),
+                        Some(&self.id),
+                        false,
+                    )
+                    .await?,
+                );
 
                 // DASH_BFD_PROBE_STATE from common-bridge sent to this actor instance only.
                 // Key is DASH_BFD_PROBE_STATE
-                spawn_consumer_bridge_for_actor(
-                    context.get_edge_runtime().clone(),
-                    "DPU_STATE_DB",
-                    "DASH_BFD_PROBE_STATE",
-                    Self::name(),
-                    Some(&self.id),
-                    true,
-                )
-                .await?;
+                self.bridges.push(
+                    spawn_consumer_bridge_for_actor(
+                        context.get_edge_runtime().clone(),
+                        "DPU_STATE_DB",
+                        "DASH_BFD_PROBE_STATE",
+                        Self::name(),
+                        Some(&self.id),
+                        true,
+                    )
+                    .await?,
+                );
+
+                // DPU_STATE from common-bridge sent to this actor instance only. The selector closure is
+                // used to filter out the DPU_STATE for this DPU instance only.
+                let dpu_id = dpu.dpu_id;
+                self.bridges.push(
+                    spawn_consumer_bridge_for_actor_with_selector(
+                        context.get_edge_runtime().clone(),
+                        "CHASSIS_STATE_DB",
+                        "DPU_STATE",
+                        Self::name(),
+                        Some(&self.id),
+                        true, /* key will be DPU_STATE only */
+                        move |kfv: &KeyOpFieldValues| {
+                            let dev = &kfv.key[3..];
+                            if let Ok(slot) = dev.parse::<u32>() {
+                                return slot == dpu_id;
+                            }
+                            false
+                        },
+                    )
+                    .await?,
+                );
 
                 // BFD_SESSION_TABLE is managed by zmq producer bridge. This actor instance
                 // has service path swss-common-bridge/BFD_SESSION_TABLE.
@@ -154,7 +189,15 @@ impl DpuActor {
                 )
                 .await?;
             }
+
+            // notify dependent actors about the state of this DPU
+            self.update_dpu_state(incoming, outgoing).await?;
         } else {
+            debug!(
+                "DPU id {} is not local. local DPU is {}",
+                dpu.dpu_id,
+                crate::get_slot_id(context.get_edge_runtime())
+            );
             self.is_local = false;
         }
 
@@ -164,7 +207,6 @@ impl DpuActor {
     fn calculate_dpu_state(&self, incoming: &Incoming) -> Result<bool> {
         // Check pmon state from DPU_STATE table
         let dpu_state_kfv: KeyOpFieldValues = incoming.get("DPU_STATE")?.deserialize_data()?;
-        ensure!(dpu_state_kfv.key == self.id);
         let dpu_state: DpuState = swss_serde::from_field_values(&dpu_state_kfv.field_values)?;
         let pmon_dpu_up = dpu_state.all_up();
 
@@ -179,17 +221,29 @@ impl DpuActor {
     }
 
     async fn update_dpu_state(&mut self, incoming: &Incoming, outgoing: &mut Outgoing) -> Result<()> {
-        if let Ok(up) = self.calculate_dpu_state(incoming) {
-            let msg = DpuActorState::new_actor_msg(up, &self.id)?;
-            let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::DPUHealth);
-            for actor_sp in peer_actors {
-                outgoing.send(actor_sp, msg.clone());
+        let mut up = false;
+        let result = self.calculate_dpu_state(incoming);
+        match result {
+            Ok(state) => {
+                up = state;
             }
+            Err(e) => {
+                info!(
+                    "Not able to calculate DPU state for {}. Assume to be down. Error: {} ",
+                    self.id, e
+                );
+            }
+        }
+
+        let msg = DpuActorState::new_actor_msg(&self.id, up, self.dpu.as_ref().unwrap())?;
+        let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::DPUState);
+        for actor_sp in peer_actors {
+            outgoing.send(actor_sp, msg.clone());
         }
         Ok(())
     }
 
-    async fn handle_dpu_health_registration(
+    async fn handle_dpu_state_registration(
         &mut self,
         key: &str,
         incoming: &Incoming,
@@ -198,10 +252,21 @@ impl DpuActor {
         let entry = incoming.get_entry(key)?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
-            if let Ok(up) = self.calculate_dpu_state(incoming) {
-                let msg = DpuActorState::new_actor_msg(up, &self.id)?;
-                outgoing.send(entry.source.clone(), msg);
+            let mut up = false;
+            let result = self.calculate_dpu_state(incoming);
+            match result {
+                Ok(state) => {
+                    up = state;
+                }
+                Err(e) => {
+                    info!(
+                        "Not able to calculate DPU state for {}. Assume to be down. Error: {} ",
+                        self.id, e
+                    );
+                }
             }
+            let msg = DpuActorState::new_actor_msg(&self.id, up, self.dpu.as_ref().unwrap())?;
+            outgoing.send(entry.source.clone(), msg);
         }
         Ok(())
     }
@@ -212,6 +277,7 @@ impl DpuActor {
         global_cfg: &DashHaGlobalConfig,
         outgoing: &mut Outgoing,
     ) -> Result<()> {
+        // todo: this needs to wait until HaScope has been activated. 
         let bfd_session = BfdSessionTable {
             tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
             rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
@@ -289,7 +355,7 @@ impl DpuActor {
 impl Actor for DpuActor {
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        if key == "DPU" {
+        if key == Self::table_name() {
             return self.handle_dpu_message(state, key, context).await;
         }
 
@@ -304,8 +370,10 @@ impl Actor for DpuActor {
             return self.handle_dash_ha_global_config(state, key, context).await;
         } else if key == "DPU_STATE" || key == "DASH_BFD_PROBE_STATE" {
             return self.update_dpu_state(incoming, outgoing).await;
-        } else if ActorRegistration::is_my_msg(key, RegistrationType::DPUHealth) {
-            return self.handle_dpu_health_registration(key, incoming, outgoing).await;
+        } else if ActorRegistration::is_my_msg(key, RegistrationType::DPUState) {
+            return self.handle_dpu_state_registration(key, incoming, outgoing).await;
+        } else {
+            error!("Unknown message received: {}", key);
         }
 
         Ok(())
@@ -331,21 +399,23 @@ mod test {
             id: "test-dpu".into(),
             dpu: None,
             is_local: true,
+            bridges: Vec::new(),
         };
 
-        let runtime_data = RuntimeData::new(1, Some(Ipv4Addr::new(10, 0, 1, 0).into()), None);
+        let runtime_data = RuntimeData::new(1, Some(Ipv4Addr::new(10, 0, 1, 0)), None);
 
         edge.set_runtime_env(Box::new(runtime_data));
         let runtime = ActorRuntime::new(Arc::new(edge));
         let handle = runtime.spawn(dpu_actor, "dpu", "test-dpu");
-
+        let dpu_obj = serde_json::json!({"pa_ipv4": "1.2.3.4", "dpu_id": 1, "orchagent_zmq_port": 8100, "swbus_port": 23606, "midplane_ipv4": "127.0.0.1", "pa_ipv6":None::<String>, "vdpu_id": None::<String>, "vip_ipv4": None::<String>, "vip_ipv6": None::<String>, "state": None::<String>});
         #[rustfmt::skip]
         let commands = [
             // Bring up dpu
-            send! { key: "DPU_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
+            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
             // Receiving DPU config-db object from swss-common bridge
             send! { key: DpuActor::table_name(), data: { "key": DpuActor::table_name(), "operation": "Set", "field_values": {"pa_ipv4": "1.2.3.4", "dpu_id": "1", "orchagent_zmq_port": "8100", "swbus_port": "23606", "midplane_ipv4": "127.0.0.1"}}, addr: runtime.sp("swss-common-bridge", DpuActor::table_name()) },
-            send! { key: "DPUHealthRegister-vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj }, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "REMOTE_DPU|remotedpu1", data: { "key": "REMOTE_DPU|remotedpu1", "operation": "Set", "field_values": { "npu_ipv4": "10.0.1.1", "dpu_id": "0" }}},
             send! { key: "REMOTE_DPU|remotedpu2", data: { "key": "REMOTE_DPU|remotedpu2", "operation": "Set", "field_values": { "npu_ipv4": "10.0.1.2", "dpu_id": "0" }}},
             send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": { "dpu_bfd_probe_interval_in_ms": "1000", "dpu_bfd_probe_multiplier": "3" }} },
@@ -356,27 +426,27 @@ mod test {
             recv! { key: "test-dpu", data: {"key": "default|default|10.0.1.3",  "operation": "Set", "field_values": {"tx_interval": "1000", "rx_interval": "1000", "multiplier":"3", "multihop":"true", "local_addr":"1.2.3.4", "type":"passive", "shutdown":"false"}}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
 
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "1.2.3.4,1.2.3.5,1.2.3.6" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": true }, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": true, "dpu": dpu_obj }, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate DPU_STATE planes going down then up
-            send! { key: "DPU_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": false }, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "DPU_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "down" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": false }, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "DPU_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": false }, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "DPU_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "down", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": false }, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "DPU_STATE", data: { "key": "test-dpu", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": true }, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "down" }} },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "down", "dpu_data_plane_state": "up" }} },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": true, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate BFD probe going down
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "1.2.3.5,1.2.3.6" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": false }, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "1.2.3.5,1.2.3.6,1.2.3.7" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": false }, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": false, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "1.2.3.5,1.2.3.6,1.2.3.7,1.2.3.4" }} },
-            recv! { key: "DPUHealthUpdate-test-dpu", data: { "up": true }, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|test-dpu", data: { "up": true, "dpu": dpu_obj}, addr: runtime.sp("vdpu", "test-vdpu") },
             
             // simulate delete of Dpu entry
             send! { key: DpuActor::table_name(), data: { "key": DpuActor::table_name(), "operation": "Del", "field_values": {"pa_ipv4": "1.2.3.4", "dpu_id": "1", "orchagent_zmq_port": "8100", "swbus_port": "23606", "midplane_ipv4": "127.0.0.1"}}, addr: runtime.sp("swss-common-bridge", DpuActor::table_name()) },

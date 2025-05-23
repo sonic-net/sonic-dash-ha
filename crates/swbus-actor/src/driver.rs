@@ -5,7 +5,7 @@ use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, MessageResponseBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ManagementRequestType, ServicePath, SwbusErrorCode},
 };
-use tracing::info;
+use tracing::{debug, info, instrument};
 
 /// An actor and the support structures needed to run it.
 pub(crate) struct ActorDriver<A> {
@@ -54,8 +54,9 @@ impl<A: Actor> ActorDriver<A> {
             }
         }
     }
-
+    #[instrument(name="handle_swbus_message", level="debug", skip_all, fields(actor=self.swbus_edge.get_service_path().to_longest_path(), id=%msg.id))]
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
+        debug!("received message: {msg:?}");
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
@@ -67,7 +68,7 @@ impl<A: Actor> ActorDriver<A> {
                         (SwbusErrorCode::Fail, format!("{e:#}"))
                     }
                 };
-
+                debug!("message handled by incoming state table: {error_code:?} {error_message}");
                 self.swbus_edge
                     .send(OutgoingMessage {
                         destination: source.clone(),
@@ -103,7 +104,6 @@ impl<A: Actor> ActorDriver<A> {
     /// Handle an actor message in the incoming state table, triggering `Actor::handle_message`.
     async fn handle_actor_message(&mut self, key: &str) {
         let res = self.actor.handle_message(&mut self.state, key, &mut self.context).await;
-
         let (error_code, error_message) = match res {
             Ok(()) => {
                 self.state.internal.commit_changes().await;
@@ -116,7 +116,7 @@ impl<A: Actor> ActorDriver<A> {
                 (SwbusErrorCode::Fail, format!("{e:#}"))
             }
         };
-
+        debug!("message handled by actor: {error_code:?} {error_message}");
         self.state.incoming.request_handled(key, error_code, &error_message);
     }
 

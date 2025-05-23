@@ -1,5 +1,6 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
 #![allow(unused)]
+use crate::db_structs::Dpu;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use swbus_actor::{state::incoming::Incoming, ActorMessage};
@@ -8,15 +9,16 @@ use swbus_edge::swbus_proto::swbus::ServicePath;
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct DpuActorState {
     pub up: bool,
+    pub dpu: Dpu,
 }
 
 impl DpuActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up })
+    pub fn new_actor_msg(my_id: &str, up: bool, dpu: &Dpu) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { up, dpu: dpu.clone() })
     }
 
     pub fn msg_key_prefix() -> &'static str {
-        "DPUHealthUpdate-"
+        "DPUStateUpdate|"
     }
 
     pub fn msg_key(my_id: &str) -> String {
@@ -39,7 +41,7 @@ impl VDpuActorState {
     }
 
     pub fn msg_key_prefix() -> &'static str {
-        "VDPUHealthUpdate-"
+        "VDPUStateUpdate|"
     }
 
     pub fn msg_key(my_id: &str) -> String {
@@ -56,8 +58,8 @@ pub struct ActorRegistration {
     pub active: bool,
 }
 pub enum RegistrationType {
-    DPUHealth,
-    VDPUHealth,
+    DPUState,
+    VDPUState,
 }
 
 impl ActorRegistration {
@@ -67,8 +69,8 @@ impl ActorRegistration {
 
     pub fn msg_key_prefix(reg_type: RegistrationType) -> &'static str {
         match reg_type {
-            RegistrationType::DPUHealth => "DPUHealthRegister-",
-            RegistrationType::VDPUHealth => "VDPUHealthRegister-",
+            RegistrationType::DPUState => "DPUStateRegister|",
+            RegistrationType::VDPUState => "VDPUStateRegister|",
         }
     }
 

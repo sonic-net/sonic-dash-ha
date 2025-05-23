@@ -18,7 +18,7 @@ use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable, ZmqClient, ZmqProducerStateTable};
-use swss_common_bridge::{consumer::spawn_consumer_bridge, producer::spawn_producer_bridge};
+use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
 use tracing::error;
 pub struct ActorCreator<F, T>
@@ -137,13 +137,6 @@ where
     }
 }
 
-/// Spawn a consumer bridge for an actor. The bridge subscribes to the given db and table.
-/// The bridge will send messages to the actor when there is update on the table. If actor_id is
-/// provided, the message destination is `sp(actor_name, actor_id)`. Otherwise, the
-/// service path is constructed as `sp(actor_name, key)`, where key is the key of the table entry.
-/// The ActorMessage payload is the KeyOpFieldValues of the table entry. If single_entry is set,
-/// the key of the ActorMessage is the table_name. Otherwise, the key is table_name|key.
-///
 pub async fn spawn_consumer_bridge_for_actor(
     edge_runtime: Arc<SwbusEdgeRuntime>,
     db_name: &'static str,
@@ -151,7 +144,40 @@ pub async fn spawn_consumer_bridge_for_actor(
     actor_name: &'static str,
     actor_id: Option<&str>,
     single_entry: bool,
-) -> AnyhowResult<()> {
+) -> AnyhowResult<ConsumerBridge> {
+    spawn_consumer_bridge_for_actor_with_selector(
+        edge_runtime,
+        db_name,
+        table_name,
+        actor_name,
+        actor_id,
+        single_entry,
+        |_| true,
+    )
+    .await
+}
+
+/// Spawn a consumer bridge for an actor. The bridge subscribes to the given db and table.
+/// The bridge will send messages to the actor when there is update on the table. If actor_id is
+/// provided, the message destination is `sp(actor_name, actor_id)`. Otherwise, the
+/// service path is constructed as `sp(actor_name, key)`, where key is the key of the table entry.
+/// The ActorMessage payload is the KeyOpFieldValues of the table entry. If single_entry is set,
+/// the key of the ActorMessage is the table_name. Otherwise, the key is table_name|key.
+/// selector is a function that takes a KeyOpFieldValues and returns a boolean. If the function
+/// returns true, the message is sent to the actor. Otherwise, the message is ignored.
+///
+pub async fn spawn_consumer_bridge_for_actor_with_selector<F>(
+    edge_runtime: Arc<SwbusEdgeRuntime>,
+    db_name: &'static str,
+    table_name: &'static str,
+    actor_name: &'static str,
+    actor_id: Option<&str>,
+    single_entry: bool,
+    selector: F,
+) -> AnyhowResult<ConsumerBridge>
+where
+    F: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
+{
     let db = crate::db_named(db_name).await?;
 
     let sst = SubscriberStateTable::new_async(db, table_name, None, None).await?;
@@ -160,26 +186,37 @@ pub async fn spawn_consumer_bridge_for_actor(
 
     if actor_id.is_some() {
         let actor_id = actor_id.unwrap().to_owned();
-        spawn_consumer_bridge(edge_runtime, addr, sst, move |kfv: &KeyOpFieldValues| {
-            let sp = crate::sp(actor_name, &actor_id);
-            let key = match single_entry {
-                true => table_name.to_owned(),
-                false => format!("{}|{}", table_name, kfv.key),
-            };
-            (sp, key)
-        });
-    } else {
-        spawn_consumer_bridge(edge_runtime, addr, sst, move |kfv: &KeyOpFieldValues| {
-            (
-                crate::sp(actor_name, &kfv.key),
-                match single_entry {
+        Ok(ConsumerBridge::spawn(
+            edge_runtime,
+            addr,
+            sst,
+            move |kfv: &KeyOpFieldValues| {
+                let sp = crate::sp(actor_name, &actor_id);
+                let key = match single_entry {
                     true => table_name.to_owned(),
                     false => format!("{}|{}", table_name, kfv.key),
-                },
-            )
-        });
+                };
+                (sp, key)
+            },
+            selector,
+        ))
+    } else {
+        Ok(ConsumerBridge::spawn(
+            edge_runtime,
+            addr,
+            sst,
+            move |kfv: &KeyOpFieldValues| {
+                (
+                    crate::sp(actor_name, &kfv.key),
+                    match single_entry {
+                        true => table_name.to_owned(),
+                        false => format!("{}|{}", table_name, kfv.key),
+                    },
+                )
+            },
+            selector,
+        ))
     }
-    Ok(())
 }
 
 pub async fn spawn_zmq_producer_bridge(
@@ -188,7 +225,7 @@ pub async fn spawn_zmq_producer_bridge(
     table_name: &str,
     zmq_endpoint: &str,
 ) -> AnyhowResult<()> {
-    let zmqc = ZmqClient::new(&zmq_endpoint).unwrap();
+    let zmqc = ZmqClient::new(zmq_endpoint)?;
     let dpu_appl_db = crate::db_named(db_name).await?;
     let zpst = ZmqProducerStateTable::new(dpu_appl_db, table_name, zmqc, false).unwrap();
 
