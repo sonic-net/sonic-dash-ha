@@ -1,5 +1,4 @@
 use contracts::requires;
-use dashmap::DashSet;
 use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -7,27 +6,25 @@ use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_client::SwbusServiceClient;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
+use tokio::time::Duration;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::metadata::MetadataValue;
-use tonic::transport::Channel;
 use tonic::transport::Endpoint;
 use tonic::Request;
 use tonic::Streaming;
-use tracing::error;
-use tracing::info;
+use tracing::{debug, error, info};
 
 pub struct SwbusCoreClient {
     uri: String,
     sp: ServicePath,
-    local_services: Arc<DashSet<ServicePath>>,
 
-    client: Option<SwbusServiceClient<Channel>>,
     // tx queue to send messages to swbusd
-    send_queue_tx: Option<mpsc::Sender<SwbusMessage>>,
+    pub(crate) send_queue_tx: Arc<RwLock<Option<mpsc::Sender<SwbusMessage>>>>,
     // tx queue to send messages to message router
     message_processor_tx: mpsc::Sender<SwbusMessage>,
 
-    recv_stream_task: Option<tokio::task::JoinHandle<Result<()>>>,
+    swbusd_connect_task: Option<tokio::task::JoinHandle<Result<()>>>,
 }
 
 // Factory functions
@@ -36,27 +33,10 @@ impl SwbusCoreClient {
         Self {
             uri,
             sp,
-            local_services: Arc::new(DashSet::new()),
-            client: None,
-            send_queue_tx: None,
+            send_queue_tx: Arc::new(RwLock::new(None)),
             message_processor_tx,
-            recv_stream_task: None,
+            swbusd_connect_task: None,
         }
-    }
-}
-
-// Service registration functions
-impl SwbusCoreClient {
-    pub fn register_svc(&self, svc: ServicePath) {
-        self.local_services.insert(svc);
-    }
-
-    pub fn unregister_svc(&self, svc: ServicePath) {
-        self.local_services.remove(&svc);
-    }
-
-    pub fn push_svc(&self) -> Result<()> {
-        Ok(())
     }
 }
 
@@ -66,11 +46,7 @@ impl SwbusCoreClient {
         uri: String,
         sp: ServicePath,
         receive_queue_tx: mpsc::Sender<SwbusMessage>,
-    ) -> Result<(
-        tokio::task::JoinHandle<Result<()>>,
-        mpsc::Sender<SwbusMessage>,
-        SwbusServiceClient<Channel>,
-    )> {
+    ) -> Result<(tokio::task::JoinHandle<Result<()>>, mpsc::Sender<SwbusMessage>)> {
         let (send_queue_tx, send_queue_rx) = mpsc::channel::<SwbusMessage>(100);
 
         let endpoint = Endpoint::from_str(&uri).map_err(|e| {
@@ -83,7 +59,6 @@ impl SwbusCoreClient {
         let channel = match endpoint.connect().await {
             Ok(c) => c,
             Err(e) => {
-                error!("Failed to connect: {}.", e);
                 return Err(SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
                     io::Error::new(io::ErrorKind::ConnectionReset, format!("Failed to connect: {:?}", e)),
@@ -122,27 +97,52 @@ impl SwbusCoreClient {
         let message_processor_tx_clone = receive_queue_tx.clone();
         let recv_stream_task =
             tokio::spawn(async move { Self::run_recv_stream_task(recv_stream, message_processor_tx_clone).await });
-        Ok((recv_stream_task, send_queue_tx, client))
+        Ok((recv_stream_task, send_queue_tx))
     }
 
-    #[requires(self.recv_stream_task.is_none() && self.client.is_none() && self.send_queue_tx.is_none())]
-    pub async fn start(&mut self) -> Result<()> {
-        let (recv_stream_task, send_queue_tx, client) =
-            Self::connect(self.uri.clone(), self.sp.clone(), self.message_processor_tx.clone()).await?;
-        self.client = Some(client);
-        self.recv_stream_task = Some(recv_stream_task);
-        self.send_queue_tx = Some(send_queue_tx);
+    fn spawn_connect_task(&mut self) {
+        let uri = self.uri.clone();
+        let sp = self.sp.clone();
+        let message_processor_tx = self.message_processor_tx.clone();
+        let send_queue_tx_arc = self.send_queue_tx.clone();
 
-        Ok(())
+        let handle = tokio::spawn(async move {
+            loop {
+                match Self::connect(uri.clone(), sp.clone(), message_processor_tx.clone()).await {
+                    Ok((recv_stream_task, send_queue_tx)) => {
+                        info!("Successfully connected to swbusd at {}", uri);
+                        send_queue_tx_arc.write().await.replace(send_queue_tx);
+                        // wait for the recv_stream_task to finish
+                        let _ = recv_stream_task.await;
+                        // clear the send_queue_tx and retry
+                        send_queue_tx_arc.write().await.take();
+                        continue;
+                    }
+                    Err(e) => {
+                        debug!("Failed to reconnect: {}.", e);
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
+            }
+        });
+        self.swbusd_connect_task = Some(handle);
     }
 
-    pub async fn send(&mut self, message: SwbusMessage) -> Result<()> {
-        // lazily connect to swbusd
-        if self.client.is_none() {
-            self.start().await?;
+    #[requires(self.swbusd_connect_task.is_none())]
+    pub fn start(&mut self) {
+        self.spawn_connect_task();
+    }
+
+    pub async fn send(&self, message: SwbusMessage) -> Result<()> {
+        let tx = self.send_queue_tx.read().await;
+        if tx.is_none() {
+            return Err(SwbusError::connection(
+                SwbusErrorCode::ConnectionError,
+                io::Error::new(io::ErrorKind::ConnectionReset, "Not connected to swbusd"),
+            ));
         }
-
-        match self.send_queue_tx.as_ref().unwrap().send(message).await {
+        let tx = tx.as_ref().unwrap();
+        match tx.send(message).await {
             Ok(_) => {}
             Err(e) => {
                 error!("Failed to send message: {}.", e);
