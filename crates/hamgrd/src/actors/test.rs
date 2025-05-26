@@ -1,5 +1,7 @@
+use crate::RuntimeData;
 use serde_json::Value;
 use std::{collections::HashMap, future::Future, time::Duration};
+use std::{net::Ipv4Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
@@ -173,4 +175,17 @@ pub async fn create_edge_runtime() -> SwbusEdgeRuntime {
     );
     swbus_edge.start().await.unwrap();
     swbus_edge
+}
+
+pub async fn create_actor_runtime(slot: u32, npu_ipv4: &str) -> ActorRuntime {
+    let mut edge = create_edge_runtime().await;
+
+    let runtime_data = RuntimeData::new(
+        slot,
+        Some(npu_ipv4.parse::<Ipv4Addr>().expect("Bad ipv4 address is provided")),
+        None,
+    );
+
+    edge.set_runtime_env(Box::new(runtime_data));
+    ActorRuntime::new(Arc::new(edge))
 }

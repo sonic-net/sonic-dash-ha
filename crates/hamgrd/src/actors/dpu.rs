@@ -75,16 +75,6 @@ impl DpuActor {
 
         tokio::task::spawn(dpu_ac.run());
 
-        // Spawn a consumer bridge for DPU table. This bridge will send messages to the actor with sp DPU/<dpu_name>. Message key is DPU.
-        // spawn_consumer_bridge_for_actor(
-        //     edge_runtime.clone(),
-        //     "CONFIG_DB",
-        //     Self::table_name(),
-        //     Self::name(),
-        //     None,
-        //     true,
-        // )
-        // .await?;
         let config_db = crate::db_named("CONFIG_DB").await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
         let addr = crate::sp("swss-common-bridge", Self::table_name());
@@ -277,7 +267,7 @@ impl DpuActor {
         global_cfg: &DashHaGlobalConfig,
         outgoing: &mut Outgoing,
     ) -> Result<()> {
-        // todo: this needs to wait until HaScope has been activated. 
+        // todo: this needs to wait until HaScope has been activated.
         let bfd_session = BfdSessionTable {
             tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
             rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
@@ -386,14 +376,11 @@ mod test {
         dpu::DpuActor,
         test::{self, recv, send},
     };
-    use crate::RuntimeData;
-    use std::sync::Arc;
-    use std::{net::Ipv4Addr, time::Duration};
-    use swbus_actor::ActorRuntime;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn dpu_actor() {
-        let mut edge = test::create_edge_runtime().await;
+        let runtime = test::create_actor_runtime(1, "10.0.1.0").await;
 
         let dpu_actor = DpuActor {
             id: "test-dpu".into(),
@@ -402,10 +389,6 @@ mod test {
             bridges: Vec::new(),
         };
 
-        let runtime_data = RuntimeData::new(1, Some(Ipv4Addr::new(10, 0, 1, 0)), None);
-
-        edge.set_runtime_env(Box::new(runtime_data));
-        let runtime = ActorRuntime::new(Arc::new(edge));
         let handle = runtime.spawn(dpu_actor, "dpu", "test-dpu");
         let dpu_obj = serde_json::json!({"pa_ipv4": "1.2.3.4", "dpu_id": 1, "orchagent_zmq_port": 8100, "swbus_port": 23606, "midplane_ipv4": "127.0.0.1", "pa_ipv6":None::<String>, "vdpu_id": None::<String>, "vip_ipv4": None::<String>, "vip_ipv6": None::<String>, "state": None::<String>});
         #[rustfmt::skip]
