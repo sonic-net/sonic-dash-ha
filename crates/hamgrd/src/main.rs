@@ -5,7 +5,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::{sync::Arc, time::Duration};
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
-use swbus_edge::{swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
+use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
 use swss_common::DbConnector;
 use tokio::signal;
 use tokio::time::timeout;
@@ -13,6 +13,7 @@ use tracing::error;
 mod actors;
 mod db_structs;
 mod ha_actor_messages;
+//use actors::{dpu::DpuActor, vdpu::VDpuActor};
 use actors::dpu::DpuActor;
 use anyhow::Result;
 use std::any::Any;
@@ -46,13 +47,22 @@ async fn main() {
     let runtime_data = RuntimeData::new(args.slot_id, swbus_config.npu_ipv4, swbus_config.npu_ipv6);
 
     // Setup swbus and actor runtime
-    let mut swbus_edge = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), swbus_sp);
+    let mut swbus_edge = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), swbus_sp.clone());
     swbus_edge.set_runtime_env(Box::new(runtime_data));
 
     swbus_edge.start().await.unwrap();
     let swbus_edge = Arc::new(swbus_edge);
     let actor_runtime = ActorRuntime::new(swbus_edge.clone());
     set_global_runtime(actor_runtime);
+
+    // run a sink to drain all messages that are not handled by any actor
+    let sink = SimpleSwbusEdgeClient::new(swbus_edge.clone(), swbus_sp, true /*public*/, true /*sink*/);
+    tokio::task::spawn(async move {
+        loop {
+            // Drain the sink
+            sink.recv().await;
+        }
+    });
 
     start_actor_creators(&swbus_edge).await.unwrap();
 

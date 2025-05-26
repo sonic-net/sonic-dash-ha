@@ -111,14 +111,6 @@ impl SwbusMessageRouter {
             return;
         }
 
-        if partial_dest == swbus_client.get_service_path() {
-            error!(
-                "No handler found for message to local service path. Drop message {:?}",
-                message
-            );
-            return;
-        }
-
         // Give up at this point and send out to swbus
         if let Err(e) = swbus_client.send(message).await {
             error!("Failed to send message to swbusd: {e}");

@@ -52,7 +52,7 @@ where
     F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
     S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
 {
-    let swbus = SimpleSwbusEdgeClient::new(rt, addr, false);
+    let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
         let mut table_cache = TableCache::default();
         let mut send_kfv = async |kfv: KeyOpFieldValues| {
@@ -248,7 +248,7 @@ mod test {
         let rt = Arc::new(swbus_edge);
 
         // Create edge client to receive updates from the bridge
-        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true);
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
 
         // Spawn the bridge
         let bridge = spawn_consumer_bridge(
