@@ -80,7 +80,7 @@ where
             } else {
                 // forward the message to the actor that is just spawned
                 if self.rt.send(msg).await.is_err() {
-                    error!("Failed to send response to swbus");
+                    error!("Failed to send request to the actor that is just spawned");
                 }
             }
         }
