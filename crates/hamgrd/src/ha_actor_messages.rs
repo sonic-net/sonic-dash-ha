@@ -3,6 +3,7 @@
 use crate::db_structs::Dpu;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, hash::Hash};
 use swbus_actor::{state::incoming::Incoming, ActorMessage};
 use swbus_edge::swbus_proto::swbus::ServicePath;
 
@@ -33,11 +34,16 @@ impl DpuActorState {
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct VDpuActorState {
     pub up: bool,
+    pub dpus: HashMap<String, Dpu>,
 }
 
 impl VDpuActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up })
+    pub fn new_actor_msg(up: bool, my_id: &str, dpus: HashMap<String, Dpu>) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { up, dpus })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
     }
 
     pub fn msg_key_prefix() -> &'static str {
