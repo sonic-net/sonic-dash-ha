@@ -35,6 +35,17 @@ pub struct PeerConfig {
     pub conn_type: ConnectionType,
 }
 
+impl SwbusConfig {
+    pub fn get_swbusd_service_path(&self) -> Option<ServicePath> {
+        for route in &self.routes {
+            if route.scope == RouteScope::Cluster {
+                return Some(route.key.clone());
+            }
+        }
+        None
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum SwbusConfigError {
     #[error("Invalid config: {0}")]
