@@ -1,12 +1,13 @@
 //! Actors
 //!
 //! <https://github.com/r12f/SONiC/blob/user/r12f/hamgrd/doc/smart-switch/high-availability/smart-switch-ha-hamgrd.md#2-key-actors>
+// temporarily disable unused warning until vdpu/ha-set actors are implemented
+#![allow(unused)]
 
 pub mod dpu;
-pub mod vdpu;
-
 pub mod ha_scope;
 pub mod ha_set;
+pub mod vdpu;
 
 #[cfg(test)]
 pub mod test;
@@ -18,9 +19,18 @@ use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable, ZmqClient, ZmqProducerStateTable};
-use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_bridge};
+use swss_common_bridge::{consumer::spawn_consumer_bridge, consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
 use tracing::error;
+
+pub trait DbBasedActor: Actor {
+    fn name() -> &'static str;
+    fn table_name() -> &'static str;
+    fn new(key: String) -> AnyhowResult<Self>
+    where
+        Self: Sized;
+}
+
 pub struct ActorCreator<F, T>
 where
     F: Fn(String) -> AnyhowResult<T>,
@@ -182,7 +192,7 @@ where
 
     let sst = SubscriberStateTable::new_async(db, table_name, None, None).await?;
 
-    let addr = crate::sp("swss-common-bridge", table_name);
+    let addr = edge_runtime.new_sp("swss-common-bridge", table_name);
 
     if actor_id.is_some() {
         let actor_id = actor_id.unwrap().to_owned();
@@ -201,13 +211,17 @@ where
             selector,
         ))
     } else {
+        let base_addr = edge_runtime.get_base_sp();
         Ok(ConsumerBridge::spawn(
             edge_runtime,
             addr,
             sst,
             move |kfv: &KeyOpFieldValues| {
+                let mut addr = base_addr.clone();
+                addr.resource_type = actor_name.to_owned();
+                addr.resource_id = kfv.key.clone();
                 (
-                    crate::sp(actor_name, &kfv.key),
+                    addr,
                     match single_entry {
                         true => table_name.to_owned(),
                         false => format!("{}|{}", table_name, kfv.key),
@@ -231,5 +245,31 @@ pub async fn spawn_zmq_producer_bridge(
 
     let sp = edge_runtime.new_sp("swss-common-bridge", table_name);
     spawn_producer_bridge(edge_runtime.clone(), sp, zpst).await?;
+    Ok(())
+}
+
+pub async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<()>
+where
+    T: DbBasedActor + 'static,
+{
+    let ac = ActorCreator::new(
+        edge_runtime.new_sp(T::name(), ""),
+        edge_runtime.clone(),
+        false,
+        |key: String| -> AnyhowResult<T> { T::new(key) },
+    );
+
+    tokio::task::spawn(ac.run());
+
+    let config_db = crate::db_named("CONFIG_DB").await?;
+    let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
+    let addr = edge_runtime.new_sp("swss-common-bridge", T::table_name());
+    spawn_consumer_bridge(
+        edge_runtime.clone(),
+        addr,
+        sst,
+        |kfv: &KeyOpFieldValues| (crate::sp(T::name(), &kfv.key), T::table_name().to_owned()),
+        |_| true,
+    );
     Ok(())
 }
