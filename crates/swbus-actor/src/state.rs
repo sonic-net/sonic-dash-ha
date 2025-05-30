@@ -2,9 +2,11 @@ pub mod incoming;
 pub mod internal;
 pub mod outgoing;
 
-use incoming::Incoming;
-use internal::Internal;
+use incoming::{Incoming, IncomingTableEntry};
+use internal::{Internal, InternalTableData};
 use outgoing::Outgoing;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use swbus_edge::simple_client::SimpleSwbusEdgeClient;
 
@@ -60,6 +62,13 @@ impl State {
     pub fn outgoing(&mut self) -> &mut Outgoing {
         &mut self.outgoing
     }
+
+    pub fn dump_state(&self) -> ActorStateDump {
+        ActorStateDump {
+            incoming: self.incoming.dump_state(),
+            internal: self.internal.dump_state(),
+        }
+    }
 }
 
 fn get_unix_time() -> u64 {
@@ -68,4 +77,10 @@ fn get_unix_time() -> u64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ActorStateDump {
+    pub incoming: HashMap<String, IncomingTableEntry>,
+    pub internal: HashMap<String, InternalTableData>,
 }

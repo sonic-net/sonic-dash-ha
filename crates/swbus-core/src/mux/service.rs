@@ -64,7 +64,7 @@ impl SwbusServiceHost {
             .map_err(|e| {
                 SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
-                    io::Error::new(io::ErrorKind::Other, format!("Failed to listen at {}: {}", addr, e)),
+                    io::Error::other(format!("Failed to listen at {}: {}", addr, e)),
                 )
             })
     }
