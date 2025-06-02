@@ -1,5 +1,5 @@
 use crate::actors::dpu::DpuActor;
-use crate::actors::ActorCreator;
+use crate::actors::{ActorCreator, DbBasedActor};
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
 use serde::Deserialize;
@@ -23,44 +23,22 @@ pub struct VDpuActor {
     vdpu: Option<VDpu>,
 }
 
-impl VDpuActor {
-    pub fn new(key: String) -> Result<Self> {
+impl DbBasedActor for VDpuActor {
+    fn new(key: String) -> Result<Self> {
         let actor = VDpuActor { id: key, vdpu: None };
         Ok(actor)
     }
 
-    pub fn table_name() -> &'static str {
+    fn table_name() -> &'static str {
         "VDPU"
     }
 
-    pub fn name() -> &'static str {
+    fn name() -> &'static str {
         "vdpu"
     }
+}
 
-    pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<()> {
-        let dpu_ac = ActorCreator::new(
-            edge_runtime.new_sp(Self::name(), ""),
-            edge_runtime.clone(),
-            false,
-            |key: String| -> Result<Self> { Self::new(key) },
-        );
-
-        tokio::task::spawn(dpu_ac.run());
-
-        let config_db = crate::db_named("CONFIG_DB").await?;
-        let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
-        let addr = crate::sp("swss-common-bridge", Self::table_name());
-        spawn_consumer_bridge(
-            edge_runtime.clone(),
-            addr,
-            sst,
-            |kfv: &KeyOpFieldValues| (crate::sp(Self::name(), &kfv.key), Self::table_name().to_owned()),
-            |_| true,
-        );
-
-        Ok(())
-    }
-
+impl VDpuActor {
     async fn register_to_dpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         if self.vdpu.is_none() {
             return Ok(());
@@ -188,6 +166,7 @@ mod test {
             ha_set::HaSetActor,
             test::{self, recv, send},
             vdpu::VDpuActor,
+            DbBasedActor,
         },
         ha_actor_messages::*,
     };

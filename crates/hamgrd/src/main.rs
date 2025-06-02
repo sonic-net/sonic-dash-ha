@@ -13,7 +13,7 @@ use tracing::error;
 mod actors;
 mod db_structs;
 mod ha_actor_messages;
-use actors::{dpu::DpuActor, vdpu::VDpuActor};
+use actors::{dpu::DpuActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
 use std::any::Any;
 

@@ -29,6 +29,32 @@ pub trait DbBasedActor: Actor {
     fn new(key: String) -> AnyhowResult<Self>
     where
         Self: Sized;
+
+    async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<()>
+    where
+        Self: Sized,
+    {
+        let ac = ActorCreator::new(
+            edge_runtime.new_sp(Self::name(), ""),
+            edge_runtime.clone(),
+            false,
+            |key: String| -> AnyhowResult<Self> { Self::new(key) },
+        );
+
+        tokio::task::spawn(ac.run());
+
+        let config_db = crate::db_named("CONFIG_DB").await?;
+        let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
+        let addr = edge_runtime.new_sp("swss-common-bridge", Self::table_name());
+        spawn_consumer_bridge(
+            edge_runtime.clone(),
+            addr,
+            sst,
+            |kfv: &KeyOpFieldValues| (crate::sp(Self::name(), &kfv.key), Self::table_name().to_owned()),
+            |_| true,
+        );
+        Ok(())
+    }
 }
 
 pub struct ActorCreator<F, T>
@@ -245,31 +271,5 @@ pub async fn spawn_zmq_producer_bridge(
 
     let sp = edge_runtime.new_sp("swss-common-bridge", table_name);
     spawn_producer_bridge(edge_runtime.clone(), sp, zpst).await?;
-    Ok(())
-}
-
-pub async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<()>
-where
-    T: DbBasedActor + 'static,
-{
-    let ac = ActorCreator::new(
-        edge_runtime.new_sp(T::name(), ""),
-        edge_runtime.clone(),
-        false,
-        |key: String| -> AnyhowResult<T> { T::new(key) },
-    );
-
-    tokio::task::spawn(ac.run());
-
-    let config_db = crate::db_named("CONFIG_DB").await?;
-    let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
-    let addr = edge_runtime.new_sp("swss-common-bridge", T::table_name());
-    spawn_consumer_bridge(
-        edge_runtime.clone(),
-        addr,
-        sst,
-        |kfv: &KeyOpFieldValues| (crate::sp(T::name(), &kfv.key), T::table_name().to_owned()),
-        |_| true,
-    );
     Ok(())
 }

@@ -18,6 +18,6 @@ impl HaSetActor {
 
     #[allow(unused)]
     pub fn name() -> &'static str {
-        "HASet"
+        "ha-set"
     }
 }
