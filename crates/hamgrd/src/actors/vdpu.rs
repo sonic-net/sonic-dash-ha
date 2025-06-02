@@ -34,7 +34,7 @@ impl VDpuActor {
     }
 
     pub fn name() -> &'static str {
-        "VDPU"
+        "vdpu"
     }
 
     pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<()> {
