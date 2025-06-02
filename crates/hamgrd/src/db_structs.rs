@@ -47,14 +47,14 @@ pub struct Dpu {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[skip_serializing_none]
-#[derive(Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RemoteDpu {
-    pub pa_ipv4: Option<String>,
+    pub pa_ipv4: String,
     pub pa_ipv6: Option<String>,
     pub npu_ipv4: String,
     pub npu_ipv6: Option<String>,
     pub dpu_id: u32,
-    pub swbus_port: Option<u16>,
+    pub swbus_port: u16,
 }
 
 #[skip_serializing_none]

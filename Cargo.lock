@@ -1979,6 +1979,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_json",
+ "serde_with",
  "swbus-edge",
  "swss-common",
  "swss-common-testing",

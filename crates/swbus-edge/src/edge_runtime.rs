@@ -55,6 +55,10 @@ impl SwbusEdgeRuntime {
         new_sp
     }
 
+    pub fn get_base_sp(&self) -> ServicePath {
+        self.base_sp.clone()
+    }
+
     /// Add handler that can be reached from any swbus client.
     pub fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
