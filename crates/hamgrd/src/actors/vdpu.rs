@@ -121,8 +121,8 @@ impl VDpuActor {
                     }
 
                     let msg = msg.unwrap();
-                    if let Ok(DpuActorState { up, dpu }) = msg.deserialize_data() {
-                        final_state = final_state && up;
+                    if let Ok(dpu) = msg.deserialize_data::<DpuActorState>() {
+                        final_state = final_state && dpu.up;
                         Some((id.to_string(), dpu))
                     } else {
                         final_state = false;
@@ -203,7 +203,27 @@ mod test {
         };
 
         let handle = runtime.spawn(vdpu_actor, VDpuActor::name(), "test-vdpu");
-        let dpu_obj = serde_json::json!({"pa_ipv4": "1.2.3.4", "dpu_id": 1, "orchagent_zmq_port": 8100, "swbus_port": 23606, "midplane_ipv4": "127.0.0.1", "pa_ipv6":None::<String>, "vdpu_id": None::<String>, "vip_ipv4": None::<String>, "vip_ipv6": None::<String>, "state": None::<String>});
+        let dpu_obj = serde_json::json!({"pa_ipv4": "1.2.3.4",
+            "dpu_id": 1,
+            "dpu_name":"switch1_dpu0",
+            "is_managed":true,
+            "orchagent_zmq_port": 8100,
+            "swbus_port": 23606,
+            "midplane_ipv4": "127.0.0.1",
+            "remote_dpu": false,
+            "npu_ipv4": "10.0.1.0",
+        });
+        let mut down_dpu_obj = dpu_obj.clone();
+        down_dpu_obj
+            .as_object_mut()
+            .unwrap()
+            .insert("up".to_string(), serde_json::json!(false));
+        let mut up_dpu_obj = dpu_obj.clone();
+        up_dpu_obj
+            .as_object_mut()
+            .unwrap()
+            .insert("up".to_string(), serde_json::json!(true));
+
         #[rustfmt::skip]
         let commands = [
             // Receiving DPU config-db object from swss-common bridge
@@ -217,12 +237,12 @@ mod test {
             // receive 
 
             // receive DPU state update
-            send! { key: DpuActorState::msg_key("switch1_dpu0"), data: { "up": true, "dpu": dpu_obj }, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": true, "dpus": {"switch1_dpu0": dpu_obj} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            send! { key: DpuActorState::msg_key("switch1_dpu0"), data: up_dpu_obj, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
+            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": true, "dpus": {"switch1_dpu0": up_dpu_obj} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             // receive DPU down update
-            send! { key: DpuActorState::msg_key("switch1_dpu0"), data: { "up": false, "dpu": dpu_obj }, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpus": {"switch1_dpu0": dpu_obj} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            send! { key: DpuActorState::msg_key("switch1_dpu0"), data: down_dpu_obj, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
+            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpus": {"switch1_dpu0": down_dpu_obj} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "dpu0, dpu1"}}, addr: runtime.sp("swss-common-bridge", VDpuActor::table_name()) },
             
