@@ -30,7 +30,7 @@ impl HaSetActor {
     }
 
     pub fn name() -> &'static str {
-        "HASet"
+        "ha-set"
     }
 
     pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<()> {
