@@ -94,12 +94,12 @@ impl DpuActorState {
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct VDpuActorState {
     pub up: bool,
-    pub dpus: HashMap<String, DpuActorState>,
+    pub dpu: DpuActorState,
 }
 
 impl VDpuActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str, dpus: HashMap<String, DpuActorState>) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up, dpus })
+    pub fn new_actor_msg(up: bool, my_id: &str, dpu: DpuActorState) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { up, dpu })
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
