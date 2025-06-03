@@ -15,7 +15,9 @@ mod db_structs;
 mod ha_actor_messages;
 //use actors::{dpu::DpuActor, vdpu::VDpuActor};
 use actors::dpu::DpuActor;
+use actors::spawn_zmq_producer_bridge;
 use anyhow::Result;
+use db_structs::Dpu;
 use std::any::Any;
 
 #[derive(Parser, Debug)]
@@ -44,6 +46,8 @@ async fn main() {
     swbus_sp.service_type = "hamgrd".into();
     swbus_sp.service_id = "0".into();
 
+    let dpu = db_structs::get_dpu_config_from_db(args.slot_id).unwrap();
+
     let runtime_data = RuntimeData::new(args.slot_id, swbus_config.npu_ipv4, swbus_config.npu_ipv6);
 
     // Setup swbus and actor runtime
@@ -54,6 +58,9 @@ async fn main() {
     let swbus_edge = Arc::new(swbus_edge);
     let actor_runtime = ActorRuntime::new(swbus_edge.clone());
     set_global_runtime(actor_runtime);
+
+    // Start zmq common bridge provider for DPU tables
+    spawn_producer_bridges(swbus_edge.clone(), &dpu).await.unwrap();
 
     // run a sink to drain all messages that are not handled by any actor
     let sink = SimpleSwbusEdgeClient::new(swbus_edge.clone(), swbus_sp, true /*public*/, true /*sink*/);
@@ -91,6 +98,19 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
     //VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
     //HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
+    Ok(())
+}
+
+async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) -> Result<()> {
+    let zmq_endpoint = format!("{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
+
+    // Spawn BFD_SESSION_TABLE zmq producer bridge for DPU actor
+    // has service path swss-common-bridge/BFD_SESSION_TABLE.
+    spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "BFD_SESSION_TABLE", &zmq_endpoint).await?;
+
+    // Spawn BFD_SESSION_TABLE zmq producer bridge for DPU actor
+    // has service path swss-common-bridge/BFD_SESSION_TABLE.
+    spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "DASH_HA_SET_TABLE", &zmq_endpoint).await?;
     Ok(())
 }
 

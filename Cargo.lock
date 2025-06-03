@@ -799,6 +799,7 @@ dependencies = [
  "swbus-edge",
  "swss-common",
  "swss-common-bridge",
+ "swss-common-testing",
  "swss-serde",
  "tokio",
  "tracing",

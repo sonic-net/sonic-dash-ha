@@ -1,6 +1,10 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
-#![allow(unused)]
+//#![allow(unused)]
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
+use swss_common::{DbConnector, Table};
+use swss_serde::from_table;
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
 #[derive(Serialize, Deserialize, Default)]
@@ -24,7 +28,8 @@ pub struct DashHaGlobalConfig {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
-#[derive(Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[skip_serializing_none]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug)]
 pub struct Dpu {
     pub state: Option<String>,
     pub vip_ipv4: Option<String>,
@@ -61,10 +66,31 @@ pub struct BfdSessionTable {
     pub session_type: Option<String>,
 }
 
+pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
+    let db = DbConnector::new_named("CONFIG_DB", false, 0).context("connecting config_db")?;
+    let table = Table::new(db, "DPU").context("opening DPU table")?;
+
+    let keys = table.get_keys().context("Failed to get keys from DPU table")?;
+
+    for key in keys {
+        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {}", key))?;
+
+        // find the DPU entry for the slot
+        if dpu.dpu_id == dpu_id {
+            return Ok(dpu);
+        } else {
+            continue;
+        }
+    }
+    Err(anyhow::anyhow!("DPU entry not found for slot {}", dpu_id))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::net::Ipv4Addr;
     use swss_common::KeyOpFieldValues;
+    use swss_common_testing::*;
     #[test]
     fn test_deserialize_dpu() {
         let json = r#"
@@ -83,5 +109,49 @@ mod test {
         let dpu: Dpu = swss_serde::from_field_values(&kfv.field_values).unwrap();
         assert!(dpu.pa_ipv4 == "1.2.3.4");
         assert!(dpu.dpu_id == 1);
+    }
+
+    #[test]
+    fn test_get_dpu_config_from_db() {
+        let _ = Redis::start_config_db();
+
+        // Populate the CONFIG_DB for testing
+        populate_configdb_for_test();
+
+        let config_fromdb = get_dpu_config_from_db(0).unwrap();
+
+        let expected = Dpu {
+            state: None,
+            vip_ipv6: None,
+            pa_ipv4: "1.2.3.0".to_string(),
+            vip_ipv4: Some("4.5.6.0".to_string()),
+            pa_ipv6: None,
+            dpu_id: 0,
+            orchagent_zmq_port: 8100,
+            swbus_port: 23606,
+            midplane_ipv4: "169.254.1.0".to_string(),
+            vdpu_id: Some("vpdu0".to_string()),
+        };
+
+        assert_eq!(config_fromdb, expected);
+    }
+
+    fn populate_configdb_for_test() {
+        let db: DbConnector = DbConnector::new_named("CONFIG_DB", false, 0).unwrap();
+        let table = Table::new(db, "DPU").unwrap();
+
+        // create local dpu table first
+        for d in 0..2 {
+            let dpu_fvs = vec![
+                ("pa_ipv4".to_string(), Ipv4Addr::new(1, 2, 3, d).to_string()),
+                ("vip_ipv4".to_string(), Ipv4Addr::new(4, 5, 6, d).to_string()),
+                ("dpu_id".to_string(), d.to_string()),
+                ("orchagent_zmq_port".to_string(), "8100".to_string()),
+                ("swbus_port".to_string(), (23606 + d as u16).to_string()),
+                ("midplane_ipv4".to_string(), Ipv4Addr::new(169, 254, 1, d).to_string()),
+                ("vdpu_id".to_string(), format!("vpdu{}", d)),
+            ];
+            table.set(&d.to_string(), dpu_fvs).unwrap();
+        }
     }
 }
