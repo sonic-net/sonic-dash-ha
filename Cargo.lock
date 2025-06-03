@@ -1971,8 +1971,11 @@ name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "serde_json",
  "serde_yaml",
+ "swbus-actor",
  "swbus-config",
  "swbus-core",
  "swbus-edge",
