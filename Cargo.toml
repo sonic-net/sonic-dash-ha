@@ -35,7 +35,7 @@ unused_import_braces = 'warn'
 
 [workspace.dependencies]
 # Async framework
-tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
 
@@ -54,6 +54,7 @@ signal-hook = "0.3"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 serde_yaml = "0.9"
+serde_with = "3.12"
 
 # Command line utils
 clap = { version = "4", features = ["derive", "cargo", "wrap_help", "unicode", "string", "unstable-styles"] }
@@ -92,6 +93,7 @@ swbus-config = { version = "0.1.0", path = "crates/swbus-config" }
 swss-serde = { version = "0.1.0", path = "crates/swss-serde" }
 swss-common = { version = "0.1.0", path = "crates/swss-common" }
 swss-common-testing = { version = "0.1.0", path = "crates/swss-common-testing" }
+swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
 
 # Dev dependencies
 criterion = "0.5"

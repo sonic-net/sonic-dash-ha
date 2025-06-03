@@ -31,3 +31,10 @@ thiserror.workspace = true
 
 # Internal dependencies
 swbus-proto.workspace = true
+
+[dev-dependencies]
+swbus-core.workspace = true
+swbus-config.workspace = true
+serde_yaml.workspace = true
+sonic-common.workspace = true
+rand = "0.8.5"

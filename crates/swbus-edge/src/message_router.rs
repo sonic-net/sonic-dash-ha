@@ -52,6 +52,7 @@ impl SwbusMessageRouter {
         let mut local_msg_rx = self.local_msg_rx.take().unwrap();
         let mut remote_msg_rx = self.remote_msg_rx.take().unwrap();
         let mut swbus_client = self.swbus_client.take().unwrap();
+        swbus_client.start();
 
         let swbusd_route_task = task::spawn(async move {
             loop {
@@ -106,18 +107,6 @@ impl SwbusMessageRouter {
 
         // Try stripping the resource type
         partial_dest.resource_type.clear();
-        if try_route(routes, &partial_dest, privacy, &message).await {
-            return;
-        }
-
-        // Try stripping the service id
-        partial_dest.service_id.clear();
-        if try_route(routes, &partial_dest, privacy, &message).await {
-            return;
-        }
-
-        // Try stripping the service type
-        partial_dest.service_type.clear();
         if try_route(routes, &partial_dest, privacy, &message).await {
             return;
         }
