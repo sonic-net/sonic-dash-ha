@@ -10,6 +10,7 @@ use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, S
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
 use swss_common_bridge::consumer::spawn_consumer_bridge;
+use tracing::error;
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[derive(Deserialize, Clone)]
@@ -74,7 +75,10 @@ impl VDpuActor {
     }
 
     async fn handle_dpu_state_update(&mut self, incoming: &Incoming, outgoing: &mut Outgoing) -> Result<()> {
-        let vdpu_state = self.calculate_vdpu_state(incoming);
+        let Some(vdpu_state) = self.calculate_vdpu_state(incoming) else {
+            // vdpu data is not available yet
+            return Ok(());
+        };
         let msg = vdpu_state.to_actor_msg(&self.id)?;
         let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::VDPUState);
         for actor_sp in peer_actors {
@@ -83,39 +87,32 @@ impl VDpuActor {
         Ok(())
     }
 
-    fn calculate_vdpu_state(&self, incoming: &Incoming) -> VDpuActorState {
+    fn calculate_vdpu_state(&self, incoming: &Incoming) -> Option<VDpuActorState> {
         if let Some(main_dpu_ids) = &self.vdpu.as_ref().unwrap().main_dpu_ids {
-            let mut final_state = true;
-            let dpus = main_dpu_ids
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .filter_map(|id| {
-                    let msg = incoming.get(&format!("{}{}", DpuActorState::msg_key_prefix(), id));
+            // currently we only support one main dpu so we just take the first one
+            let dpu_id = main_dpu_ids.split(',').map(str::trim).find(|s| !s.is_empty());
 
-                    if msg.is_err() {
-                        final_state = false;
-                        return None;
-                    }
+            let Some(dpu_id) = dpu_id else {
+                error!("No main DPU is configured");
+                return None;
+            };
 
-                    let msg = msg.unwrap();
-                    if let Ok(dpu) = msg.deserialize_data::<DpuActorState>() {
-                        final_state = final_state && dpu.up;
-                        Some((id.to_string(), dpu))
-                    } else {
-                        final_state = false;
-                        None
-                    }
-                })
-                .collect();
+            let msg = incoming.get(&format!("{}{}", DpuActorState::msg_key_prefix(), dpu_id));
 
-            VDpuActorState { up: final_state, dpus }
-        } else {
-            VDpuActorState {
-                up: false,
-                dpus: HashMap::new(),
+            let Ok(msg) = msg else {
+                // dpu data is not available yet
+                return None;
+            };
+
+            if let Ok(dpu) = msg.deserialize_data::<DpuActorState>() {
+                let vdpu = VDpuActorState { up: dpu.up, dpu };
+                return Some(vdpu);
+            } else {
+                error!("Failed to deserialize DpuActorState from the message");
+                return None;
             }
         }
+        None
     }
 
     async fn handle_vdpu_state_registration(
@@ -127,7 +124,10 @@ impl VDpuActor {
         let entry = incoming.get_entry(key)?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
-            let vdpu_state = self.calculate_vdpu_state(incoming);
+            let Some(vdpu_state) = self.calculate_vdpu_state(incoming) else {
+                // vdpu data is not available yet
+                return Ok(());
+            };
             let msg = vdpu_state.to_actor_msg(&self.id)?;
             outgoing.send(entry.source.clone(), msg);
         }
@@ -211,17 +211,14 @@ mod test {
 
             // receive VDPU state registration
             send! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, "test-ha-set"), data: { "active": true}, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
-            // send VDPU state update immediately to ha-set
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpus": {} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
-            // receive 
 
             // receive DPU state update
             send! { key: DpuActorState::msg_key("switch1_dpu0"), data: up_dpu_obj, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": true, "dpus": {"switch1_dpu0": up_dpu_obj} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": true, "dpu": up_dpu_obj }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             // receive DPU down update
             send! { key: DpuActorState::msg_key("switch1_dpu0"), data: down_dpu_obj, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpus": {"switch1_dpu0": down_dpu_obj} }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpu": down_dpu_obj }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "dpu0, dpu1"}}, addr: runtime.sp("swss-common-bridge", VDpuActor::table_name()) },
             
