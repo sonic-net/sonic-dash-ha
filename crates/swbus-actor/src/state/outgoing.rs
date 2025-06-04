@@ -9,6 +9,7 @@ use swbus_edge::{
     swbus_proto::swbus::{ServicePath, SwbusErrorCode, SwbusMessage},
 };
 use tokio::time::{interval, Interval};
+use serde::{Deserialize, Serialize};
 
 use super::get_unix_time;
 
@@ -133,6 +134,47 @@ impl Outgoing {
             }
         }
     }
+
+    pub(crate) fn dump_state(&self) -> OutgoingStateData {
+        let state_data = OutgoingStateData {
+            outgoing_unacked: self.unacked_messages
+                                  .iter()
+                                  .map(|(key, entry)| (key.clone(), UnackedMessageLogWrapper::create_from_unacked_message(&entry)))
+                                  .collect(),
+            outgoing_queued: self.queued_messages
+                                  .iter()
+                                  .map(|entry| UnackedMessageLogWrapper::create_from_unacked_message(&entry))
+                                  .collect(),
+            outgoing_sent: self.sent_messages
+                               .iter()
+                               .map(|(key, entry)| (key.clone(), entry.clone()))
+                               .collect(),
+        };
+        state_data
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct OutgoingStateData {
+    pub outgoing_unacked: HashMap<MessageId, UnackedMessageLogWrapper>,
+    pub outgoing_queued: Vec<UnackedMessageLogWrapper>,
+    pub outgoing_sent: HashMap<String, SentMessageEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct UnackedMessageLogWrapper {
+    pub actor_message: ActorMessage,
+    pub swbus_message: SwbusMessage,
+    pub time_elapsed: Duration,
+}
+
+impl UnackedMessageLogWrapper {
+    fn create_from_unacked_message(unacked: &UnackedMessage) -> UnackedMessageLogWrapper {
+        let unacked_message_log = UnackedMessageLogWrapper {actor_message: unacked.actor_message.clone(),
+                                   swbus_message: unacked.swbus_message.clone(),
+                                   time_elapsed: unacked.time_sent.elapsed()};
+        unacked_message_log
+    }
 }
 
 #[derive(Debug)]
@@ -148,26 +190,27 @@ impl UnackedMessage {
     }
 }
 
-struct SentMessageEntry {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SentMessageEntry {
     /// The most recent message sent with this key.
-    msg: ActorMessage,
+    pub msg: ActorMessage,
     /// The id of the most recent message sent with this key.
-    id: MessageId,
+    pub id: MessageId,
     /// The first time a message was sent with this key, in unix seconds.
     #[allow(dead_code)] // TODO: GetActorState will read this when it is implemented
-    created_time: u64,
+    pub created_time: u64,
     /// The most recent time a message was sent with this key, in unix seconds.
-    last_updated_time: u64,
+    pub last_updated_time: u64,
     /// The most recent time a message was sent OR resent with this key, in unix seconds.
-    last_sent_time: u64,
+    pub last_sent_time: u64,
     /// How many times this key has been updated.
-    version: u64,
+    pub version: u64,
     /// Whether the latest message has been acked.
-    acked: bool,
+    pub acked: bool,
     /// The latest response to the latest message.
-    response: Option<String>,
+    pub response: Option<String>,
     /// Where the latest response came from.
-    response_source: Option<ServicePath>,
+    pub response_source: Option<ServicePath>,
 }
 
 impl SentMessageEntry {
