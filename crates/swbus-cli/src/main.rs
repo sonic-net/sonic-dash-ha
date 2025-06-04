@@ -132,8 +132,10 @@ fn get_swbus_config(config_file: Option<&str>) -> Result<SwbusConfig> {
             Ok(config)
         }
         None => {
-            let slot = std::env::var("DEV").context("Environment DEV is not found")?;
-            let slot: u32 = slot.parse().context("Invalid slot id")?;
+            let dev = std::env::var("DEV").context("Environment DEV is not found")?;
+            // Remove the prefix "dpu" from the slot id
+            let dev = &dev[3..];
+            let slot: u32 = dev.parse().context("Invalid slot id")?;
             let config = swbus_config_from_db(slot).context("Failed to get swbusd config from db")?;
             Ok(config)
         }
@@ -266,7 +268,7 @@ mod tests {
         // Mock the config database with a sample configuration
         populate_configdb_for_test();
 
-        std::env::set_var("DEV", slot.to_string());
+        std::env::set_var("DEV", format!("dpu{}", slot));
         let config = get_swbus_config(None).unwrap();
         assert_eq!(config.endpoint.to_string(), format!("{}:{}", npu_ipv4, 23606 + slot));
         let expected_sp = ServicePath::with_node(

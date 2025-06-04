@@ -786,6 +786,17 @@ dependencies = [
 [[package]]
 name = "hamgrd"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "swbus-actor",
+ "swbus-edge",
+ "swss-common",
+ "swss-common-bridge",
+ "swss-serde",
+ "tokio",
+]
 
 [[package]]
 name = "hashbrown"
@@ -1960,8 +1971,11 @@ name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "serde_json",
  "serde_yaml",
+ "swbus-actor",
  "swbus-config",
  "swbus-core",
  "swbus-edge",
