@@ -184,6 +184,5 @@ mod test {
         assert!(fvs["endpoint"] == "1.2.3.4,2.2.3.4");
         assert!(fvs["endpoint_monitor"] == "1.2.3.5,2.2.3.5");
         assert!(fvs.get("monitoring").is_none());
-
     }
 }
