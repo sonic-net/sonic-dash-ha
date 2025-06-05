@@ -315,7 +315,7 @@ mod test {
 
     #[tokio::test]
     async fn ha_set_actor() {
-        let runtime = test::create_actor_runtime(1, "10.0.1.0").await;
+        let runtime = test::create_actor_runtime(1, "10.0.0.0", "10::").await;
 
         let ha_set_actor = HaSetActor {
             id: "test-ha-set".into(),

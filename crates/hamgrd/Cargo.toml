@@ -18,6 +18,7 @@ swbus-actor = { path = "../swbus-actor" }
 swss-common = { path = "../swss-common" }
 swss-common-bridge = { path = "../swss-common-bridge" }
 swss-serde = { path = "../swss-serde" }
+swss-common-testing.workspace = true
 swbus-config.workspace = true
 sonic-common.workspace = true
 tokio.workspace = true
