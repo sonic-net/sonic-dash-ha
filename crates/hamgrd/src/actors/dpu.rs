@@ -68,7 +68,7 @@ impl DpuActor {
         Ok(actor)
     }
 
-    fn name() -> &'static str {
+    pub fn name() -> &'static str {
         "dpu"
     }
 
@@ -95,27 +95,34 @@ impl DpuActor {
         // dpu actor is spawned for both local dpu and remote dpu
         let config_db = crate::db_named("CONFIG_DB").await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::dpu_table_name(), None, None).await?;
-        let addr = crate::sp("swss-common-bridge", Self::dpu_table_name());
+        let addr = edge_runtime.new_sp("swss-common-bridge", Self::dpu_table_name());
+        let base_addr = edge_runtime.get_base_sp();
         spawn_consumer_bridge(
             edge_runtime.clone(),
             addr,
             sst,
-            |kfv: &KeyOpFieldValues| (crate::sp(Self::name(), &kfv.key), Self::dpu_table_name().to_owned()),
+            move |kfv: &KeyOpFieldValues| {
+                let mut addr = base_addr.clone();
+                addr.resource_type = Self::name().to_owned();
+                addr.resource_id = kfv.key.clone();
+                (addr, Self::dpu_table_name().to_owned())
+            },
             |_| true,
         );
 
         let config_db = crate::db_named("CONFIG_DB").await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::remote_dpu_table_name(), None, None).await?;
-        let addr = crate::sp("swss-common-bridge", Self::remote_dpu_table_name());
+        let addr = edge_runtime.new_sp("swss-common-bridge", Self::remote_dpu_table_name());
+        let base_addr = edge_runtime.get_base_sp();
         spawn_consumer_bridge(
             edge_runtime.clone(),
             addr,
             sst,
-            |kfv: &KeyOpFieldValues| {
-                (
-                    crate::sp(Self::name(), &kfv.key),
-                    Self::remote_dpu_table_name().to_owned(),
-                )
+            move |kfv: &KeyOpFieldValues| {
+                let mut addr = base_addr.clone();
+                addr.resource_type = Self::name().to_owned();
+                addr.resource_id = kfv.key.clone();
+                (addr, Self::remote_dpu_table_name().to_owned())
             },
             |_| true,
         );
@@ -211,16 +218,6 @@ impl DpuActor {
                     )
                     .await?,
                 );
-
-                // BFD_SESSION_TABLE is managed by zmq producer bridge. This actor instance
-                // has service path swss-common-bridge/BFD_SESSION_TABLE.
-                spawn_zmq_producer_bridge(
-                    context.get_edge_runtime().clone(),
-                    "DPU_APPL_DB",
-                    "BFD_SESSION_TABLE",
-                    &zmq_endpoint,
-                )
-                .await?;
             }
         } else {
             debug!(
@@ -473,85 +470,92 @@ impl Actor for DpuActor {
 mod test {
     use crate::actors::{
         dpu::DpuActor,
-        test::{self, recv, send},
+        test::{self, *},
     };
-    use crate::db_structs::RemoteDpu;
+    use crate::db_structs::{BfdSessionTable, RemoteDpu};
+
     use crate::ha_actor_messages::DpuActorState;
     use std::time::Duration;
-
+    use swss_serde::to_field_values;
     #[tokio::test]
     async fn dpu_actor() {
-        let runtime = test::create_actor_runtime(1, "10.0.1.0").await;
+        let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
+        // prepare test data
+        let dpu_actor_state = make_local_dpu_actor_state(0, 0, true);
+        let remote_dpu1_fvs = to_field_values(&make_remote_dpu_object(1, 0)).unwrap();
+        let remote_dpu2_fvs = to_field_values(&make_remote_dpu_object(2, 0)).unwrap();
+        let remote_dpu3_fvs = to_field_values(&make_remote_dpu_object(3, 0)).unwrap();
+        let dash_global_cfg = make_dash_ha_global_config();
+        let dash_global_cfg_fvs = serde_json::to_value(to_field_values(&dash_global_cfg).unwrap()).unwrap();
+        let mut down_dpu_state = dpu_actor_state.clone();
+        down_dpu_state.up = false;
+        let down_dpu_state = serde_json::to_value(down_dpu_state).unwrap();
+
+        let mut up_dpu_state = dpu_actor_state.clone();
+        up_dpu_state.up = true;
+        let up_dpu_state = serde_json::to_value(up_dpu_state).unwrap();
+
+        let dpu_fvs = serde_json::to_value(to_field_values(&to_local_dpu(&dpu_actor_state)).unwrap()).unwrap();
+        let bfd = BfdSessionTable {
+            tx_interval: dash_global_cfg.dpu_bfd_probe_interval_in_ms,
+            rx_interval: dash_global_cfg.dpu_bfd_probe_interval_in_ms,
+            multiplier: dash_global_cfg.dpu_bfd_probe_multiplier,
+            multihop: true,
+            local_addr: dpu_actor_state.pa_ipv4.clone(),
+            session_type: Some("passive".to_string()),
+            shutdown: false,
+        };
+        let bfd_fvs = serde_json::to_value(to_field_values(&bfd).unwrap()).unwrap();
 
         let dpu_actor = DpuActor {
-            id: "test-dpu".into(),
+            id: dpu_actor_state.dpu_name.clone(),
             dpu: None,
             bridges: Vec::new(),
         };
+        let handle = runtime.spawn(dpu_actor, "dpu", "switch0_dpu0");
 
-        let handle = runtime.spawn(dpu_actor, "dpu", "test-dpu");
-        let dpu_obj = serde_json::json!({"pa_ipv4": "1.2.3.4",
-            "dpu_id": 1,
-            "dpu_name":"test-dpu",
-            "is_managed":true,
-            "orchagent_zmq_port": 8100,
-            "swbus_port": 23606,
-            "midplane_ipv4": "127.0.0.1",
-            "remote_dpu": false,
-            "npu_ipv4": "10.0.1.0",
-        });
-        let mut down_dpu_obj = dpu_obj.clone();
-        down_dpu_obj
-            .as_object_mut()
-            .unwrap()
-            .insert("up".to_string(), serde_json::json!(false));
-        let mut up_dpu_obj = dpu_obj;
-        up_dpu_obj
-            .as_object_mut()
-            .unwrap()
-            .insert("up".to_string(), serde_json::json!(true));
         #[rustfmt::skip]
         let commands = [
             // Bring up dpu
             send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
             // Receiving DPU config-db object from swss-common bridge
-            send! { key: DpuActor::dpu_table_name(), data: { "key": "test-dpu", "operation": "Set", "field_values": {"pa_ipv4": "1.2.3.4", "dpu_id": "1", "orchagent_zmq_port": "8100", "swbus_port": "23606", "midplane_ipv4": "127.0.0.1"}}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
+            send! { key: DpuActor::dpu_table_name(), data: { "key": "switch0_dpu0", "operation": "Set", "field_values": dpu_fvs}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
-            recv! { key: "DPUStateUpdate|test-dpu", data: down_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "REMOTE_DPU|remotedpu1", data: { "key": "REMOTE_DPU|remotedpu1", "operation": "Set", "field_values": { "pa_ipv4": "1.2.3.5", "npu_ipv4": "10.0.1.1", "dpu_id": "0", "swbus_port": "23606" }}},
-            send! { key: "REMOTE_DPU|remotedpu2", data: { "key": "REMOTE_DPU|remotedpu2", "operation": "Set", "field_values": { "pa_ipv4": "1.2.3.6", "npu_ipv4": "10.0.1.2", "dpu_id": "0", "swbus_port": "23606" }}},
-            send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": { "dpu_bfd_probe_interval_in_ms": "1000", "dpu_bfd_probe_multiplier": "3" }} },
-            recv! { key: "test-dpu", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": {"tx_interval": "1000", "rx_interval": "1000", "multiplier":"3", "multihop":"true", "local_addr":"1.2.3.4", "type":"passive", "shutdown":"false"}}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "test-dpu", data: {"key": "default|default|10.0.1.1",  "operation": "Set", "field_values": {"tx_interval": "1000", "rx_interval": "1000", "multiplier":"3", "multihop":"true", "local_addr":"1.2.3.4", "type":"passive", "shutdown":"false"}}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "test-dpu", data: {"key": "default|default|10.0.1.2",  "operation": "Set", "field_values": {"tx_interval": "1000", "rx_interval": "1000", "multiplier":"3", "multihop":"true", "local_addr":"1.2.3.4", "type":"passive", "shutdown":"false"}}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            send! { key: "REMOTE_DPU|remotedpu3", data: { "key": "REMOTE_DPU|remotedpu3", "operation": "Set", "field_values": { "pa_ipv4": "1.2.3.7", "npu_ipv4": "10.0.1.3", "dpu_id": "0", "swbus_port": "23606" }}},
-            recv! { key: "test-dpu", data: {"key": "default|default|10.0.1.3",  "operation": "Set", "field_values": {"tx_interval": "1000", "rx_interval": "1000", "multiplier":"3", "multihop":"true", "local_addr":"1.2.3.4", "type":"passive", "shutdown":"false"}}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: down_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "REMOTE_DPU|switch1_dpu0", data: { "key": "REMOTE_DPU|switch1_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu1_fvs).unwrap() }},
+            send! { key: "REMOTE_DPU|switch2_dpu0", data: { "key": "REMOTE_DPU|switch2_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu2_fvs).unwrap()}},
+            send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": dash_global_cfg_fvs} },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            send! { key: "REMOTE_DPU|switch3_dpu0", data: { "key": "REMOTE_DPU|switch3_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu3_fvs).unwrap()}},
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
 
-            send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "10.0.1.0,10.0.1.1,10.0.1.2" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: up_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "10.0.0.0,10.0.1.0,10.0.2.0,10.0.3.0" }} },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: up_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate DPU_STATE planes going down then up
             send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: down_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: down_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "down" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: down_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: down_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "down", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: down_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: down_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "down", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: down_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: down_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": { "dpu_midplane_link_state": "up", "dpu_control_plane_state": "up", "dpu_data_plane_state": "up" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: up_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: up_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate BFD probe going down
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: down_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "10.0.1.0,10.0.1.1,10.0.1.2" }} },
-            recv! { key: "DPUStateUpdate|test-dpu", data: up_dpu_obj, addr: runtime.sp("vdpu", "test-vdpu") },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: down_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
+            send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": { "v4_bfd_up_sessions": "10.0.0.0" }} },
+            recv! { key: "DPUStateUpdate|switch0_dpu0", data: up_dpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
             
             // simulate delete of Dpu entry
-            send! { key: DpuActor::dpu_table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": {"pa_ipv4": "1.2.3.4", "dpu_id": "1", "orchagent_zmq_port": "8100", "swbus_port": "23606", "midplane_ipv4": "127.0.0.1"}}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
+            send! { key: DpuActor::dpu_table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
         ];
-        test::run_commands(&runtime, runtime.sp("dpu", "test-dpu"), &commands).await;
+        test::run_commands(&runtime, runtime.sp("dpu", "switch0_dpu0"), &commands).await;
         if tokio::time::timeout(Duration::from_secs(1), handle).await.is_err() {
             panic!("timeout waiting for actor to terminate");
         }
@@ -559,7 +563,7 @@ mod test {
 
     #[tokio::test]
     async fn remote_dpu_actor() {
-        let runtime = test::create_actor_runtime(1, "10.0.1.0").await;
+        let runtime = test::create_actor_runtime(1, "10.0.0.0", "10::").await;
 
         let rdpu_actor = DpuActor {
             id: "test-rdpu".into(),
@@ -569,15 +573,8 @@ mod test {
 
         let handle = runtime.spawn(rdpu_actor, "dpu", "test-rdpu");
 
-        let rdpu = RemoteDpu {
-            dpu_id: 1,
-            pa_ipv4: "1.2.3.4".into(),
-            pa_ipv6: None,
-            npu_ipv4: "10.0.1.0".into(),
-            npu_ipv6: None,
-            swbus_port: 23606,
-        };
-        let fvs = swss_serde::to_field_values(&rdpu).unwrap();
+        let rdpu = make_remote_dpu_object(1, 1);
+        let fvs = to_field_values(&rdpu).unwrap();
         let rdpu_obj = serde_json::to_value(fvs).unwrap();
         let rdpu_state = DpuActorState::from_remote_dpu("test-rdpu", &rdpu);
 
