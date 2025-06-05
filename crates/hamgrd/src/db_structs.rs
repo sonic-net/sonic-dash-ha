@@ -11,7 +11,7 @@ use swss_serde::from_table;
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct DashHaGlobalConfig {
     // The port of control plane data channel, used for bulk sync.
     pub cp_data_channel_port: Option<u16>,
@@ -77,8 +77,8 @@ pub struct BfdSessionTable {
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize)]
 pub struct DashHaSetConfigTable {
-    pub version: Option<String>,
-    pub vip_v4: Option<String>,
+    pub version: String,
+    pub vip_v4: String,
     pub vip_v6: Option<String>,
     // dpu or switch
     pub owner: Option<String>,
@@ -87,7 +87,8 @@ pub struct DashHaSetConfigTable {
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub vdpu_ids: Vec<String>,
     pub pinned_vdpu_bfd_probe_states: Option<String>,
-    pub preferred_vdpu_ids: Option<String>,
+    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
+    pub preferred_vdpu_ids: Option<Vec<String>>,
     pub preferred_standalone_vdpu_index: Option<u32>,
 }
 
@@ -96,9 +97,9 @@ pub struct DashHaSetConfigTable {
 #[derive(Serialize, Deserialize, Default)]
 pub struct DashHaSetTable {
     // Config version.
-    pub version: Option<String>,
+    pub version: String,
     // IPv4 Data path VIP.
-    pub vip_v4: Option<String>,
+    pub vip_v4: String,
     // IPv4 Data path VIP.
     pub vip_v6: Option<String>,
     // Owner of HA state machine. It can be controller, switch.
@@ -106,11 +107,11 @@ pub struct DashHaSetTable {
     // Scope of HA set. It can be dpu, eni.
     pub scope: Option<String>,
     // The IP address of local NPU. It can be IPv4 or IPv6. Used for setting up the BFD session.
-    pub local_npu_ip: Option<String>,
+    pub local_npu_ip: String,
     // The IP address of local DPU.
-    pub local_ip: Option<String>,
+    pub local_ip: String,
     // The IP address of peer DPU.
-    pub peer_ip: Option<String>,
+    pub peer_ip: String,
     // The port of control plane data channel, used for bulk sync.
     pub cp_data_channel_port: Option<u16>,
     // The destination port used when tunneling packetse via DPU-to-DPU data plane channel.
@@ -128,7 +129,7 @@ pub struct DashHaSetTable {
 /// https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct VnetRouteTunnelTable {
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub endpoint: Vec<String>,
@@ -203,12 +204,12 @@ mod test {
         println!("{:?}", vnet);
         assert!(vnet.endpoint == vec!["1.2.3.4", "2.2.3.4"]);
         assert!(vnet.endpoint_monitor == Some(vec!["1.2.3.5".into(), "2.2.3.5".into()]));
-        assert!(vnet.monitoring == None);
+        assert!(vnet.monitoring.is_none());
         let fvs = swss_serde::to_field_values(&vnet).unwrap();
         println!("{:?}", fvs);
         assert!(fvs["endpoint"] == "1.2.3.4,2.2.3.4");
         assert!(fvs["endpoint_monitor"] == "1.2.3.5,2.2.3.5");
-        assert!(fvs.get("monitoring").is_none());
+        assert!(!fvs.contains_key("monitoring"));
     }
 
     #[test]

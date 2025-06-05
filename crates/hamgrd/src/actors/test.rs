@@ -14,7 +14,7 @@ use swbus_edge::{
 };
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
-    const TIMEOUT: Duration = Duration::from_millis(5000);
+    const TIMEOUT: Duration = Duration::from_millis(1000);
     tokio::time::timeout(TIMEOUT, fut).await
 }
 
@@ -242,9 +242,10 @@ pub fn make_remote_dpu_object(switch: u16, dpu: u32) -> RemoteDpu {
 pub fn make_local_dpu_actor_state(switch: u16, dpu: u32, is_managed: bool) -> DpuActorState {
     let dpu_obj = make_dpu_object(switch, dpu);
     DpuActorState::from_dpu(
-        &format!("switch{switch}_dpu{dpu}"), 
-        &dpu_obj, is_managed, 
-        &format!("10.0.{switch}.{dpu}"), 
+        &format!("switch{switch}_dpu{dpu}"),
+        &dpu_obj,
+        is_managed,
+        &format!("10.0.{switch}.{dpu}"),
         &Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
     )
 }
@@ -285,24 +286,47 @@ pub fn to_remote_dpu(dpu_actor_state: &DpuActorState) -> RemoteDpu {
         npu_ipv6: dpu_actor_state.npu_ipv6.clone(),
     }
 }
+
+pub fn make_vdpu_actor_state(up: bool, dpu_state: &DpuActorState) -> (String, VDpuActorState) {
+    let parts: Vec<&str> = dpu_state
+        .dpu_name
+        .split(['s', 'w', 'i', 't', 'c', 'h', '_', 'd', 'p', 'u'])
+        .filter(|p| !p.is_empty())
+        .collect();
+    let vdpu_id = match parts.len() {
+        2 => format!("vdpu{}-{}", parts[0], parts[1]),
+        _ => panic!("Invalid DPU name: {}", &dpu_state.dpu_name),
+    };
+
+    (
+        vdpu_id,
+        VDpuActorState {
+            up,
+            dpu: dpu_state.clone(),
+        },
+    )
+}
+
 /// Create a DashHaSetConfigTable for a given DPU
 /// The allocation scheme is as follows:
 /// switch_n/dpu_x and switch_n+1/dpu_x are in the same HA set, where n is even
-/// vdpu id is switch id * 8 + dpu id
-pub fn make_dpu_scope_ha_set(switch: u16, dpu: u16) -> DashHaSetConfigTable {
+/// vdpu id is vdpu{switch id * 8}-{dpu}
+pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, DashHaSetConfigTable) {
     let switch_pair_id = switch / 2;
-    
-    DashHaSetConfigTable {
-        version: Some("1".to_string()),
-        vip_v4: Some(format!("3.2.{switch_pair_id}.{dpu}")),
+    let vdpu0_id = format!("vdpu{}-{dpu}", switch_pair_id * 2);
+    let vdpu1_id = format!("vdpu{}-{dpu}", switch_pair_id * 2 + 1);
+    let ha_set = DashHaSetConfigTable {
+        version: "1".to_string(),
+        vip_v4: format!("3.2.{switch_pair_id}.{dpu}"),
         vip_v6: Some(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
         // dpu or switch
         owner: Some("dpu".to_string()),
         // dpu or eni
         scope: Some("dpu".to_string()),
-        vdpu_ids: Option<String>,
-        pinned_vdpu_bfd_probe_states: None
-        preferred_vdpu_ids: Option<String>,
-        preferred_standalone_vdpu_index: Option<u32>,
-    }
+        vdpu_ids: vec![vdpu0_id.clone(), vdpu1_id.clone()],
+        pinned_vdpu_bfd_probe_states: None,
+        preferred_vdpu_ids: Some(vec![vdpu0_id]),
+        preferred_standalone_vdpu_index: Some(0),
+    };
+    (format!("haset{switch_pair_id}-{dpu}"), ha_set)
 }
