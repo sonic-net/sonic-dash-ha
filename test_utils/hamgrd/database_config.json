@@ -19,7 +19,7 @@
             "instance": "redis"
         },
         "STATE_DB": {
-            "id": 6,
+            "id": 2,
             "separator": "|",
             "instance": "redis"
         },
@@ -32,6 +32,11 @@
             "id": 4,
             "separator": "|",
             "instance": "redis"
-        }
+        },
+        "DPU_APPL_DB": {
+            "id": 5,
+            "separator": "|",
+            "instance": "redis"
+        }        
     }
 }
