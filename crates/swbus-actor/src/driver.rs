@@ -166,6 +166,7 @@ impl<A: Actor> ActorDriver<A> {
             }
         }
     }
+
     fn dump_state(&self) -> ActorStateDump {
         self.state.dump_state()
     }
