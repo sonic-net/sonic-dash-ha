@@ -244,7 +244,7 @@ impl HaSetActor {
             context.stop();
             return Ok(());
         }
-        let first_time = false;
+        let first_time = self.dash_ha_set_config.is_none();
 
         self.dash_ha_set_config = Some(swss_serde::from_field_values(&dpu_kfv.field_values)?);
         let swss_key = format!("default:{}", self.dash_ha_set_config.as_ref().unwrap().vip_v4);
