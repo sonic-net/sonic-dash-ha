@@ -1,15 +1,15 @@
 use crate::actor_message::{actor_msg_to_swbus_msg, ActorMessage};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, SystemTime},
 };
 use swbus_edge::{
     simple_client::{MessageId, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode, SwbusMessage},
 };
 use tokio::time::{interval, Interval};
-use serde::{Deserialize, Serialize};
 
 use super::get_unix_time;
 
@@ -34,7 +34,7 @@ impl Outgoing {
     /// If the actor callback fails, the message will be dropped.
     pub fn send(&mut self, dest: ServicePath, msg: ActorMessage) {
         let swbus_message = actor_msg_to_swbus_msg(&msg, dest, &self.swbus_client);
-        let time_sent = Instant::now();
+        let time_sent = SystemTime::now();
         self.queued_messages.push({
             UnackedMessage {
                 actor_message: msg,
@@ -118,11 +118,11 @@ impl Outgoing {
 
             // Drop messages that have been unacked for over an hour, as a memory leak failsafe
             self.unacked_messages
-                .retain(|_, msg| msg.time_sent.elapsed() < Duration::from_secs(3600));
+                .retain(|_, msg| Duration::from_secs(get_elapsed_time(&msg.time_sent)) < Duration::from_secs(3600));
 
             // Resend unacked messages
             for msg in self.unacked_messages.values() {
-                if msg.time_sent.elapsed() >= self.resend_interval.period() {
+                if Duration::from_secs(get_elapsed_time(&msg.time_sent)) >= self.resend_interval.period() {
                     self.swbus_client
                         .send_raw(msg.swbus_message.clone())
                         .await
@@ -137,51 +137,35 @@ impl Outgoing {
 
     pub(crate) fn dump_state(&self) -> OutgoingStateData {
         let state_data = OutgoingStateData {
-            outgoing_unacked: self.unacked_messages
-                                  .iter()
-                                  .map(|(key, entry)| (key.clone(), UnackedMessageLogWrapper::create_from_unacked_message(&entry)))
-                                  .collect(),
-            outgoing_queued: self.queued_messages
-                                  .iter()
-                                  .map(|entry| UnackedMessageLogWrapper::create_from_unacked_message(&entry))
-                                  .collect(),
-            outgoing_sent: self.sent_messages
-                               .iter()
-                               .map(|(key, entry)| (key.clone(), entry.clone()))
-                               .collect(),
+            outgoing_queued: self.queued_messages.clone(),
+            outgoing_sent: self
+                .sent_messages
+                .iter()
+                .map(|(key, entry)| (key.clone(), entry.clone()))
+                .collect(),
         };
         state_data
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct OutgoingStateData {
-    pub outgoing_unacked: HashMap<MessageId, UnackedMessageLogWrapper>,
-    pub outgoing_queued: Vec<UnackedMessageLogWrapper>,
-    pub outgoing_sent: HashMap<String, SentMessageEntry>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct UnackedMessageLogWrapper {
-    pub actor_message: ActorMessage,
-    pub swbus_message: SwbusMessage,
-    pub time_elapsed: Duration,
-}
-
-impl UnackedMessageLogWrapper {
-    fn create_from_unacked_message(unacked: &UnackedMessage) -> UnackedMessageLogWrapper {
-        let unacked_message_log = UnackedMessageLogWrapper {actor_message: unacked.actor_message.clone(),
-                                   swbus_message: unacked.swbus_message.clone(),
-                                   time_elapsed: unacked.time_sent.elapsed()};
-        unacked_message_log
+pub fn get_elapsed_time(systime: &SystemTime) -> u64 {
+    match systime.elapsed() {
+        Ok(elapsed) => elapsed.as_secs(),
+        Err(_) => 0, // If the system time went backwards, return 0
     }
 }
 
-#[derive(Debug)]
-struct UnackedMessage {
-    actor_message: ActorMessage,
-    swbus_message: SwbusMessage,
-    time_sent: Instant,
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct OutgoingStateData {
+    pub outgoing_queued: Vec<UnackedMessage>,
+    pub outgoing_sent: HashMap<String, SentMessageEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct UnackedMessage {
+    pub actor_message: ActorMessage,
+    pub swbus_message: SwbusMessage,
+    pub time_sent: SystemTime,
 }
 
 impl UnackedMessage {

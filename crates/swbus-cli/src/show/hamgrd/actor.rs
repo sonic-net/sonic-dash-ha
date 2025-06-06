@@ -3,7 +3,10 @@ use crate::CommandContext;
 use chrono::{DateTime, Local};
 use clap::Parser;
 use serde_json::to_string_pretty;
-use swbus_actor::state::{incoming::IncomingTableEntry, internal::InternalTableData, outgoing::SentMessageEntry, outgoing::UnackedMessageLogWrapper, ActorStateDump};
+use swbus_actor::state::{
+    incoming::IncomingTableEntry, internal::InternalTableData, outgoing::get_elapsed_time, outgoing::SentMessageEntry,
+    outgoing::UnackedMessage, ActorStateDump,
+};
 use swbus_proto::swbus::*;
 use tabled::settings::{object::Rows, style::Style, Alignment, Modify, Panel};
 use tabled::{Table, Tabled};
@@ -88,28 +91,12 @@ impl IncomingStateDisplay {
 }
 
 #[derive(Tabled)]
-struct OutgoingUnackedStateDisplay {
-    message_id: String,
-    details: String,
-}
-
-impl OutgoingUnackedStateDisplay {
-    fn from_outgoing_state((key, state): (&String, &UnackedMessageLogWrapper)) -> Self {
-        let outgoing_unacked = OutgoingUnackedMessageDisplay::from_outgoing_state(state);
-        OutgoingUnackedStateDisplay {
-            message_id: key.clone(),
-            details: outgoing_unacked.message,
-        }
-    }
-}
-
-#[derive(Tabled)]
 struct OutgoingUnackedMessageDisplay {
     message: String,
 }
 
 impl OutgoingUnackedMessageDisplay {
-    fn from_outgoing_state(state: &UnackedMessageLogWrapper) -> Self {
+    fn from_outgoing_state(state: &UnackedMessage) -> Self {
         let details = vec![
             KeyValue {
                 attribute: "actor-message/key".to_string(),
@@ -130,13 +117,11 @@ impl OutgoingUnackedMessageDisplay {
             },
             KeyValue {
                 attribute: "time-elapsed".to_string(),
-                value: format!("{}", state.time_elapsed.as_secs()),
+                value: format!("{}", get_elapsed_time(&state.time_sent)),
             },
         ];
         let table = Table::new(details).with(Style::ascii().remove_frame()).to_string();
-        OutgoingUnackedMessageDisplay {
-            message: table,
-        }
+        OutgoingUnackedMessageDisplay { message: table }
     }
 }
 
@@ -326,7 +311,8 @@ impl ShowCmdHandler for ShowActorCmd {
 
         // convert to table for display
         let outgoing_sent_state_display = state
-            .outgoing.outgoing_sent
+            .outgoing
+            .outgoing_sent
             .iter()
             .map(OutgoingSentStateDisplay::from_outgoing_state)
             .collect::<Vec<OutgoingSentStateDisplay>>();
@@ -340,7 +326,8 @@ impl ShowCmdHandler for ShowActorCmd {
 
         // convert to table for display
         let outgoing_queued_state_display = state
-            .outgoing.outgoing_queued
+            .outgoing
+            .outgoing_queued
             .iter()
             .map(OutgoingUnackedMessageDisplay::from_outgoing_state)
             .collect::<Vec<OutgoingUnackedMessageDisplay>>();
@@ -351,20 +338,5 @@ impl ShowCmdHandler for ShowActorCmd {
             .to_string();
 
         info!("{}", outgoing_queued_state_table);
-
-        // convert to table for display
-        let outgoing_unacked_state_display = state
-            .outgoing.outgoing_unacked
-            .iter()
-            .map(|(key, state)| OutgoingUnackedStateDisplay::from_outgoing_state((&key.to_string(), state)))
-            .collect::<Vec<OutgoingUnackedStateDisplay>>();
-        let outgoing_unacked_state_table = Table::new(outgoing_unacked_state_display)
-            .with(Panel::header("Outgoing Unacked Message State"))
-            .with(Modify::list(Rows::first(), Alignment::center()))
-            .with(Style::modern())
-            .to_string();
-
-        info!("{}", outgoing_unacked_state_table);
-
     }
 }
