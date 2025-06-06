@@ -324,19 +324,21 @@ impl ShowCmdHandler for ShowActorCmd {
 
         info!("{}", outgoing_sent_state_table);
 
-        // convert to table for display
-        let outgoing_queued_state_display = state
-            .outgoing
-            .outgoing_queued
-            .iter()
-            .map(OutgoingUnackedMessageDisplay::from_outgoing_state)
-            .collect::<Vec<OutgoingUnackedMessageDisplay>>();
-        let outgoing_queued_state_table = Table::new(outgoing_queued_state_display)
-            .with(Panel::header("Outgoing Queued Message State"))
-            .with(Modify::list(Rows::first(), Alignment::center()))
-            .with(Style::modern())
-            .to_string();
+        if !state.outgoing.outgoing_queued.is_empty() {
+            // convert to table for display
+            let outgoing_queued_state_display = state
+                .outgoing
+                .outgoing_queued
+                .iter()
+                .map(OutgoingUnackedMessageDisplay::from_outgoing_state)
+                .collect::<Vec<OutgoingUnackedMessageDisplay>>();
+            let outgoing_queued_state_table = Table::new(outgoing_queued_state_display)
+                .with(Panel::header("Outgoing Queued Message State"))
+                .with(Modify::list(Rows::first(), Alignment::center()))
+                .with(Style::modern())
+                .to_string();
 
-        info!("{}", outgoing_queued_state_table);
+            info!("{}", outgoing_queued_state_table);
+        }
     }
 }
