@@ -4,7 +4,7 @@ pub mod outgoing;
 
 use incoming::{Incoming, IncomingTableEntry};
 use internal::{Internal, InternalTableData};
-use outgoing::Outgoing;
+use outgoing::{Outgoing, OutgoingStateData};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -67,6 +67,7 @@ impl State {
         ActorStateDump {
             incoming: self.incoming.dump_state(),
             internal: self.internal.dump_state(),
+            outgoing: self.outgoing.dump_state(),
         }
     }
 }
@@ -83,4 +84,5 @@ fn get_unix_time() -> u64 {
 pub struct ActorStateDump {
     pub incoming: HashMap<String, IncomingTableEntry>,
     pub internal: HashMap<String, InternalTableData>,
+    pub outgoing: OutgoingStateData,
 }
