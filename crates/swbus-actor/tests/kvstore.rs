@@ -22,8 +22,8 @@ async fn echo() {
 
     let (notify_done, is_done) = channel();
 
-    swbus_actor::spawn(KVStore(Redis::start()), "test", "kv");
-    swbus_actor::spawn(KVClient(notify_done), "test", "client");
+    swbus_actor::spawn(KVStore(Redis::start()), sp("kv"));
+    swbus_actor::spawn(KVClient(notify_done), sp("client"));
 
     timeout(Duration::from_secs(3), is_done)
         .await

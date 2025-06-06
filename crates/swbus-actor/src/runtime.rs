@@ -15,11 +15,10 @@ impl ActorRuntime {
     }
 
     /// Spawn an actor on this runtime, reachable by sending Swbus requests to `addr`.
-    pub fn spawn<A: Actor>(&self, actor: A, resource_type: &str, resource_id: &str) -> JoinHandle<()> {
+    pub fn spawn<A: Actor>(&self, actor: A, addr: ServicePath) -> JoinHandle<()> {
         // TODO: Add privacy option
-        let sp = self.sp(resource_type, resource_id);
-        info!("Spawning actor at {}", sp.to_longest_path());
-        let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), sp, true);
+        info!("Spawning actor at {}", addr.to_longest_path());
+        let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), addr, true);
         let actor_driver = ActorDriver::new(actor, swbus_client);
 
         tokio::task::spawn(actor_driver.run())
@@ -27,10 +26,6 @@ impl ActorRuntime {
 
     pub fn get_swbus_edge(&self) -> Arc<SwbusEdgeRuntime> {
         self.swbus_edge.clone()
-    }
-
-    pub fn sp(&self, resource_type: &str, resource_id: &str) -> ServicePath {
-        self.swbus_edge.new_sp(resource_type, resource_id)
     }
 }
 
@@ -60,11 +55,11 @@ pub fn get_global_runtime() -> RwLockReadGuard<'static, Option<ActorRuntime>> {
 /// Spawn an actor on the global runtime.
 ///
 /// Panics if called before [`set_global_runtime`] is called.
-pub fn spawn<A: Actor>(actor: A, resource_type: &str, resource_id: &str) -> JoinHandle<()> {
+pub fn spawn<A: Actor>(actor: A, addr: ServicePath) -> JoinHandle<()> {
     GLOBAL_RUNTIME
         .read()
         .unwrap()
         .as_ref()
         .expect("You must call actor::set_global_runtime() before calling actor::spawn()")
-        .spawn(actor, resource_type, resource_id)
+        .spawn(actor, addr)
 }

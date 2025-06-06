@@ -19,8 +19,8 @@ async fn echo() {
 
     let (notify_done, is_done) = channel();
 
-    swbus_actor::spawn(EchoServer, "test", "echo");
-    swbus_actor::spawn(EchoClient(notify_done), "test", "client");
+    swbus_actor::spawn(EchoServer, sp("echo"));
+    swbus_actor::spawn(EchoClient(notify_done), sp("client"));
 
     timeout(Duration::from_secs(3), is_done)
         .await
@@ -38,8 +38,7 @@ impl EchoClient {
 
 impl Actor for EchoClient {
     async fn init(&mut self, state: &mut State) -> Result<()> {
-        let sp = state.outgoing().from_my_sp("test", "echo");
-        state.outgoing().send(sp, ActorMessage::new("0", &0)?);
+        state.outgoing().send(sp("echo"), ActorMessage::new("0", &0)?);
         Ok(())
     }
 

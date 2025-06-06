@@ -133,13 +133,6 @@ impl Outgoing {
             }
         }
     }
-
-    pub fn from_my_sp(&self, resource_type: &str, resource_id: &str) -> ServicePath {
-        let mut sp = self.swbus_client.get_service_path().clone();
-        sp.resource_type = resource_type.into();
-        sp.resource_id = resource_id.into();
-        sp
-    }
 }
 
 #[derive(Debug)]

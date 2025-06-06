@@ -9,7 +9,7 @@ use swbus_edge::{
 
 pub use serde_json::Value;
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ActorMessage {
     pub key: String,
     pub data: Value,

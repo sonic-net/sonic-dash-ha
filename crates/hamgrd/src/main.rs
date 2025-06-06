@@ -5,13 +5,13 @@ use std::{sync::Arc, time::Duration};
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
-use swss_common::DbConnector;
+use swss_common::{DbConnector, KeyOpFieldValues, SubscriberStateTable};
+use swss_common_bridge::consumer::spawn_consumer_bridge;
 use tokio::signal;
 use tokio::time::timeout;
 use tracing::error;
 mod actors;
-mod ha_actor_messages;
-use actors::dpu::DpuActor;
+use actors::{dpu::DpuActor, ActorCreator};
 use anyhow::Result;
 
 #[derive(Parser, Debug)]
@@ -48,18 +48,15 @@ async fn main() {
     set_global_runtime(actor_runtime);
 
     //actors::dpu::spawn_dpu_actors().await.unwrap();
-    start_actor_creators(&swbus_edge).await.unwrap();
+    start_actor_creators(swbus_edge).await.unwrap();
 
-    init_actor_supporting_services(&swbus_edge).await.unwrap();
     // Wait for Ctrl+C to exit
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
 }
 
 fn sp(resource_type: &str, resource_id: &str) -> ServicePath {
-    swbus_actor::get_global_runtime()
-        .as_ref()
-        .unwrap()
-        .sp(resource_type, resource_id)
+    let rt = swbus_actor::get_global_runtime().as_ref().unwrap().get_swbus_edge();
+    rt.new_sp(resource_type, resource_id)
 }
 
 async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
@@ -70,17 +67,22 @@ async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
     Ok(db)
 }
 
-// actor-creator creates are private swbus message handler to handle messages to actor but actor do not exist.
-// The creator will create the actor when it receives the first message to the actor.
-async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-    DpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    //VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    //HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
-    Ok(())
-}
+async fn start_actor_creators(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<()> {
+    {
+        let dpu_ac = ActorCreator::new(
+            sp("DPU", ""),
+            edge_runtime.clone(),
+            false,
+            |key: String, fv: &swss_common::FieldValues| -> Result<DpuActor> { DpuActor::new(key, fv) },
+        );
 
-async fn init_actor_supporting_services(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-    DpuActor::init_supporting_services(edge_runtime).await?;
-    //HaSetActor::init_supporting_services(edge_runtime).await?;
+        tokio::task::spawn(dpu_ac.run());
+        let config_db = crate::db_named("CONFIG_DB").await?;
+        let sst = SubscriberStateTable::new_async(config_db, "DPU", None, None).await?;
+        let addr = crate::sp("swss-common-bridge", "DPU");
+        spawn_consumer_bridge(edge_runtime.clone(), addr, sst, |kfv: &KeyOpFieldValues| {
+            (crate::sp("DPU", &kfv.key), "DPU".to_owned())
+        });
+    }
     Ok(())
 }
