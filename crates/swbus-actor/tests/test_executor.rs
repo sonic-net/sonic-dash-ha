@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap, fs::File, future::pending, io::BufReader, mem, path::PathBuf, sync::Arc, time::Duration,
 };
-use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, State};
+use swbus_actor::{Actor, ActorMessage, ActorRuntime, State};
 use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::{DbConnector, Table};
 use swss_common_testing::{random_string, Redis};
@@ -216,7 +216,7 @@ impl Actor for TestActor {
         Ok(())
     }
 
-    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
         let entry = state.incoming().get_entry(key).unwrap();
         self.env.clear();
         self.env.set("source", &entry.source.resource_id);

@@ -1,5 +1,5 @@
 use std::{mem, time::Duration};
-use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, Result, State};
+use swbus_actor::{Actor, ActorMessage, ActorRuntime, Result, State};
 use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use tokio::{
     sync::oneshot::{channel, Sender},
@@ -42,7 +42,7 @@ impl Actor for EchoClient {
         Ok(())
     }
 
-    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
         let count = key.parse::<u32>().unwrap();
 
         // Assert that the incoming table has messages 0..=count still cached
@@ -65,7 +65,7 @@ impl Actor for EchoClient {
 struct EchoServer;
 
 impl Actor for EchoServer {
-    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
         let entry = state.incoming().get_entry(key).unwrap();
         let source = entry.source.clone();
         let msg = entry.msg.clone();

@@ -1968,7 +1968,6 @@ dependencies = [
  "swss-common",
  "swss-common-testing",
  "tokio",
- "tracing",
 ]
 
 [[package]]

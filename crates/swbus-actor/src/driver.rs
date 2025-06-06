@@ -1,17 +1,15 @@
-use crate::{Actor, Context, State};
+use crate::{Actor, State};
 use std::sync::Arc;
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::{ServicePath, SwbusErrorCode},
+    swbus_proto::swbus::SwbusErrorCode,
 };
-use tracing::info;
 
 /// An actor and the support structures needed to run it.
 pub(crate) struct ActorDriver<A> {
     actor: A,
     state: State,
     swbus_edge: Arc<SimpleSwbusEdgeClient>,
-    context: Context,
 }
 
 impl<A: Actor> ActorDriver<A> {
@@ -21,7 +19,6 @@ impl<A: Actor> ActorDriver<A> {
             actor,
             state: State::new(swbus_edge.clone()),
             swbus_edge,
-            context: Context::new(),
         }
     }
 
@@ -36,25 +33,16 @@ impl<A: Actor> ActorDriver<A> {
                 _ = self.state.outgoing.drive_resend_loop() => unreachable!("drive_resend_loop never returns"),
                 maybe_msg = self.swbus_edge.recv() => self.handle_swbus_message(maybe_msg.expect("swbus-edge died")).await,
             }
-            if self.context.stopped {
-                info!(
-                    "actor {} terminated",
-                    self.swbus_edge.get_service_path().to_longest_path()
-                );
-                break;
-            }
         }
     }
 
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
-            MessageBody::Request { payload } => {
-                match self.state.incoming.handle_request(id, source.clone(), &payload).await {
-                    Ok(key) => self.handle_actor_message(&key).await,
-                    Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
-                }
-            }
+            MessageBody::Request { payload } => match self.state.incoming.handle_request(id, source, &payload).await {
+                Ok(key) => self.handle_actor_message(&key).await,
+                Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
+            },
             MessageBody::Response {
                 request_id,
                 error_code,
@@ -68,7 +56,7 @@ impl<A: Actor> ActorDriver<A> {
 
     /// Handle an actor message in the incoming state table, triggering `Actor::handle_message`.
     async fn handle_actor_message(&mut self, key: &str) {
-        let res = self.actor.handle_message(&mut self.state, key, &mut self.context).await;
+        let res = self.actor.handle_message(&mut self.state, key).await;
 
         let (error_code, error_message) = match res {
             Ok(()) => {
