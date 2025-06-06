@@ -34,7 +34,7 @@ impl super::CmdHandler for ShowCmd {
         src_sp.resource_id = "0".to_string();
 
         // Register the channel to the runtime to receive response
-        ctx.runtime.lock().await.add_handler(src_sp.clone(), recv_queue_tx);
+        ctx.runtime.add_handler(src_sp.clone(), recv_queue_tx);
 
         let sub_cmd: &dyn ShowCmdHandler = match &self.subcommand {
             ShowSubCmd::Swbusd(swbusd_cmd) => swbusd_cmd,
@@ -46,7 +46,7 @@ impl super::CmdHandler for ShowCmd {
         let request_id = request_msg.header.as_ref().unwrap().id;
 
         // Send request
-        ctx.runtime.lock().await.send(request_msg).await.unwrap();
+        ctx.runtime.send(request_msg).await.unwrap();
 
         // wait on the channel to receive response
         let result = wait_for_response(&mut recv_queue_rx, request_id, CMD_TIMEOUT).await;

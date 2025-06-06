@@ -10,15 +10,21 @@ use swbus_config::SwbusConfig;
 use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_server::{SwbusService, SwbusServiceServer};
 use swbus_proto::swbus::*;
-use tokio::sync::mpsc;
+use tokio::sync::{
+    mpsc,
+    oneshot::{self, Receiver, Sender},
+};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 use tracing::*;
+
 pub struct SwbusServiceHost {
     swbus_server_addr: SocketAddr,
     mux: Arc<SwbusMultiplexer>,
     conn_store: Arc<SwbusConnStore>,
+    shutdown_tx: Option<Sender<()>>,
+    shutdown_rx: Option<Receiver<()>>,
 }
 
 type SwbusMessageResult<T> = Result<Response<T>, Status>;
@@ -28,15 +34,28 @@ impl SwbusServiceHost {
     pub fn new(swbus_server_addr: &SocketAddr) -> Self {
         let mux = Arc::new(SwbusMultiplexer::new());
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
-        // populate the mux with the routes
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         Self {
             swbus_server_addr: *swbus_server_addr,
             mux,
             conn_store,
+            shutdown_tx: Some(shutdown_tx),
+            shutdown_rx: Some(shutdown_rx),
         }
     }
 
-    pub async fn start(self: SwbusServiceHost, config: SwbusConfig) -> Result<()> {
+    pub fn take_shutdown_sender(&mut self) -> Option<Sender<()>> {
+        self.shutdown_tx.take()
+    }
+
+    pub async fn shutdown(&mut self) {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+    }
+
+    pub async fn start(mut self, config: SwbusConfig) -> Result<()> {
+        debug!("SwbusServiceServer starting at {}", self.swbus_server_addr);
         let addr = self.swbus_server_addr;
 
         if config.routes.is_empty() {
@@ -57,16 +76,24 @@ impl SwbusServiceHost {
             self.conn_store.add_peer(peer);
         }
 
+        let conn_store = self.conn_store.clone();
+        let shutdown_rx = self.shutdown_rx.take().unwrap();
         Server::builder()
             .add_service(SwbusServiceServer::new(self))
-            .serve(addr)
+            .serve_with_shutdown(addr, async {
+                shutdown_rx.await.ok();
+                info!("SwbusServiceServer received shutdown signal");
+                conn_store.shutdown().await;
+            })
             .await
             .map_err(|e| {
                 SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
                     io::Error::other(format!("Failed to listen at {}: {}", addr, e)),
                 )
-            })
+            })?;
+        debug!("SwbusServiceServer terminated");
+        Ok(())
     }
 }
 
