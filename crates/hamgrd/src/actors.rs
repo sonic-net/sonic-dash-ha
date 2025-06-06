@@ -29,6 +29,7 @@ use tracing::error;
 
 pub trait DbBasedActor: Actor {
     fn name() -> &'static str;
+    fn db_name() -> &'static str;
     fn table_name() -> &'static str;
     fn new(key: String) -> AnyhowResult<Self>
     where
@@ -47,7 +48,7 @@ pub trait DbBasedActor: Actor {
 
         tokio::task::spawn(ac.run());
 
-        let config_db = crate::db_named("CONFIG_DB").await?;
+        let config_db = crate::db_named(Self::db_name()).await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
         let addr = edge_runtime.new_sp("swss-common-bridge", Self::table_name());
         let base_addr = edge_runtime.get_base_sp();

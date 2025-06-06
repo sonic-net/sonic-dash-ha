@@ -32,6 +32,10 @@ impl DbBasedActor for HaSetActor {
         Ok(actor)
     }
 
+    fn db_name() -> &'static str {
+        "APPL_DB"
+    }
+
     fn table_name() -> &'static str {
         "DASH_HA_SET_CONFIG_TABLE"
     }

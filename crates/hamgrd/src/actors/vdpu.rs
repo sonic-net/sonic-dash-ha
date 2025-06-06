@@ -30,6 +30,10 @@ impl DbBasedActor for VDpuActor {
         Ok(actor)
     }
 
+    fn db_name() -> &'static str {
+        "CONFIG_DB"
+    }
+
     fn table_name() -> &'static str {
         "VDPU"
     }
