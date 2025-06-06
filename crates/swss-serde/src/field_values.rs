@@ -104,6 +104,7 @@ impl<'de> SeqAccess<'de> for FieldValuesSeqDeserializer<'de> {
                 self.fields = &self.fields[1..];
                 seed.deserialize(FieldValueDeserializer::new(self.fvs.get(*field)))
                     .map(Some)
+                    .map_err(|e| Error::new(format!("{}: {}", field, e)))
             }
             None => Ok(None),
         }
