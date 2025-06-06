@@ -102,7 +102,6 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
             }
         },
         "outgoing":{
-            "outgoing_unacked":{},
             "outgoing_queued":[],
             "outgoing_sent":{
                 "kv-get":{
