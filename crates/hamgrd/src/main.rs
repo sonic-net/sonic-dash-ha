@@ -18,6 +18,8 @@ use anyhow::Result;
 use db_structs::Dpu;
 use std::any::Any;
 
+use crate::actors::ha_scope::HaScopeActor;
+
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
 struct Args {
@@ -101,6 +103,13 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
     let handle =
         spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "DASH_HA_SET_TABLE", &zmq_endpoint).await?;
     handles.push(handle);
+
+    // Spawn DASH_HA_SCOPE_TABLE zmq producer bridge for ha-set actor
+    // Has service path swss-common-bridge/DASH_HA_SCOPE_TABLE.
+    let handle =
+        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "DASH_HA_SCOPE_TABLE", &zmq_endpoint).await?;
+    handles.push(handle);
+
     Ok(handles)
 }
 
@@ -110,6 +119,7 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
     VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
     HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
+    HaScopeActor::start_actor_creator(edge_runtime.clone()).await?;
     Ok(())
 }
 

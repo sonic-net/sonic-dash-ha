@@ -313,7 +313,6 @@ impl HaSetActor {
 
 impl Actor for HaSetActor {
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        println!("Received message {key}");
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_set_config_table_message(state, key, context).await {
                 let err = format!("handle_dash_ha_set_config_table_message failed: {e}");
