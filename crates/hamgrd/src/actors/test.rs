@@ -236,7 +236,39 @@ pub fn make_remote_dpu_object(switch: u16, dpu: u32) -> RemoteDpu {
         npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
     }
 }
-pub fn make_local_dpu_actor_state(switch: u16, dpu: u32, is_managed: bool) -> DpuActorState {
+
+pub fn make_dpu_pmon_state(all_up: bool) -> DpuState {
+    let state = if all_up {
+        DpuPmonStateType::Up
+    } else {
+        DpuPmonStateType::Down
+    };
+
+    DpuState {
+        dpu_midplane_link_state: state.clone(),
+        dpu_midplane_link_time: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+        dpu_control_plane_state: state.clone(),
+        dpu_control_plane_time: 1718096215000, // Tue Jun 11 09:30:15 AM UTC 2024
+        dpu_data_plane_state: state.clone(),
+        dpu_data_plane_time: 1718231130000, // Wed Jun 12 11:45:30 PM UTC 2024
+    }
+}
+
+pub fn make_dpu_bfd_state(v4_up_sessions: Vec<&str>, v6_up_sessions: Vec<&str>) -> DashBfdProbeState {
+    DashBfdProbeState {
+        v4_bfd_up_sessions: v4_up_sessions.iter().map(|&s| s.to_string()).collect::<Vec<String>>(),
+        v4_bfd_up_sessions_timestamp: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+        v6_bfd_up_sessions: v6_up_sessions.iter().map(|&s| s.to_string()).collect::<Vec<String>>(),
+        v6_bfd_up_sessions_timestamp: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+    }
+}
+pub fn make_local_dpu_actor_state(
+    switch: u16,
+    dpu: u32,
+    is_managed: bool,
+    dpu_pmon_state: Option<DpuState>,
+    dpu_bfd_state: Option<DashBfdProbeState>,
+) -> DpuActorState {
     DpuActorState {
         remote_dpu: false,
         // If true, this is a DPU locally manamaged by this hamgrd.
@@ -255,6 +287,8 @@ pub fn make_local_dpu_actor_state(switch: u16, dpu: u32, is_managed: bool) -> Dp
         midplane_ipv4: Some(format!("169.254.1.{dpu}")),
         npu_ipv4: format!("10.0.{switch}.{dpu}"),
         npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
+        dpu_pmon_state,
+        dpu_bfd_state,
     }
 }
 
@@ -277,6 +311,8 @@ pub fn make_remote_dpu_actor_state(switch: u16, dpu: u32) -> DpuActorState {
         midplane_ipv4: None,
         npu_ipv4: format!("10.0.{switch}.{dpu}"),
         npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
+        dpu_pmon_state: None,
+        dpu_bfd_state: None,
     }
 }
 

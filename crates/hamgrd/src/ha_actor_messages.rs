@@ -1,8 +1,9 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
 #![allow(unused)]
-use crate::db_structs::{Dpu, RemoteDpu};
+use crate::db_structs::{DashBfdProbeState, Dpu, DpuState, RemoteDpu};
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use chrono::{format::ParseError, DateTime, TimeZone, Utc};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::skip_serializing_none;
 use swbus_actor::{state::incoming::Incoming, ActorMessage};
 use swbus_edge::swbus_proto::swbus::ServicePath;
@@ -28,10 +29,40 @@ pub struct DpuActorState {
     pub orchagent_zmq_port: u16,
     pub swbus_port: u16,
     pub midplane_ipv4: Option<String>,
+    pub dpu_pmon_state: Option<DpuState>,
+    pub dpu_bfd_state: Option<DashBfdProbeState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct DpuBfdState {
+    pub v4_bfd_up_sessions: Vec<String>,
+    pub v4_bfd_up_sessions_time_in_ms: i64,
+    pub v6_bfd_up_sessions: Vec<String>,
+    pub v6_bfd_up_sessions_time_in_ms: i64,
+}
+
+impl Default for DpuBfdState {
+    fn default() -> Self {
+        let now = Utc::now().timestamp_millis();
+        Self {
+            v4_bfd_up_sessions: Vec::new(),
+            v4_bfd_up_sessions_time_in_ms: now,
+            v6_bfd_up_sessions: Vec::new(),
+            v6_bfd_up_sessions_time_in_ms: now,
+        }
+    }
 }
 
 impl DpuActorState {
-    pub fn from_dpu(dpu_name: &str, dpu: &Dpu, is_managed: bool, npu_ipv4: &str, npu_ipv6: &Option<String>) -> Self {
+    pub fn from_dpu(
+        dpu_name: &str,
+        dpu: &Dpu,
+        is_managed: bool,
+        npu_ipv4: &str,
+        npu_ipv6: &Option<String>,
+        pmon_state: Option<DpuState>,
+        bfd_state: Option<DashBfdProbeState>,
+    ) -> Self {
         Self {
             remote_dpu: false,
             dpu_name: dpu_name.to_string(),
@@ -49,6 +80,8 @@ impl DpuActorState {
             orchagent_zmq_port: dpu.orchagent_zmq_port,
             swbus_port: dpu.swbus_port,
             midplane_ipv4: Some(dpu.midplane_ipv4.clone()),
+            dpu_pmon_state: pmon_state,
+            dpu_bfd_state: bfd_state,
         }
     }
 
@@ -70,6 +103,8 @@ impl DpuActorState {
             orchagent_zmq_port: 0,
             swbus_port: rdpu.swbus_port,
             midplane_ipv4: None,
+            dpu_pmon_state: None,
+            dpu_bfd_state: None,
         }
     }
 
