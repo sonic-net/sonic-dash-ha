@@ -38,6 +38,10 @@ impl SwbusCoreClient {
             swbusd_connect_task: None,
         }
     }
+
+    pub fn get_service_path(&self) -> ServicePath {
+        self.sp.clone()
+    }
 }
 
 // Message processing functions
