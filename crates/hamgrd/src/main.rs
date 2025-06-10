@@ -7,14 +7,15 @@ use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
 use swss_common::DbConnector;
-use tokio::signal;
-use tokio::time::timeout;
+use tokio::{signal, task::JoinHandle, time::timeout};
 use tracing::error;
 mod actors;
 mod db_structs;
 mod ha_actor_messages;
+use actors::spawn_zmq_producer_bridge;
 use actors::{dpu::DpuActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
+use db_structs::Dpu;
 use std::any::Any;
 
 #[derive(Parser, Debug)]
@@ -43,6 +44,8 @@ async fn main() {
     swbus_sp.service_type = "hamgrd".into();
     swbus_sp.service_id = "0".into();
 
+    let dpu = db_structs::get_dpu_config_from_db(args.slot_id).unwrap();
+
     let runtime_data = RuntimeData::new(args.slot_id, swbus_config.npu_ipv4, swbus_config.npu_ipv6);
 
     // Setup swbus and actor runtime
@@ -53,6 +56,9 @@ async fn main() {
     let swbus_edge = Arc::new(swbus_edge);
     let actor_runtime = ActorRuntime::new(swbus_edge.clone());
     set_global_runtime(actor_runtime);
+
+    // Start zmq common bridge provider for DPU tables
+    let _producer_handles = spawn_producer_bridges(swbus_edge.clone(), &dpu).await.unwrap();
 
     // run a sink to drain all messages that are not handled by any actor
     let sink = SimpleSwbusEdgeClient::new(swbus_edge.clone(), swbus_sp, true /*public*/, true /*sink*/);
@@ -69,19 +75,33 @@ async fn main() {
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
 }
 
-fn sp(resource_type: &str, resource_id: &str) -> ServicePath {
-    swbus_actor::get_global_runtime()
-        .as_ref()
-        .unwrap()
-        .sp(resource_type, resource_id)
-}
-
 async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
     let db = timeout(Duration::from_secs(5), DbConnector::new_named_async(name, true, 11000))
         .await
         .map_err(|_| anyhow!("Connecting to db `{name}` timed out"))?
         .map_err(|e| anyhow!("Connecting to db `{name}`: {e}"))?;
     Ok(db)
+}
+
+// producer bridges are responsible for updating sonic-db optionally sending the update out via zmq
+// This function spawns all producer bridges for the hamgrd process. They are static and shared by
+// all actors in the process.
+async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) -> Result<Vec<JoinHandle<()>>> {
+    let mut handles = Vec::new();
+    let zmq_endpoint = format!("{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
+
+    // Spawn BFD_SESSION_TABLE zmq producer bridge for DPU actor
+    // has service path swss-common-bridge/BFD_SESSION_TABLE.
+    let handle =
+        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "BFD_SESSION_TABLE", &zmq_endpoint).await?;
+    handles.push(handle);
+
+    // Spawn DASH_HA_SET_TABLE zmq producer bridge for ha-set actor
+    // Has service path swss-common-bridge/DASH_HA_SET_TABLE.
+    let handle =
+        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "DASH_HA_SET_TABLE", &zmq_endpoint).await?;
+    handles.push(handle);
+    Ok(handles)
 }
 
 // actor-creator creates are private swbus message handler to handle messages to actor but actor do not exist.

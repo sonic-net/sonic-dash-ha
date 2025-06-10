@@ -789,6 +789,7 @@ name = "hamgrd"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "serde",
  "serde_json",
@@ -799,6 +800,7 @@ dependencies = [
  "swbus-edge",
  "swss-common",
  "swss-common-bridge",
+ "swss-common-testing",
  "swss-serde",
  "tokio",
  "tracing",
