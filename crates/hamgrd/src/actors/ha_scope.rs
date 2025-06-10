@@ -1,7 +1,7 @@
 use crate::actors::vdpu::VDpuActor;
 use crate::actors::{ha_set, spawn_consumer_bridge_for_actor, ActorCreator, DbBasedActor};
 use crate::db_structs::*;
-use crate::ha_actor_messages::{ActorRegistration, RegistrationType, VDpuActorState, HaSetActorState};
+use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -96,7 +96,10 @@ impl HaScopeActor {
         };
 
         let Some(haset) = self.get_haset(incoming) else {
-            debug!("HA-SET {} has not been received. Skip dash_ha_scope update", &self.ha_scope_id);
+            debug!(
+                "HA-SET {} has not been received. Skip dash_ha_scope update",
+                &self.ha_scope_id
+            );
             return Ok(());
         };
 
@@ -104,8 +107,8 @@ impl HaScopeActor {
             version: dash_ha_scope_config.version.clone(),
             disable: dash_ha_scope_config.disable,
             ha_role: dash_ha_scope_config.desired_ha_state.clone(), /*todo, how switching_to_active is derived */
-            flow_reconcile_requested: false, /*todo */
-            activate_role_requested: false, /*todo, where exactly is this from */
+            flow_reconcile_requested: false,                        /*todo */
+            activate_role_requested: false,                         /*todo, where exactly is this from */
         };
 
         let fv = swss_serde::to_field_values(&dash_ha_scope)?;
@@ -126,11 +129,8 @@ impl HaScopeActor {
     /// - VDPU state
     /// - HA-SET state
     /// - DPU HA-SCOPE state
-    /// 
-    fn update_npu_ha_scope_state(
-        &self,
-        state: &mut State,
-    ) -> Result<()> {
+    ///
+    fn update_npu_ha_scope_state(&self, state: &mut State) -> Result<()> {
         let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
             return Ok(());
         };
@@ -138,10 +138,12 @@ impl HaScopeActor {
         let (internal, incoming, outgoing) = state.get_all();
 
         let Some(vdpu) = self.get_vdpu(incoming) else {
-            debug!("vDPU {} has not been received. Skip DASH_HA_SCOPE_STATE update", &self.vdpu_id);
+            debug!(
+                "vDPU {} has not been received. Skip DASH_HA_SCOPE_STATE update",
+                &self.vdpu_id
+            );
             return Ok(());
         };
-
 
         let dash_ha_scope_state = NpuDashHaScopeState {
             version: dash_ha_scope_config.version.clone(),
@@ -149,34 +151,34 @@ impl HaScopeActor {
             ha_scope_name: dash_ha_scope_config.ha_scope_name.clone(),
             ha_role: dash_ha_scope_config.desired_ha_state.clone(),
             ha_state: vdpu.ha_state.clone(),
-            ha_role_change_count: 0, /*todo */
-            ha_role_change_timestamp: SystemTime::now(), /*todo */
-            ha_role_change_error: String::new(), /*todo */
-            ha_role_change_error_timestamp: SystemTime::now(), /*todo */
-            ha_role_change_error_count: 0, /*todo */
-            ha_role_change_error_last: String::new(), /*todo */
-            ha_role_change_error_last_timestamp: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count: 0, /*todo */
-            ha_role_change_error_last_2: String::new(), /*todo */
+            ha_role_change_count: 0,                                  /*todo */
+            ha_role_change_timestamp: SystemTime::now(),              /*todo */
+            ha_role_change_error: String::new(),                      /*todo */
+            ha_role_change_error_timestamp: SystemTime::now(),        /*todo */
+            ha_role_change_error_count: 0,                            /*todo */
+            ha_role_change_error_last: String::new(),                 /*todo */
+            ha_role_change_error_last_timestamp: SystemTime::now(),   /*todo */
+            ha_role_change_error_last_count: 0,                       /*todo */
+            ha_role_change_error_last_2: String::new(),               /*todo */
             ha_role_change_error_last_timestamp_2: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count_2: 0, /*todo */
-            ha_role_change_error_last_3: String::new(), /*todo */
+            ha_role_change_error_last_count_2: 0,                     /*todo */
+            ha_role_change_error_last_3: String::new(),               /*todo */
             ha_role_change_error_last_timestamp_3: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count_3: 0, /*todo */
-            ha_role_change_error_last_4: String::new(), /*todo */
+            ha_role_change_error_last_count_3: 0,                     /*todo */
+            ha_role_change_error_last_4: String::new(),               /*todo */
             ha_role_change_error_last_timestamp_4: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count_4: 0, /*todo */
-            ha_role_change_error_last_5: String::new(), /*todo */
+            ha_role_change_error_last_count_4: 0,                     /*todo */
+            ha_role_change_error_last_5: String::new(),               /*todo */
             ha_role_change_error_last_timestamp_5: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count_5: 0, /*todo */
-            ha_role_change_error_last_6: String::new(), /*todo */
+            ha_role_change_error_last_count_5: 0,                     /*todo */
+            ha_role_change_error_last_6: String::new(),               /*todo */
             ha_role_change_error_last_timestamp_6: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count_6: 0, /*todo */
-            ha_role_change_error_last_7: String::new(), /*todo */
+            ha_role_change_error_last_count_6: 0,                     /*todo */
+            ha_role_change_error_last_7: String::new(),               /*todo */
             ha_role_change_error_last_timestamp_7: SystemTime::now(), /*todo */
-            ha_role_change_error_last_count_7: 0, /*todo */
-            ha_role_change_error_last_8: String::new(), /*todo */
-            ha_role_change_error_last
+            ha_role_change_error_last_count_7: 0,                     /*todo */
+            ha_role_change_error_last_8: String::new(),               /*todo */
+            ha_role_change_error_last,
         };
 
         let fvs = swss_serde::to_field_values(&dash_ha_scope_state)?;
@@ -210,7 +212,7 @@ impl HaScopeActor {
         // Update internal config
         self.dash_ha_scope_config = Some(swss_serde::from_field_values(&kfv.field_values)?);
 
-        // create an internal entry for npu STATE_DB/DASH_HA_SCOPE_STATE, which will be the 
+        // create an internal entry for npu STATE_DB/DASH_HA_SCOPE_STATE, which will be the
         // notification channel to SDN controller
         let swss_key = format!("{}:{}", self.vdpu_id, self.ha_scope_id);
         if !internal.has_entry(key, &swss_key) {
@@ -238,32 +240,20 @@ impl HaScopeActor {
                 .await?,
             );
         }
-        
+
         // update the DASH_HA_SCOPE_STATE in DPU
         self.update_dpu_dash_ha_scope_table(incoming, outgoing).await?;
         Ok(())
     }
 
     /// Handles VDPU state update messages for this HA scope.
-    async fn handle_vdpu_state_update(
-        &mut self,
-        state: &mut State,
-        key: &str,
-        context: &mut Context,
-    ) -> Result<()> {
-
+    async fn handle_vdpu_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         self.update_npu_ha_scope_state(state)?;
         Ok(())
     }
 
     /// Handles HaSet state update messages for this HA scope.
-    async fn handle_haset_state_update(
-        &mut self,
-        state: &mut State,
-        key: &str,
-        context: &mut Context,
-    ) -> Result<()> {
-        
+    async fn handle_haset_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         self.update_npu_ha_scope_state(state)?;
         Ok(())
     }
@@ -274,7 +264,6 @@ impl HaScopeActor {
         key: &str,
         context: &mut Context,
     ) -> Result<()> {
-
         self.update_npu_ha_scope_state(state)?;
         Ok(())
     }
@@ -284,7 +273,10 @@ impl Actor for HaScopeActor {
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         println!("Received message {key}");
         if key == Self::table_name() {
-            if let Err(e) = self.handle_dash_ha_scope_config_table_message(state, key, context).await {
+            if let Err(e) = self
+                .handle_dash_ha_scope_config_table_message(state, key, context)
+                .await
+            {
                 let err = format!("handle_dash_ha_set_config_table_message failed: {e}");
                 println!("{}", err);
             }
@@ -297,9 +289,11 @@ impl Actor for HaScopeActor {
 
         if VDpuActorState::is_my_msg(key) {
             return self.handle_vdpu_state_update(state, key, context).await;
-        } if HaSetActorState::is_my_msg(key) {
+        }
+        if HaSetActorState::is_my_msg(key) {
             return self.handle_haset_state_update(state, key, context).await;
-        } if key.starts_with("DASH_HA_SCOPE_STATE") {
+        }
+        if key.starts_with("DASH_HA_SCOPE_STATE") {
             // dpu ha scope state update
             return self.handle_dpu_ha_scope_state_update(state, key, context).await;
         }

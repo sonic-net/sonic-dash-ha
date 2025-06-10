@@ -1,13 +1,15 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
 #![allow(unused)]
 use anyhow::{Context, Result};
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::formats::CommaSeparator;
-use serde_with::{serde_as, skip_serializing_none, StringWithSeparator};
+use chrono::DateTime;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
 use std::fmt;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
+
+/// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
+const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
 #[skip_serializing_none]
@@ -70,6 +72,97 @@ pub struct BfdSessionTable {
     pub local_addr: String,
     #[serde(rename = "type")]
     pub session_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Default, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum DpuPmonStateType {
+    Up,
+    Down,
+    #[default]
+    Unknown,
+}
+
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/pmon/smartswitch-pmon.md#dpu_state-definition>
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct DpuState {
+    #[serde(default)]
+    pub dpu_midplane_link_state: DpuPmonStateType,
+    #[serde(
+        default = "now_in_millis",
+        deserialize_with = "timestamp_deserialize",
+        serialize_with = "timestamp_serialize"
+    )]
+    pub dpu_midplane_link_time: i64,
+    #[serde(default)]
+    pub dpu_control_plane_state: DpuPmonStateType,
+    #[serde(
+        default = "now_in_millis",
+        deserialize_with = "timestamp_deserialize",
+        serialize_with = "timestamp_serialize"
+    )]
+    pub dpu_control_plane_time: i64,
+    #[serde(default)]
+    pub dpu_data_plane_state: DpuPmonStateType,
+    #[serde(
+        default = "now_in_millis",
+        deserialize_with = "timestamp_deserialize",
+        serialize_with = "timestamp_serialize"
+    )]
+    pub dpu_data_plane_time: i64,
+}
+
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/BFD/SmartSwitchDpuLivenessUsingBfd.md#27-dpu-bfd-session-state-updates>
+#[serde_as]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+pub struct DashBfdProbeState {
+    #[serde(default)]
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    pub v4_bfd_up_sessions: Vec<String>,
+    #[serde(
+        default = "now_in_millis",
+        deserialize_with = "timestamp_deserialize",
+        serialize_with = "timestamp_serialize"
+    )]
+    pub v4_bfd_up_sessions_timestamp: i64,
+    #[serde(default)]
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    pub v6_bfd_up_sessions: Vec<String>,
+    #[serde(
+        default = "now_in_millis",
+        deserialize_with = "timestamp_deserialize",
+        serialize_with = "timestamp_serialize"
+    )]
+    pub v6_bfd_up_sessions_timestamp: i64,
+}
+
+fn timestamp_serialize<S>(ts: &i64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let datetime =
+        DateTime::from_timestamp_millis(*ts).ok_or_else(|| serde::ser::Error::custom("invalid timestamp"))?;
+    let formatted = datetime.format(TIMESTAMP_FORMAT).to_string();
+    serializer.serialize_str(&formatted)
+}
+
+fn timestamp_deserialize<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Handle both missing fields and present fields
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    match opt {
+        Some(s) => {
+            let naive = chrono::NaiveDateTime::parse_from_str(&s, TIMESTAMP_FORMAT).map_err(de::Error::custom)?;
+            Ok(naive.and_utc().timestamp_millis())
+        }
+        None => Ok(now_in_millis()), // Use default when field is missing
+    }
+}
+
+fn now_in_millis() -> i64 {
+    chrono::Utc::now().timestamp_millis()
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2121-ha-set-configurations>
@@ -169,7 +262,7 @@ pub struct DashHaScopeTable {
     pub disable: bool,
     pub ha_role: String,
     pub flow_reconcile_requested: bool,
-    pub activate_role_requested: bool
+    pub activate_role_requested: bool,
 }
 
 /// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state
@@ -179,7 +272,7 @@ pub struct DpuDashHaScopeState {
     pub last_updated_time: u64,
     // The current HA role confirmed by ASIC. Please refer to the HA states defined in HA HLD.
     pub ha_role: String,
-    // The time when HA role is moved into current one in milliseconds.	
+    // The time when HA role is moved into current one in milliseconds.
     pub ha_role_start_time: u64,
     // The current term confirmed by ASIC.
     pub ha_term: String,
@@ -188,7 +281,7 @@ pub struct DpuDashHaScopeState {
     // Flow reconcile is requested and pending approval.
     pub flow_reconcile_pending: bool,
     // Brainsplit is detected, and DPU is pending on recovery.
-    pub brainsplit_recover_pending: bool
+    pub brainsplit_recover_pending: bool,
 }
 
 /// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state
@@ -198,7 +291,7 @@ pub struct DpuDashHaScopeState {
 pub struct NpuDashHaScopeState {
     // HA scope creation time in milliseconds.
     pub creation_time_in_ms: u64, /*todo: where is this from */
-    // Last heartbeat time in milliseconds. This is used for leak detection. 
+    // Last heartbeat time in milliseconds. This is used for leak detection.
     // Heartbeat time happens once per minute and will not change the last state updated time.
     pub last_heartbeat_time_in_ms: u64, /*todo: what is heartbeat */
     // Data path VIP of the DPU or ENI
@@ -303,7 +396,7 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
 mod test {
     use super::*;
     use std::net::Ipv4Addr;
-    use swss_common::KeyOpFieldValues;
+    use swss_common::{FieldValues, KeyOpFieldValues};
     use swss_common_testing::*;
     #[test]
     fn test_deserialize_dpu() {
@@ -391,5 +484,181 @@ mod test {
             ];
             table.set(&d.to_string(), dpu_fvs).unwrap();
         }
+    }
+
+    #[test]
+    fn test_deserialize_dpu_state() {
+        let json = r#"
+        { 
+            "dpu_midplane_link_state": "up",
+            "dpu_midplane_link_time": "Mon Jun 10 03:15:42 PM UTC 2024",
+            "dpu_control_plane_state": "down",
+            "dpu_control_plane_time": "Tue Jun 11 09:30:15 AM UTC 2024",
+            "dpu_data_plane_state": "unknown",
+            "dpu_data_plane_time": "Wed Jun 12 11:45:30 PM UTC 2024"
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let dpu_state: DpuState = swss_serde::from_field_values(&fvs).unwrap();
+
+        assert_eq!(dpu_state.dpu_midplane_link_state, DpuPmonStateType::Up);
+        assert_eq!(dpu_state.dpu_control_plane_state, DpuPmonStateType::Down);
+        assert_eq!(dpu_state.dpu_data_plane_state, DpuPmonStateType::Unknown);
+
+        // Verify timestamps are parsed correctly (approximate values)
+        assert!(dpu_state.dpu_midplane_link_time > 0);
+        assert!(dpu_state.dpu_control_plane_time > 0);
+        assert!(dpu_state.dpu_data_plane_time > 0);
+    }
+
+    #[test]
+    fn test_serialize_dpu_state() {
+        let dpu_state = DpuState {
+            dpu_midplane_link_state: DpuPmonStateType::Up,
+            dpu_midplane_link_time: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+            dpu_control_plane_state: DpuPmonStateType::Down,
+            dpu_control_plane_time: 1718096215000, // Tue Jun 11 09:30:15 AM UTC 2024
+            dpu_data_plane_state: DpuPmonStateType::Unknown,
+            dpu_data_plane_time: 1718231130000, // Wed Jun 12 11:45:30 PM UTC 2024
+        };
+
+        let serialized = serde_json::to_string(&dpu_state).unwrap();
+
+        // Verify the JSON contains expected timestamp format
+        assert!(serialized.contains("Mon Jun 10"));
+        assert!(serialized.contains("PM UTC 2024"));
+        assert!(serialized.contains("\"dpu_midplane_link_state\":\"up\""));
+        assert!(serialized.contains("\"dpu_control_plane_state\":\"down\""));
+        assert!(serialized.contains("\"dpu_data_plane_state\":\"unknown\""));
+    }
+
+    #[test]
+    fn test_dpu_state_default_values() {
+        let json = r#"
+        { 
+            "dpu_midplane_link_state": "up",
+            "dpu_midplane_link_time": "Mon Jun 10 03:15:42 PM UTC 2024"
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let dpu_state: DpuState = swss_serde::from_field_values(&fvs).unwrap();
+
+        // Test default values
+        assert_eq!(dpu_state.dpu_midplane_link_state, DpuPmonStateType::Up);
+        assert_eq!(dpu_state.dpu_control_plane_state, DpuPmonStateType::Unknown);
+        assert_eq!(dpu_state.dpu_data_plane_state, DpuPmonStateType::Unknown);
+
+        // Default timestamps should be current time (approximately)
+        let now = chrono::Utc::now().timestamp_millis();
+        assert!(dpu_state.dpu_midplane_link_time > 0);
+        assert!((dpu_state.dpu_control_plane_time - now).abs() < 1000); // within 1 second
+        assert!((dpu_state.dpu_data_plane_time - now).abs() < 1000); // within 1 second
+    }
+
+    #[test]
+    fn test_timestamp_roundtrip() {
+        let original_timestamp = 1718053542000i64; // Mon Jun 10 03:15:42 PM UTC 2024
+
+        // Serialize timestamp to string
+        let datetime = DateTime::from_timestamp_millis(original_timestamp).unwrap();
+        let formatted = datetime.format(TIMESTAMP_FORMAT).to_string();
+
+        // Deserialize back to timestamp
+        let parsed = chrono::NaiveDateTime::parse_from_str(&formatted, TIMESTAMP_FORMAT).unwrap();
+        let roundtrip_timestamp = parsed.and_utc().timestamp_millis();
+
+        assert_eq!(original_timestamp, roundtrip_timestamp);
+    }
+
+    #[test]
+    fn test_deserialize_dash_bfd_probe_state() {
+        let json = r#"
+        { 
+            "v4_bfd_up_sessions": "10.0.1.1,10.0.1.2,10.0.1.3",
+            "v4_bfd_up_sessions_timestamp": "Mon Jun 10 03:15:42 PM UTC 2024",
+            "v6_bfd_up_sessions": "2001:db8::1,2001:db8::2",
+            "v6_bfd_up_sessions_timestamp": "Tue Jun 11 09:30:15 AM UTC 2024"
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let bfd_state: DashBfdProbeState = swss_serde::from_field_values(&fvs).unwrap();
+
+        assert_eq!(bfd_state.v4_bfd_up_sessions.len(), 3);
+        assert_eq!(bfd_state.v4_bfd_up_sessions[0], "10.0.1.1");
+        assert_eq!(bfd_state.v4_bfd_up_sessions[1], "10.0.1.2");
+        assert_eq!(bfd_state.v4_bfd_up_sessions[2], "10.0.1.3");
+
+        assert_eq!(bfd_state.v6_bfd_up_sessions.len(), 2);
+        assert_eq!(bfd_state.v6_bfd_up_sessions[0], "2001:db8::1");
+        assert_eq!(bfd_state.v6_bfd_up_sessions[1], "2001:db8::2");
+
+        // Verify timestamps are parsed correctly
+        assert!(bfd_state.v4_bfd_up_sessions_timestamp > 0);
+        assert!(bfd_state.v6_bfd_up_sessions_timestamp > 0);
+    }
+
+    #[test]
+    fn test_serialize_dash_bfd_probe_state() {
+        let bfd_state = DashBfdProbeState {
+            v4_bfd_up_sessions: vec!["10.0.1.1".to_string(), "10.0.1.2".to_string()],
+            v4_bfd_up_sessions_timestamp: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+            v6_bfd_up_sessions: vec!["2001:db8::1".to_string()],
+            v6_bfd_up_sessions_timestamp: 1718096215000, // Tue Jun 11 09:30:15 AM UTC 2024
+        };
+
+        let serialized = serde_json::to_string(&bfd_state).unwrap();
+
+        // Verify comma-separated serialization and timestamp format
+        assert!(serialized.contains("10.0.1.1,10.0.1.2"));
+        assert!(serialized.contains("2001:db8::1"));
+        assert!(serialized.contains("Mon Jun 10"));
+        assert!(serialized.contains("Tue Jun 11"));
+        assert!(serialized.contains("PM UTC 2024"));
+        assert!(serialized.contains("AM UTC 2024"));
+    }
+
+    #[test]
+    fn test_dash_bfd_probe_state_empty_sessions() {
+        let json = r#"
+        { 
+            "v4_bfd_up_sessions": "",
+            "v6_bfd_up_sessions": ""
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let bfd_state: DashBfdProbeState = swss_serde::from_field_values(&fvs).unwrap();
+
+        assert_eq!(bfd_state.v4_bfd_up_sessions.len(), 0);
+        assert_eq!(bfd_state.v6_bfd_up_sessions.len(), 0);
+
+        // Default timestamps should be current time (approximately)
+        let now = chrono::Utc::now().timestamp_millis();
+        assert!((bfd_state.v4_bfd_up_sessions_timestamp - now).abs() < 1000);
+        assert!((bfd_state.v6_bfd_up_sessions_timestamp - now).abs() < 1000);
+    }
+
+    #[test]
+    fn test_dash_bfd_probe_state_partial_data() {
+        let json = r#"
+        { 
+            "v4_bfd_up_sessions": "10.1.1.1,10.1.1.2",
+            "v4_bfd_up_sessions_timestamp": "Mon Jun 10 03:15:42 PM UTC 2024"
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let bfd_state: DashBfdProbeState = swss_serde::from_field_values(&fvs).unwrap();
+
+        assert_eq!(bfd_state.v4_bfd_up_sessions.len(), 2);
+        assert_eq!(bfd_state.v4_bfd_up_sessions[0], "10.1.1.1");
+        assert_eq!(bfd_state.v4_bfd_up_sessions[1], "10.1.1.2");
+
+        // v6 should use defaults
+        assert_eq!(bfd_state.v6_bfd_up_sessions.len(), 0);
+
+        assert!(bfd_state.v4_bfd_up_sessions_timestamp > 0);
+
+        // v6 timestamp should use default (current time)
+        let now = chrono::Utc::now().timestamp_millis();
+        assert!((bfd_state.v6_bfd_up_sessions_timestamp - now).abs() < 1000);
     }
 }
