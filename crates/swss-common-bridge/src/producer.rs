@@ -29,7 +29,7 @@ pub fn spawn_producer_bridge<T>(rt: Arc<SwbusEdgeRuntime>, addr: ServicePath, mu
 where
     T: ProducerTable,
 {
-    let swbus = SimpleSwbusEdgeClient::new(rt, addr, false);
+    let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
         loop {
             let Some(msg) = swbus.recv().await else {
@@ -152,7 +152,7 @@ mod test {
         let rt = Arc::new(swbus_edge);
 
         // Create edge client to send updates to the bridge
-        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true);
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
 
         // Spawn the bridge
         let _bridge = ProducerBridge::spawn(rt, sp("mytable-bridge"), producer_table);
