@@ -21,6 +21,25 @@ struct S {
     e: Option<i32>,
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+struct D {
+    #[serde(default)]
+    a: i32,
+    #[serde(default)]
+    b: String,
+    #[serde(default)]
+    c: Vec<E>,
+}
+
+#[test]
+fn field_values_with_default() {
+    let fvs = FieldValues::default();
+    let d: D = from_field_values(&fvs).unwrap();
+    assert_eq!(d.a, i32::default());
+    assert_eq!(d.b, String::default());
+    assert_eq!(d.c, Vec::default());
+}
+
 #[test]
 fn field_values() {
     macro_rules! round_trip {

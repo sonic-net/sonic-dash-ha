@@ -365,7 +365,7 @@ mod test {
 
         let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
         let ha_set_cfg_fvs = serde_json::to_value(swss_serde::to_field_values(&ha_set_cfg).unwrap()).unwrap();
-        let dpu0 = make_local_dpu_actor_state(0, 0, true);
+        let dpu0 = make_local_dpu_actor_state(0, 0, true, None, None);
         let dpu1 = make_remote_dpu_actor_state(1, 0);
         let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
         let (vdpu1_id, vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
