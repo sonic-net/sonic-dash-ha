@@ -100,9 +100,38 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
             },
             "last_updated_time": 0
             }
+        },
+        "outgoing":{
+            "outgoing_queued":[],
+            "outgoing_sent":{
+                "kv-get":{
+                    "msg":{
+                        "key":"kv-get",
+                        "data":{
+                            "key":"count",
+                            "val":"1000"
+                        }
+                    },
+                    "id":0,
+                    "created_time":0,
+                    "last_updated_time":0,
+                    "last_sent_time":0,
+                    "version":1001,
+                    "acked":true,
+                    "response":"Ok",
+                    "response_source":{
+                        "region_id":"test",
+                        "cluster_id":"test",
+                        "node_id":"test",
+                        "service_type":"test",
+                        "service_id":"test",
+                        "resource_type":"test",
+                        "resource_id":"client"
+                    }
+                }
+            }
         }
-    }    
-    
+    }
     "#;
 
     let expected: ActorStateDump = serde_json::from_str(expected_json).unwrap();
@@ -114,7 +143,12 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
                 match response.response_body {
                     Some(ResponseBody::ManagementQueryResult(ref result)) => {
                         println!("{}", &result.value);
-                        let state: ActorStateDump = serde_json::from_str(&result.value).unwrap();
+                        let mut state: ActorStateDump = serde_json::from_str(&result.value).unwrap();
+                        let inner_fields = state.outgoing.outgoing_sent.get_mut("kv-get").unwrap();
+                        inner_fields.id = 0;
+                        inner_fields.created_time = 0;
+                        inner_fields.last_updated_time = 0;
+                        inner_fields.last_sent_time = 0;
 
                         assert_eq!(state, expected);
                     }
