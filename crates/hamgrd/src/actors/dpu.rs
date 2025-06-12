@@ -2,7 +2,7 @@ use crate::actors::{spawn_consumer_bridge_for_actor, spawn_zmq_producer_bridge, 
 use crate::db_structs::{
     BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuState, RemoteDpu,
 };
-use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
+use crate::ha_actor_messages::{ActorRegistration, DpuActorState, HaRoleActivated, RegistrationType};
 use crate::ServicePath;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -69,6 +69,11 @@ impl DpuActor {
     fn get_bfd_probe_state(incoming: &Incoming) -> Result<DashBfdProbeState> {
         let bfd_probe_kfv: KeyOpFieldValues = incoming.get("DASH_BFD_PROBE_STATE")?.deserialize_data()?;
         Ok(swss_serde::from_field_values(&bfd_probe_kfv.field_values)?)
+    }
+
+    fn get_dash_ha_global_config(incoming: &Incoming) -> Result<DashHaGlobalConfig> {
+        let ha_global_config_kfv: KeyOpFieldValues = incoming.get("DASH_HA_GLOBAL_CONFIG")?.deserialize_data()?;
+        Ok(swss_serde::from_field_values(&ha_global_config_kfv.field_values)?)
     }
 
     // DpuActor is spawned in response to swss-common-bridge message for DPU and REMOTE_DPU table
@@ -218,7 +223,7 @@ impl DpuActor {
         }
 
         // notify dependent actors about the state of this DPU
-        self.update_dpu_state(incoming, outgoing, None).await?;
+        self.update_dpu_state(incoming, outgoing, None)?;
         Ok(())
     }
 
@@ -259,7 +264,7 @@ impl DpuActor {
     }
 
     // target_actor is the actor that needs to be notified about the DPU state. If None, all
-    async fn update_dpu_state(
+    fn update_dpu_state(
         &mut self,
         incoming: &Incoming,
         outgoing: &mut Outgoing,
@@ -306,22 +311,16 @@ impl DpuActor {
     }
 
     // handle DPU state registration request. In response to the request, this actor will send its current state.
-    async fn handle_dpu_state_registration(
-        &mut self,
-        key: &str,
-        incoming: &Incoming,
-        outgoing: &mut Outgoing,
-    ) -> Result<()> {
+    fn handle_dpu_state_registration(&mut self, key: &str, incoming: &Incoming, outgoing: &mut Outgoing) -> Result<()> {
         let entry = incoming.get_entry(key)?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
-            self.update_dpu_state(incoming, outgoing, Some(entry.source.clone()))
-                .await?;
+            self.update_dpu_state(incoming, outgoing, Some(entry.source.clone()))?;
         }
         Ok(())
     }
 
-    async fn create_bfd_session(
+    fn create_bfd_session(
         &self,
         peer_ip: &str,
         global_cfg: &DashHaGlobalConfig,
@@ -329,7 +328,7 @@ impl DpuActor {
     ) -> Result<()> {
         // todo: this needs to wait until HaScope has been activated.
         let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
-            info!("DPU is not managed by this HA instance. Ignore BFD session creation");
+            debug!("DPU is not managed by this HA instance. Ignore BFD session creation");
             return Ok(());
         };
         let bfd_session = BfdSessionTable {
@@ -354,53 +353,13 @@ impl DpuActor {
         Ok(())
     }
 
-    async fn handle_remote_dpu_message_to_remote_dpu(
-        &mut self,
-        state: &mut State,
-        key: &str,
-        context: &mut Context,
-    ) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
-        if dpu_kfv.operation == KeyOperation::Del {
-            context.stop();
+    fn create_bfd_sessions(&self, state: &mut State) -> Result<()> {
+        if !self.is_local_managed() {
+            debug!("DPU is not managed by this HA instance. Ignore BFD session creation");
             return Ok(());
         }
-
-        let rdpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
-        self.dpu = Some(DpuData::RemoteDpu(rdpu));
-        // notify dependent actors about the state of this DPU
-        self.update_dpu_state(incoming, outgoing, None).await?;
-        Ok(())
-    }
-
-    async fn handle_remote_dpu_message_to_local_dpu(&mut self, state: &mut State, key: &str) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
-
-        let remote_dpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
-
-        // create bfd session
-        let kfv: KeyOpFieldValues = incoming.get("DASH_HA_GLOBAL_CONFIG")?.deserialize_data()?;
-        let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&kfv.field_values)?;
-        self.create_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing)
-            .await?;
-        Ok(())
-    }
-
-    async fn handle_remote_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        if self.dpu.is_none() || matches!(self.dpu.as_ref().unwrap(), DpuData::RemoteDpu(_)) {
-            self.handle_remote_dpu_message_to_remote_dpu(state, key, context).await
-        } else {
-            self.handle_remote_dpu_message_to_local_dpu(state, key).await
-        }
-    }
-
-    async fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
-        let kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
-        let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&kfv.field_values)?;
-
+        let global_cfg = Self::get_dash_ha_global_config(incoming)?;
         let remote_dpu_msgs = incoming.get_by_prefix("REMOTE_DPU");
         let mut remote_npus: Vec<String> = remote_dpu_msgs
             .iter()
@@ -424,8 +383,63 @@ impl DpuActor {
         remote_npus.push(npu_ipv4.clone());
         remote_npus.sort();
         for npu in remote_npus {
-            self.create_bfd_session(&npu, &global_cfg, outgoing).await?;
+            self.create_bfd_session(&npu, &global_cfg, outgoing)?;
         }
+        Ok(())
+    }
+
+    fn handle_remote_dpu_message_to_remote_dpu(
+        &mut self,
+        state: &mut State,
+        key: &str,
+        context: &mut Context,
+    ) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
+        if dpu_kfv.operation == KeyOperation::Del {
+            context.stop();
+            return Ok(());
+        }
+
+        let rdpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
+        self.dpu = Some(DpuData::RemoteDpu(rdpu));
+        // notify dependent actors about the state of this DPU
+        self.update_dpu_state(incoming, outgoing, None)?;
+        Ok(())
+    }
+
+    fn handle_remote_dpu_message_to_local_dpu(&mut self, state: &mut State, key: &str) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
+
+        let remote_dpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
+
+        // create bfd session
+        if incoming.get_by_prefix(HaRoleActivated::msg_key_prefix()).is_empty() {
+            // HA role is not activated. Do not create BFD sessions
+            return Ok(());
+        }
+        let kfv: KeyOpFieldValues = incoming.get("DASH_HA_GLOBAL_CONFIG")?.deserialize_data()?;
+        let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&kfv.field_values)?;
+        self.create_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing)?;
+        Ok(())
+    }
+
+    async fn handle_remote_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+        if self.dpu.is_none() || matches!(self.dpu.as_ref().unwrap(), DpuData::RemoteDpu(_)) {
+            self.handle_remote_dpu_message_to_remote_dpu(state, key, context)
+        } else {
+            self.handle_remote_dpu_message_to_local_dpu(state, key)
+        }
+    }
+
+    fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str) -> Result<()> {
+        let incoming = state.incoming();
+        if incoming.get_by_prefix(HaRoleActivated::msg_key_prefix()).is_empty() {
+            // HA role is not activated. Do not create BFD sessions
+            return Ok(());
+        }
+        self.create_bfd_sessions(state)?;
         Ok(())
     }
 
@@ -434,6 +448,15 @@ impl DpuActor {
             return is_managed;
         }
         false
+    }
+
+    fn handle_ha_role_activation(&mut self, state: &mut State, key: &str) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+        let ha_role: HaRoleActivated = incoming.get(key)?.deserialize_data()?;
+        debug!("Received HA role activation: {}", ha_role.role);
+        // HA role is activated. Reconfigure BFD sessions
+        self.create_bfd_sessions(state)?;
+        Ok(())
     }
 }
 
@@ -451,16 +474,19 @@ impl Actor for DpuActor {
         }
 
         if ActorRegistration::is_my_msg(key, RegistrationType::DPUState) {
-            return self.handle_dpu_state_registration(key, incoming, outgoing).await;
+            return self.handle_dpu_state_registration(key, incoming, outgoing);
         }
 
         // the rest of the messages are only for locally managed dpu
         if !self.is_local_managed() {
             return Ok(());
         } else if key == "DASH_HA_GLOBAL_CONFIG" {
-            return self.handle_dash_ha_global_config(state, key).await;
+            return self.handle_dash_ha_global_config(state, key);
         } else if key == "DPU_STATE" || key == "DASH_BFD_PROBE_STATE" {
-            return self.update_dpu_state(incoming, outgoing, None).await;
+            return self.update_dpu_state(incoming, outgoing, None);
+        } else if HaRoleActivated::is_my_msg(key) {
+            // When HA role is activated, reconfigure BFD sessions
+            return self.handle_ha_role_activation(state, key);
         } else {
             error!("Unknown message received: {}", key);
         }
@@ -471,11 +497,14 @@ impl Actor for DpuActor {
 
 #[cfg(test)]
 mod test {
-    use crate::actors::{
-        dpu::DpuActor,
-        test::{self, *},
-    };
     use crate::db_structs::{BfdSessionTable, RemoteDpu};
+    use crate::{
+        actors::{
+            dpu::DpuActor,
+            test::{self, *},
+        },
+        ha_actor_messages::HaRoleActivated,
+    };
 
     use crate::ha_actor_messages::DpuActorState;
     use std::time::Duration;
@@ -537,6 +566,8 @@ mod test {
             send! { key: "REMOTE_DPU|switch1_dpu0", data: { "key": "REMOTE_DPU|switch1_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu1_fvs).unwrap() }},
             send! { key: "REMOTE_DPU|switch2_dpu0", data: { "key": "REMOTE_DPU|switch2_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu2_fvs).unwrap()}},
             send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": dash_global_cfg_fvs} },
+
+            send! { key: format!("{}vpdu1|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp("ha-scope", "vpdu1|scope1") },
             recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
             recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
             recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },

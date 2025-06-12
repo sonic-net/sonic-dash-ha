@@ -198,3 +198,26 @@ impl ActorRegistration {
         key.starts_with(Self::msg_key_prefix(reg_type))
     }
 }
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct HaRoleActivated {
+    pub role: String,
+}
+
+impl HaRoleActivated {
+    pub fn new_actor_msg(my_id: &str, ha_role: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { role: ha_role.into() })
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "HaRoleActivated|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
