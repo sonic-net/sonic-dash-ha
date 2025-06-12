@@ -1,6 +1,7 @@
 use crate::actors::dpu::DpuActor;
 use crate::actors::{ActorCreator, DbBasedActor};
-use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType, VDpuActorState};
+use crate::db_structs::VDpu;
+use crate::ha_actor_messages::{ActorRegistration, DpuActorState, HaRoleActivated, RegistrationType, VDpuActorState};
 use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -11,12 +12,6 @@ use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
 use swss_common_bridge::consumer::spawn_consumer_bridge;
 use tracing::error;
-
-/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
-#[derive(Deserialize, Clone)]
-struct VDpu {
-    main_dpu_ids: Option<String>,
-}
 
 pub struct VDpuActor {
     /// The id of this vdpu
@@ -44,15 +39,9 @@ impl VDpuActor {
         if self.vdpu.is_none() {
             return Ok(());
         }
-        if let Some(main_dpu_ids) = &self.vdpu.as_ref().unwrap().main_dpu_ids {
-            let msg = ActorRegistration::new_actor_msg(active, RegistrationType::DPUState, &self.id)?;
-            main_dpu_ids
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .for_each(|id| {
-                    outgoing.send(outgoing.from_my_sp(DpuActor::name(), id), msg.clone());
-                });
+        let msg = ActorRegistration::new_actor_msg(active, RegistrationType::DPUState, &self.id)?;
+        for dpu_id in &self.vdpu.as_ref().unwrap().main_dpu_ids {
+            outgoing.send(outgoing.from_my_sp(DpuActor::name(), dpu_id), msg.clone());
         }
         Ok(())
     }
@@ -88,30 +77,26 @@ impl VDpuActor {
     }
 
     fn calculate_vdpu_state(&self, incoming: &Incoming) -> Option<VDpuActorState> {
-        if let Some(main_dpu_ids) = &self.vdpu.as_ref().unwrap().main_dpu_ids {
-            // currently we only support one main dpu so we just take the first one
-            let dpu_id = main_dpu_ids.split(',').map(str::trim).find(|s| !s.is_empty());
-
-            let Some(dpu_id) = dpu_id else {
-                error!("No main DPU is configured");
-                return None;
-            };
-
-            let msg = incoming.get(&format!("{}{}", DpuActorState::msg_key_prefix(), dpu_id));
-
-            let Ok(msg) = msg else {
-                // dpu data is not available yet
-                return None;
-            };
-
-            if let Ok(dpu) = msg.deserialize_data::<DpuActorState>() {
-                let vdpu = VDpuActorState { up: dpu.up, dpu };
-                return Some(vdpu);
-            } else {
-                error!("Failed to deserialize DpuActorState from the message");
-                return None;
-            }
+        if self.vdpu.as_ref().unwrap().main_dpu_ids.is_empty() {
+            return None;
         }
+        // only one dpu is supported for now
+        let dpu_id = &self.vdpu.as_ref().unwrap().main_dpu_ids[0];
+        let msg = incoming.get(&format!("{}{}", DpuActorState::msg_key_prefix(), dpu_id));
+
+        let Ok(msg) = msg else {
+            // dpu data is not available yet
+            return None;
+        };
+
+        if let Ok(dpu) = msg.deserialize_data::<DpuActorState>() {
+            let vdpu = VDpuActorState { up: dpu.up, dpu };
+            return Some(vdpu);
+        } else {
+            error!("Failed to deserialize DpuActorState from the message");
+            return None;
+        }
+
         None
     }
 
@@ -133,6 +118,17 @@ impl VDpuActor {
         }
         Ok(())
     }
+
+    fn handle_ha_role_activation(&mut self, state: &mut State, key: &str) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+        let msg = incoming.get(key)?;
+        // forward the ha role activation to all the main dpus
+        for dpu_id in &self.vdpu.as_ref().unwrap().main_dpu_ids {
+            outgoing.send(outgoing.from_my_sp(DpuActor::name(), dpu_id), msg.clone());
+        }
+
+        Ok(())
+    }
 }
 
 impl Actor for VDpuActor {
@@ -151,6 +147,9 @@ impl Actor for VDpuActor {
             return self.handle_dpu_state_update(incoming, outgoing).await;
         } else if ActorRegistration::is_my_msg(key, RegistrationType::VDPUState) {
             return self.handle_vdpu_state_registration(key, incoming, outgoing).await;
+        } else if HaRoleActivated::is_my_msg(key) {
+            // When HA role is activated, reconfigure BFD sessions
+            return self.handle_ha_role_activation(state, key);
         }
         Ok(())
     }
@@ -203,7 +202,11 @@ mod test {
             send! { key: DpuActorState::msg_key("switch1_dpu0"), data: dpu_actor_down_state, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
             recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpu": dpu_actor_down_state }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
-            send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "dpu0, dpu1"}}, addr: runtime.sp("swss-common-bridge", VDpuActor::table_name()) },
+            // receive ha-role-activation
+            send! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp("ha-scope", "test-vdpu|scope1") },
+            recv! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
+
+            send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "switch1_dpu0"}}, addr: runtime.sp("swss-common-bridge", VDpuActor::table_name()) },
             
         ];
 

@@ -58,6 +58,14 @@ pub struct RemoteDpu {
     pub swbus_port: u16,
 }
 
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
+#[serde_as]
+#[derive(Deserialize, Clone)]
+pub struct VDpu {
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    pub main_dpu_ids: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct BfdSessionTable {
     pub tx_interval: Option<u32>,
