@@ -507,19 +507,6 @@ mod test {
             send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
             // Verify that the DASH_HA_SET_TABLE was updated
             chkdb! { db: "APPL_DB", table: "VNET_ROUTE_TUNNEL_TABLE", key: &format!("default:{}", ha_set_cfg.vip_v4), data: expected_vnet_route },
-        ];
-
-        test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
-
-        // // todo: change below to a macro
-        // // Verify that the VNET_ROUTE_TUNNEL_TABLE was updated
-        // let db = crate::db_named("APPL_DB").await.unwrap();
-        // let table = Table::new(db, "VNET_ROUTE_TUNNEL_TABLE").unwrap();
-        // let mut route: VnetRouteTunnelTable =
-        //     swss_serde::from_table(&table, &format!("default:{}", ha_set_cfg.vip_v4)).unwrap();
-        // assert_eq!(route, expected_vnet_route);
-
-        let commands = [
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs }, addr: runtime.sp("swss-common-bridge", HaSetActor::table_name()) },
         ];
