@@ -12,6 +12,8 @@ use swbus_edge::{
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
     SwbusEdgeRuntime,
 };
+use swss_common::{FieldValues, Table};
+use tracing::field::Field;
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
     const TIMEOUT: Duration = Duration::from_millis(1000);
@@ -56,6 +58,30 @@ macro_rules! recv {
 }
 pub use recv;
 
+#[macro_export]
+macro_rules! chkdb {
+    (db: $db:expr, table: $table:expr, key: $key:expr, data: $data:tt) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from($db),
+            table: String::from($table),
+            key: String::from($key),
+            data: serde_json::json!($data),
+            exclude: "".to_string(),
+        }
+    };
+
+    (db: $db:expr, table: $table:expr, key: $key:expr, data: $data:tt, exclude: $exclude:expr) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from($db),
+            table: String::from($table),
+            key: String::from($key),
+            data: serde_json::json!($data),
+            exclude: String::from($exclude),
+        }
+    };
+}
+pub use chkdb;
+
 pub enum Command {
     Send {
         key: String,
@@ -67,6 +93,13 @@ pub enum Command {
         key: String,
         data: Value,
         addr: ServicePath,
+    },
+    ChkDb {
+        db: String,
+        table: String,
+        key: String,
+        data: Value,
+        exclude: String,
     },
 }
 
@@ -84,6 +117,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                     clients.insert(addr.clone(), client);
                 }
             }
+            ChkDb { .. } => {}
         }
     }
 
@@ -167,6 +201,29 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                     },
                 };
                 client.send(ack).await.unwrap();
+            }
+
+            ChkDb {
+                db,
+                table,
+                key,
+                data,
+                exclude,
+            } => {
+                let db = crate::db_named(db).await.unwrap();
+                let mut table = Table::new(db, table).unwrap();
+                let mut actual_data = table.get_async(key).await.unwrap().unwrap();
+                let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+
+                exclude
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .for_each(|id| {
+                        fvs.remove(id);
+                        actual_data.remove(id);
+                    });
+                assert_eq!(actual_data, fvs);
             }
         }
     }

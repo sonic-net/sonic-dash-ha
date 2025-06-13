@@ -485,7 +485,7 @@ mod test {
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(false),
         };
-
+        let expected_vnet_route = swss_serde::to_field_values(&expected_vnet_route).unwrap();
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
@@ -505,17 +505,19 @@ mod test {
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state, addr: runtime.sp("vdpu", &vdpu0_id) },
             // Simulate VDPU state update for vdpu1 (backup)
             send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
+            // Verify that the DASH_HA_SET_TABLE was updated
+            chkdb! { db: "APPL_DB", table: "VNET_ROUTE_TUNNEL_TABLE", key: &format!("default:{}", ha_set_cfg.vip_v4), data: expected_vnet_route },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
 
-        // todo: change below to a macro
-        // Verify that the VNET_ROUTE_TUNNEL_TABLE was updated
-        let db = crate::db_named("APPL_DB").await.unwrap();
-        let table = Table::new(db, "VNET_ROUTE_TUNNEL_TABLE").unwrap();
-        let mut route: VnetRouteTunnelTable =
-            swss_serde::from_table(&table, &format!("default:{}", ha_set_cfg.vip_v4)).unwrap();
-        assert_eq!(route, expected_vnet_route);
+        // // todo: change below to a macro
+        // // Verify that the VNET_ROUTE_TUNNEL_TABLE was updated
+        // let db = crate::db_named("APPL_DB").await.unwrap();
+        // let table = Table::new(db, "VNET_ROUTE_TUNNEL_TABLE").unwrap();
+        // let mut route: VnetRouteTunnelTable =
+        //     swss_serde::from_table(&table, &format!("default:{}", ha_set_cfg.vip_v4)).unwrap();
+        // assert_eq!(route, expected_vnet_route);
 
         let commands = [
             // simulate delete of ha-set entry
