@@ -320,11 +320,12 @@ impl DpuActor {
         Ok(())
     }
 
-    fn create_bfd_session(
+    fn update_bfd_session(
         &self,
         peer_ip: &str,
         global_cfg: &DashHaGlobalConfig,
         outgoing: &mut Outgoing,
+        shutdown: bool,
     ) -> Result<()> {
         // todo: this needs to wait until HaScope has been activated.
         let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
@@ -342,9 +343,10 @@ impl DpuActor {
         };
 
         let fv = swss_serde::to_field_values(&bfd_session)?;
+        let oper = if shutdown { KeyOperation::Del } else { KeyOperation::Set };
         let kfv = KeyOpFieldValues {
             key: format!("default|default|{}", peer_ip),
-            operation: KeyOperation::Set,
+            operation: oper,
             field_values: fv,
         };
 
@@ -353,7 +355,7 @@ impl DpuActor {
         Ok(())
     }
 
-    fn create_bfd_sessions(&self, state: &mut State) -> Result<()> {
+    fn update_bfd_sessions(&self, state: &mut State, shutdown: bool) -> Result<()> {
         if !self.is_local_managed() {
             debug!("DPU is not managed by this HA instance. Ignore BFD session creation");
             return Ok(());
@@ -383,7 +385,7 @@ impl DpuActor {
         remote_npus.push(npu_ipv4.clone());
         remote_npus.sort();
         for npu in remote_npus {
-            self.create_bfd_session(&npu, &global_cfg, outgoing)?;
+            self.update_bfd_session(&npu, &global_cfg, outgoing, shutdown)?;
         }
         Ok(())
     }
@@ -421,7 +423,7 @@ impl DpuActor {
         }
         let kfv: KeyOpFieldValues = incoming.get("DASH_HA_GLOBAL_CONFIG")?.deserialize_data()?;
         let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&kfv.field_values)?;
-        self.create_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing)?;
+        self.update_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing, false)?;
         Ok(())
     }
 
@@ -439,7 +441,7 @@ impl DpuActor {
             // HA role is not activated. Do not create BFD sessions
             return Ok(());
         }
-        self.create_bfd_sessions(state)?;
+        self.update_bfd_sessions(state, false)?;
         Ok(())
     }
 
@@ -454,8 +456,16 @@ impl DpuActor {
         let (_internal, incoming, outgoing) = state.get_all();
         let ha_role: HaRoleActivated = incoming.get(key)?.deserialize_data()?;
         debug!("Received HA role activation: {}", ha_role.role);
+
         // HA role is activated. Reconfigure BFD sessions
-        self.create_bfd_sessions(state)?;
+        match ha_role.role.as_str() {
+            "dead" => self.update_bfd_sessions(state, true)?,
+            "active" | "standby" | "standalone" => self.update_bfd_sessions(state, false)?,
+            _ => {
+                debug!("No action is needed");
+            }
+        }
+
         Ok(())
     }
 }
@@ -586,7 +596,13 @@ mod test {
             // Simulate BFD probe going down
             send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_bfd_down_state).unwrap()).unwrap()} },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_bfd_down_state, addr: runtime.sp("vdpu", "test-vdpu") },
-            
+
+            // Simulate transition to dead state
+            send! { key: format!("{}vpdu1|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "dead"}, addr: runtime.sp("ha-scope", "vpdu1|scope1") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
             // simulate delete of Dpu entry
             send! { key: DpuActor::dpu_table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
         ];
