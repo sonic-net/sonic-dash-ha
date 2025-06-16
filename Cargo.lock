@@ -1406,6 +1406,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sonicdb-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "swss-common",
+ "syn 2.0.58",
+]
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
