@@ -18,6 +18,8 @@ use anyhow::Result;
 use db_structs::Dpu;
 use std::any::Any;
 
+use crate::db_structs::BfdSessionTable;
+
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
 struct Args {
@@ -92,15 +94,9 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 
     // Spawn BFD_SESSION_TABLE zmq producer bridge for DPU actor
     // has service path swss-common-bridge/BFD_SESSION_TABLE.
-    let handle =
-        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "BFD_SESSION_TABLE", &zmq_endpoint).await?;
+    let handle = spawn_zmq_producer_bridge::<BfdSessionTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
-    // Spawn DASH_HA_SET_TABLE zmq producer bridge for ha-set actor
-    // Has service path swss-common-bridge/DASH_HA_SET_TABLE.
-    let handle =
-        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "DASH_HA_SET_TABLE", &zmq_endpoint).await?;
-    handles.push(handle);
     Ok(handles)
 }
 
@@ -172,4 +168,14 @@ impl RuntimeData {
     pub fn npu_ipv6(&self) -> Option<Ipv6Addr> {
         self.npu_ipv6
     }
+}
+
+pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
+where
+    T: swss_common::SonicDbTable + 'static,
+{
+    let mut new_sp = runtime.get_base_sp();
+    new_sp.resource_type = "swss-common-bridge".into();
+    new_sp.resource_id = format!("{}/{}", T::db_name(), T::table_name());
+    new_sp
 }
