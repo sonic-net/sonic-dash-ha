@@ -20,7 +20,7 @@ fn test_attributes() {
         attr2: Some("attr2".to_string()),
     };
 
-    assert!(MyStruct::key_separator() == ":");
+    assert!(MyStruct::key_separator() == ':');
     assert!(MyStruct::table_name() == "MY_STRUCT");
     assert!(MyStruct::db_name() == "db1");
 }

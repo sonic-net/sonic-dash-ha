@@ -20,7 +20,7 @@ pub fn sonic_db_config_initialize_global(path: &str) -> Result<(), Exception> {
 
 /// Trait for objects that can be stored in a Sonic DB table.
 pub trait SonicDbTable {
-    fn key_separator() -> &'static str;
+    fn key_separator() -> char;
     fn table_name() -> &'static str;
     fn db_name() -> &'static str;
 }
