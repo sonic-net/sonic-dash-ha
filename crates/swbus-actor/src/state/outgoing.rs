@@ -1,8 +1,9 @@
 use crate::actor_message::{actor_msg_to_swbus_msg, ActorMessage};
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, SystemTime},
 };
 use swbus_edge::{
     simple_client::{MessageId, SimpleSwbusEdgeClient},
@@ -33,7 +34,7 @@ impl Outgoing {
     /// If the actor callback fails, the message will be dropped.
     pub fn send(&mut self, dest: ServicePath, msg: ActorMessage) {
         let swbus_message = actor_msg_to_swbus_msg(&msg, dest, &self.swbus_client);
-        let time_sent = Instant::now();
+        let time_sent = SystemTime::now();
         self.queued_messages.push({
             UnackedMessage {
                 actor_message: msg,
@@ -117,11 +118,11 @@ impl Outgoing {
 
             // Drop messages that have been unacked for over an hour, as a memory leak failsafe
             self.unacked_messages
-                .retain(|_, msg| msg.time_sent.elapsed() < Duration::from_secs(3600));
+                .retain(|_, msg| Duration::from_secs(get_elapsed_time(&msg.time_sent)) < Duration::from_secs(3600));
 
             // Resend unacked messages
             for msg in self.unacked_messages.values() {
-                if msg.time_sent.elapsed() >= self.resend_interval.period() {
+                if Duration::from_secs(get_elapsed_time(&msg.time_sent)) >= self.resend_interval.period() {
                     self.swbus_client
                         .send_raw(msg.swbus_message.clone())
                         .await
@@ -140,13 +141,38 @@ impl Outgoing {
         sp.resource_id = resource_id.into();
         sp
     }
+
+    pub(crate) fn dump_state(&self) -> OutgoingStateData {
+        let state_data = OutgoingStateData {
+            outgoing_queued: self.queued_messages.clone(),
+            outgoing_sent: self
+                .sent_messages
+                .iter()
+                .map(|(key, entry)| (key.clone(), entry.clone()))
+                .collect(),
+        };
+        state_data
+    }
 }
 
-#[derive(Debug)]
-struct UnackedMessage {
-    actor_message: ActorMessage,
-    swbus_message: SwbusMessage,
-    time_sent: Instant,
+pub fn get_elapsed_time(systime: &SystemTime) -> u64 {
+    match systime.elapsed() {
+        Ok(elapsed) => elapsed.as_secs(),
+        Err(_) => 0, // If the system time went backwards, return 0
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct OutgoingStateData {
+    pub outgoing_queued: Vec<UnackedMessage>,
+    pub outgoing_sent: HashMap<String, SentMessageEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct UnackedMessage {
+    pub actor_message: ActorMessage,
+    pub swbus_message: SwbusMessage,
+    pub time_sent: SystemTime,
 }
 
 impl UnackedMessage {
@@ -155,26 +181,27 @@ impl UnackedMessage {
     }
 }
 
-struct SentMessageEntry {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SentMessageEntry {
     /// The most recent message sent with this key.
-    msg: ActorMessage,
+    pub msg: ActorMessage,
     /// The id of the most recent message sent with this key.
-    id: MessageId,
+    pub id: MessageId,
     /// The first time a message was sent with this key, in unix seconds.
     #[allow(dead_code)] // TODO: GetActorState will read this when it is implemented
-    created_time: u64,
+    pub created_time: u64,
     /// The most recent time a message was sent with this key, in unix seconds.
-    last_updated_time: u64,
+    pub last_updated_time: u64,
     /// The most recent time a message was sent OR resent with this key, in unix seconds.
-    last_sent_time: u64,
+    pub last_sent_time: u64,
     /// How many times this key has been updated.
-    version: u64,
+    pub version: u64,
     /// Whether the latest message has been acked.
-    acked: bool,
+    pub acked: bool,
     /// The latest response to the latest message.
-    response: Option<String>,
+    pub response: Option<String>,
     /// Where the latest response came from.
-    response_source: Option<ServicePath>,
+    pub response_source: Option<ServicePath>,
 }
 
 impl SentMessageEntry {
