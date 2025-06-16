@@ -8,13 +8,14 @@ members = [
     "crates/swss-common",
     "crates/swss-common-testing",
     "crates/swss-serde",
-    "crates/swbus-edge", 
+    "crates/swbus-edge",
     "crates/swbus-proto",
     "crates/swbus-cli",
     "crates/swbus-config",
     "crates/swbus-actor",
     "crates/swss-common-bridge",
     "crates/container",
+    "crates/sonicdb-derive",
 ]
 exclude = []
 
@@ -94,6 +95,7 @@ swss-serde = { version = "0.1.0", path = "crates/swss-serde" }
 swss-common = { version = "0.1.0", path = "crates/swss-common" }
 swss-common-testing = { version = "0.1.0", path = "crates/swss-common-testing" }
 swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
+sonicdb-derive = { version = "0.1.0", path = "crates/sonicdb-derive" }
 
 # Dev dependencies
 criterion = "0.5"
