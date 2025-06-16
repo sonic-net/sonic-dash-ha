@@ -13,7 +13,7 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
 
     // Process struct-level drive attributes
     let mut table_name: String = "".to_string();
-    let mut key_separator: String = "".to_string();
+    let mut key_separator: char = 'a';
     let mut db_name: String = "".to_string();
     for attr in &input.attrs {
         if attr.path().is_ident("sonicdb") {
@@ -26,7 +26,13 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
                 } else if meta.path.is_ident("key_separator") {
                     let value = meta.value()?; // this parses the `=`
                     let s: LitStr = value.parse()?;
-                    key_separator = s.value();
+                    let value_str = s.value();
+                    let mut chars = value_str.chars();
+                    if let (Some(c), None) = (chars.next(), chars.next()) {
+                        key_separator = c;
+                    } else {
+                        return Err(meta.error("key_separator must be a single character"));
+                    }
                     Ok(())
                 } else if meta.path.is_ident("db_name") {
                     let value = meta.value()?; // this parses the `=`
@@ -46,13 +52,13 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
     if db_name.is_empty() {
         panic!("Missing db_name attribute");
     }
-    if key_separator.is_empty() {
+    if key_separator == 'a' {
         panic!("Missing key_separator attribute");
     }
 
     let expanded = quote! {
         impl swss_common::SonicDbTable for #struct_name {
-            fn key_separator() -> &'static str {
+            fn key_separator() -> char {
                 #key_separator
             }
 
