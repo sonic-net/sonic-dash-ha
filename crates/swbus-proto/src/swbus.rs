@@ -109,13 +109,14 @@ impl ServicePath {
         )
     }
 
-    pub fn clone_for_local_mgmt(&self) -> Self {
+    // swbusd service path is in node scope without service and resource
+    pub fn to_swbusd_service_path(&self) -> ServicePath {
         ServicePath {
             region_id: self.region_id.clone(),
             cluster_id: self.cluster_id.clone(),
             node_id: self.node_id.clone(),
-            service_type: "local-mgmt".to_string(),
-            service_id: "0".to_string(),
+            service_type: "".to_string(),
+            service_id: "".to_string(),
             resource_type: "".to_string(),
             resource_id: "".to_string(),
         }
@@ -154,6 +155,33 @@ impl ServicePath {
             return RouteScope::Cluster;
         }
         RouteScope::Client
+    }
+
+    /// copy the fields from the other service path starting from the first non-empty one
+    pub fn join(&mut self, other: &ServicePath) {
+        vec![
+            &mut self.region_id,
+            &mut self.cluster_id,
+            &mut self.node_id,
+            &mut self.service_type,
+            &mut self.service_id,
+            &mut self.resource_type,
+            &mut self.resource_id,
+        ]
+        .into_iter()
+        .zip(vec![
+            &other.region_id,
+            &other.cluster_id,
+            &other.node_id,
+            &other.service_type,
+            &other.service_id,
+            &other.resource_type,
+            &other.resource_id,
+        ])
+        .skip_while(|(_, b)| b.is_empty())
+        .for_each(|(a, b)| {
+            *a = b.clone();
+        });
     }
 }
 
@@ -325,7 +353,7 @@ impl SwbusMessage {
     /// send response to the sender of the request
     pub fn new_response(
         request: &SwbusMessage,
-        dest: Option<&ServicePath>,
+        source: Option<&ServicePath>,
         error_code: SwbusErrorCode,
         error_message: &str,
         request_id: u64,
@@ -341,7 +369,7 @@ impl SwbusMessage {
         };
 
         // if dest is not provided, use the source of the request
-        let dest_sp = match dest {
+        let src_sp = match source {
             Some(sp) => sp.clone(),
             None => request
                 .header
@@ -354,7 +382,7 @@ impl SwbusMessage {
 
         SwbusMessage {
             header: Some(SwbusMessageHeader::new(
-                dest_sp,
+                src_sp,
                 request
                     .header
                     .as_ref()
@@ -375,25 +403,15 @@ impl PingRequest {
 }
 
 impl TraceRouteRequest {
-    pub fn new(trace_id: &str) -> Self {
-        TraceRouteRequest {
-            trace_id: trace_id.to_string(),
-        }
-    }
-}
-
-impl TraceRouteResponse {
-    pub fn new(trace_id: &str) -> Self {
-        TraceRouteResponse {
-            trace_id: trace_id.to_string(),
-        }
+    pub fn new() -> Self {
+        TraceRouteRequest {}
     }
 }
 
 impl ManagementRequest {
-    pub fn new(request: &str) -> Self {
+    pub fn new(request: ManagementRequestType) -> Self {
         ManagementRequest {
-            request: request.to_string(),
+            request: request.into(),
             arguments: Vec::<ManagementRequestArg>::new(),
         }
     }
@@ -458,6 +476,25 @@ mod tests {
     }
 
     #[test]
+    fn service_path_join() {
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("other-region.cluster.node/stype/sid/rtype/rid").unwrap();
+        service_path.join(&other);
+        assert_eq!(service_path, other);
+
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("/other-stype/sid").unwrap();
+        let expected = ServicePath::from_string("region.cluster.node/other-stype/sid").unwrap();
+        service_path.join(&other);
+        assert_eq!(service_path, expected);
+
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("").unwrap();
+        let expected = service_path.clone();
+        service_path.join(&other);
+        assert_eq!(service_path, expected);
+    }
+    #[test]
     fn request_response_can_be_created() {
         let response = RequestResponse::ok(create_mock_message_id());
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
@@ -487,14 +524,8 @@ mod tests {
 
     #[test]
     fn trace_route_request_can_be_created() {
-        let request = TraceRouteRequest::new("mock-trace-id");
+        let request = TraceRouteRequest::new();
         test_packing_with_swbus_message(swbus_message::Body::TraceRouteRequest(request));
-    }
-
-    #[test]
-    fn trace_route_response_can_be_created() {
-        let response = TraceRouteResponse::new("mock-trace-id");
-        test_packing_with_swbus_message(swbus_message::Body::TraceRouteResponse(response));
     }
 
     #[test]
@@ -567,6 +598,29 @@ mod tests {
         assert_eq!(ServicePath::from_string(sp_str.as_str()).unwrap(), service_path);
     }
 
+    #[test]
+    fn test_to_swbusd_service_path() {
+        let service_path = ServicePath {
+            region_id: "region-a".to_string(),
+            cluster_id: "cluster-a".to_string(),
+            node_id: "1.1.1.1-dpu0".to_string(),
+            service_type: "cli".to_string(),
+            service_id: "0".to_string(),
+            resource_type: "ping".to_string(),
+            resource_id: "0".to_string(),
+        };
+        let expected_sp = ServicePath {
+            region_id: "region-a".to_string(),
+            cluster_id: "cluster-a".to_string(),
+            node_id: "1.1.1.1-dpu0".to_string(),
+            service_type: "".to_string(),
+            service_id: "".to_string(),
+            resource_type: "".to_string(),
+            resource_id: "".to_string(),
+        };
+        let swbusd_service_path = service_path.to_swbusd_service_path();
+        assert_eq!(swbusd_service_path, expected_sp);
+    }
     #[test]
     fn test_swbus_message_new_response() {
         let request = SwbusMessage::new(

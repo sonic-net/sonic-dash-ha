@@ -33,12 +33,7 @@ impl CmdHandler for PingCmd {
         src_sp.resource_type = "ping".to_string();
         src_sp.resource_id = "0".to_string();
         // Register the channel to the runtime to receive response
-        ctx.runtime
-            .lock()
-            .await
-            .add_handler(src_sp.clone(), recv_queue_tx)
-            .await
-            .unwrap();
+        ctx.runtime.add_handler(src_sp.clone(), recv_queue_tx);
 
         // Send ping messages
         info!("PING {}", self.dest.to_longest_path());
@@ -50,7 +45,7 @@ impl CmdHandler for PingCmd {
                 body: Some(swbus_message::Body::PingRequest(PingRequest::new())),
             };
             let start = Instant::now();
-            ctx.runtime.lock().await.send(ping_msg).await.unwrap();
+            ctx.runtime.send(ping_msg).await.unwrap();
 
             // wait on the channel to receive response or timeout
             let result = wait_for_response(&mut recv_queue_rx, header_id, self.timeout).await;

@@ -6,11 +6,13 @@ use std::{os::fd::BorrowedFd, ptr::null, time::Duration};
 #[derive(Debug)]
 pub struct SubscriberStateTable {
     ptr: SWSSSubscriberStateTable,
-    _db: DbConnector,
+    db: DbConnector,
+    table_name: String,
 }
 
 impl SubscriberStateTable {
     pub fn new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Result<Self> {
+        let table_name_string = String::from(table_name);
         let table_name = cstr(table_name);
         let pop_batch_size = pop_batch_size.as_ref().map(|n| n as *const i32).unwrap_or(null());
         let pri = pri.as_ref().map(|n| n as *const i32).unwrap_or(null());
@@ -19,7 +21,11 @@ impl SubscriberStateTable {
                 SWSSSubscriberStateTable_new(db.ptr, table_name.as_ptr(), pop_batch_size, pri, p_sst)
             })?
         };
-        Ok(Self { ptr, _db: db })
+        Ok(Self {
+            ptr,
+            db,
+            table_name: table_name_string,
+        })
     }
 
     pub fn pops(&self) -> Result<Vec<KeyOpFieldValues>> {
@@ -48,6 +54,18 @@ impl SubscriberStateTable {
             Ok(fd)
         }
     }
+
+    pub fn db_connector(&self) -> &DbConnector {
+        &self.db
+    }
+
+    pub fn db_connector_mut(&mut self) -> &mut DbConnector {
+        &mut self.db
+    }
+
+    pub fn table_name(&self) -> &str {
+        &self.table_name
+    }
 }
 
 impl Drop for SubscriberStateTable {
@@ -62,4 +80,6 @@ unsafe impl Send for SubscriberStateTable {}
 #[cfg(feature = "async")]
 impl SubscriberStateTable {
     async_util::impl_read_data_async!();
+    async_util::impl_basic_async_method!(new_async <= new(db: DbConnector, table_name: &str, pop_batch_size: Option<i32>, pri: Option<i32>) -> Result<Self>);
+    async_util::impl_basic_async_method!(pops_async <= pops(&self) -> Result<Vec<KeyOpFieldValues>>);
 }

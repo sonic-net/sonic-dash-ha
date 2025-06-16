@@ -2,17 +2,24 @@ use super::*;
 use crate::bindings::*;
 use std::ptr;
 
+/// Rust wrapper around `swss::Table`.
 #[derive(Debug)]
 pub struct Table {
+    name: String,
     ptr: SWSSTable,
     _db: DbConnector,
 }
 
 impl Table {
     pub fn new(db: DbConnector, table_name: &str) -> Result<Self> {
+        let table_name_copy = table_name.to_string();
         let table_name = cstr(table_name);
         let ptr = unsafe { swss_try!(p_tbl => SWSSTable_new(db.ptr, table_name.as_ptr(), p_tbl))? };
-        Ok(Self { ptr, _db: db })
+        Ok(Self {
+            name: table_name_copy,
+            ptr,
+            _db: db,
+        })
     }
 
     pub fn get(&self, key: &str) -> Result<Option<FieldValues>> {
@@ -78,6 +85,10 @@ impl Table {
             let arr = swss_try!(p_arr => SWSSTable_getKeys(self.ptr, p_arr))?;
             Ok(take_string_array(arr))
         }
+    }
+
+    pub fn get_name(&self) -> &str {
+        &self.name
     }
 }
 

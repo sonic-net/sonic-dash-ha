@@ -1,0 +1,20 @@
+[package]
+name = "swss-serde"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+swss-common = { path = "../swss-common" }
+serde_serializer_quick_unsupported = "0.1"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+swss-common-testing = { path = "../swss-common-testing" }

@@ -1,8 +1,8 @@
-use super::route_config::RouteConfig;
 use super::{NextHopType, SwbusConnInfo, SwbusConnProxy, SwbusNextHop};
 use dashmap::mapref::entry::*;
 use dashmap::{DashMap, DashSet};
 use std::sync::Arc;
+use swbus_config::RouteConfig;
 use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
@@ -97,17 +97,13 @@ impl SwbusMultiplexer {
     // Riff: The my route part is very confusing. Looks to be made for local service, but not really sure how it works.
     pub fn set_my_routes(&self, routes: Vec<RouteConfig>) {
         for route in routes {
-            let sr = route.key.clone_for_local_mgmt();
+            if route.scope == RouteScope::Cluster {
+                // Create local service route
+                let route_key = route.key.to_node_prefix();
+                let local_nh = SwbusNextHop::new_local();
+                self.update_route(route_key, local_nh);
+            }
 
-            // Create local service route
-            let route_key = sr.to_service_prefix();
-            let local_nh = SwbusNextHop::new_local();
-            self.update_route(route_key, local_nh);
-
-            // Create catch-all route
-            let route_key = sr.to_node_prefix();
-            let drop_nh = SwbusNextHop::new_drop();
-            self.update_route(route_key, drop_nh);
             self.my_routes.insert(route);
         }
     }
@@ -256,14 +252,8 @@ mod tests {
         mux.set_my_routes(vec![route_config.clone()]);
         assert!(mux.my_routes.contains(&route_config));
 
-        let nh = mux
-            .routes
-            .get(&route_config.key.clone_for_local_mgmt().to_service_prefix())
-            .unwrap();
-        assert_eq!(nh.nh_type(), NextHopType::Local);
-
         let nh = mux.routes.get(&route_config.key.to_node_prefix()).unwrap();
-        assert_eq!(nh.nh_type(), NextHopType::Drop);
+        assert_eq!(nh.nh_type(), NextHopType::Local);
     }
 
     fn add_route(

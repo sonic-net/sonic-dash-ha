@@ -5,6 +5,7 @@ mod consumerstatetable;
 mod cxxstring;
 mod dbconnector;
 mod exception;
+mod logger;
 mod producerstatetable;
 mod subscriberstatetable;
 mod table;
@@ -17,6 +18,7 @@ pub use consumerstatetable::ConsumerStateTable;
 pub use cxxstring::{CxxStr, CxxString};
 pub use dbconnector::{DbConnectionInfo, DbConnector};
 pub use exception::{Exception, Result};
+pub use logger::{link_to_swsscommon_logger, log_level, log_output, LoggerConfigChangeHandler};
 pub use producerstatetable::ProducerStateTable;
 pub use subscriberstatetable::SubscriberStateTable;
 pub use table::Table;
@@ -29,6 +31,7 @@ pub(crate) use exception::swss_try;
 
 use crate::bindings::*;
 use cxxstring::RawMutableSWSSString;
+use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
     collections::HashMap,
@@ -44,7 +47,7 @@ pub(crate) fn cstr(s: impl AsRef<[u8]>) -> CString {
 }
 
 /// Take a malloc'd c string and convert it to a native String
-pub(crate) unsafe fn take_cstr(p: *const i8) -> String {
+pub(crate) unsafe fn take_cstr(p: *const libc::c_char) -> String {
     let s = CStr::from_ptr(p)
         .to_str()
         .expect("C string being converted to Rust String contains invalid UTF-8")
@@ -88,7 +91,7 @@ impl SelectResult {
 ///
 /// In swsscommon, this is represented as a string of `"SET"` or `"DEL"`.
 /// This type can be constructed similarly - `let op: KeyOperation = "SET".parse().unwrap()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum KeyOperation {
     Set,
     Del,
@@ -146,11 +149,38 @@ impl Error for InvalidKeyOperationString {}
 pub type FieldValues = HashMap<String, CxxString>;
 
 /// Rust version of `swss::KeyOpFieldsValuesTuple`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyOpFieldValues {
     pub key: String,
     pub operation: KeyOperation,
     pub field_values: FieldValues,
+}
+
+impl KeyOpFieldValues {
+    pub fn set<K, I, F, V>(key: K, fvs: I) -> Self
+    where
+        K: Into<String>,
+        I: IntoIterator<Item = (F, V)>,
+        F: Into<String>,
+        V: Into<CxxString>,
+    {
+        Self {
+            key: key.into(),
+            operation: KeyOperation::Set,
+            field_values: fvs.into_iter().map(|(f, v)| (f.into(), v.into())).collect(),
+        }
+    }
+
+    pub fn del<K>(key: K) -> Self
+    where
+        K: Into<String>,
+    {
+        Self {
+            key: key.into(),
+            operation: KeyOperation::Del,
+            field_values: HashMap::new(),
+        }
+    }
 }
 
 /// Intended for testing, ordered by key.
