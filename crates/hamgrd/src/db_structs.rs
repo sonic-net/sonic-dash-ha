@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
+use sonicdb_derive::SonicDb;
 use std::fmt;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
@@ -12,8 +13,8 @@ use swss_serde::from_table;
 const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
-#[skip_serializing_none]
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_GLOBAL_CONFIG", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct DashHaGlobalConfig {
     // The port of control plane data channel, used for bulk sync.
     pub cp_data_channel_port: Option<u16>,
@@ -35,7 +36,8 @@ pub struct DashHaGlobalConfig {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[skip_serializing_none]
-#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug, SonicDb)]
+#[sonicdb(table_name = "DPU", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct Dpu {
     pub state: Option<String>,
     pub vip_ipv4: Option<String>,
@@ -51,7 +53,8 @@ pub struct Dpu {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, SonicDb)]
+#[sonicdb(table_name = "REMOTE_DPU", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct RemoteDpu {
     pub pa_ipv4: String,
     pub pa_ipv6: Option<String>,
@@ -61,8 +64,18 @@ pub struct RemoteDpu {
     pub swbus_port: u16,
 }
 
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
+#[serde_as]
+#[derive(Deserialize, Clone, SonicDb)]
+#[sonicdb(table_name = "VDPU", key_separator = "|", db_name = "CONFIG_DB")]
+pub struct VDpu {
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    pub main_dpu_ids: Vec<String>,
+}
+
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, SonicDb)]
+#[sonicdb(table_name = "BFD_SESSION_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
 pub struct BfdSessionTable {
     pub tx_interval: Option<u32>,
     pub rx_interval: Option<u32>,
@@ -84,7 +97,8 @@ pub enum DpuPmonStateType {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/pmon/smartswitch-pmon.md#dpu_state-definition>
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, SonicDb)]
+#[sonicdb(table_name = "DPU_STATE", key_separator = "|", db_name = "CHASSIS_STATE_DB")]
 pub struct DpuState {
     #[serde(default)]
     pub dpu_midplane_link_state: DpuPmonStateType,
@@ -112,9 +126,23 @@ pub struct DpuState {
     pub dpu_data_plane_time: i64,
 }
 
+impl Default for DpuState {
+    fn default() -> Self {
+        Self {
+            dpu_midplane_link_state: DpuPmonStateType::Unknown,
+            dpu_midplane_link_time: now_in_millis(),
+            dpu_control_plane_state: DpuPmonStateType::Unknown,
+            dpu_control_plane_time: now_in_millis(),
+            dpu_data_plane_state: DpuPmonStateType::Unknown,
+            dpu_data_plane_time: now_in_millis(),
+        }
+    }
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/BFD/SmartSwitchDpuLivenessUsingBfd.md#27-dpu-bfd-session-state-updates>
 #[serde_as]
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, SonicDb)]
+#[sonicdb(table_name = "DASH_BFD_PROBE_STATE", key_separator = "|", db_name = "DPU_STATE_DB")]
 pub struct DashBfdProbeState {
     #[serde(default)]
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
@@ -134,6 +162,17 @@ pub struct DashBfdProbeState {
         serialize_with = "timestamp_serialize"
     )]
     pub v6_bfd_up_sessions_timestamp: i64,
+}
+
+impl Default for DashBfdProbeState {
+    fn default() -> Self {
+        Self {
+            v4_bfd_up_sessions: Vec::new(),
+            v4_bfd_up_sessions_timestamp: now_in_millis(),
+            v6_bfd_up_sessions: Vec::new(),
+            v6_bfd_up_sessions_timestamp: now_in_millis(),
+        }
+    }
 }
 
 fn timestamp_serialize<S>(ts: &i64, serializer: S) -> Result<S::Ok, S::Error>
@@ -161,7 +200,7 @@ where
     }
 }
 
-fn now_in_millis() -> i64 {
+pub fn now_in_millis() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
@@ -264,14 +303,14 @@ mod test {
     #[test]
     fn test_deserialize_dpu() {
         let json = r#"
-        { 
-            "key": "DPU", 
-            "operation": "Set", 
+        {
+            "key": "DPU",
+            "operation": "Set",
             "field_values": {
-                "pa_ipv4": "1.2.3.4", 
-                "dpu_id": "1", 
-                "orchagent_zmq_port": "8100", 
-                "swbus_port": "23606", 
+                "pa_ipv4": "1.2.3.4",
+                "dpu_id": "1",
+                "orchagent_zmq_port": "8100",
+                "swbus_port": "23606",
                 "midplane_ipv4": "127.0.0.1"
             }
         }"#;
@@ -284,9 +323,9 @@ mod test {
     #[test]
     fn test_serde_vnet_route_tunnel() {
         let json = r#"
-        { 
-            "key": "default|3.2.1.0/32", 
-            "operation": "Set", 
+        {
+            "key": "default|3.2.1.0/32",
+            "operation": "Set",
             "field_values": {
                 "endpoint": "1.2.3.4,2.2.3.4",
                 "endpoint_monitor": "1.2.3.5,2.2.3.5"
@@ -352,7 +391,7 @@ mod test {
     #[test]
     fn test_deserialize_dpu_state() {
         let json = r#"
-        { 
+        {
             "dpu_midplane_link_state": "up",
             "dpu_midplane_link_time": "Mon Jun 10 03:15:42 PM UTC 2024",
             "dpu_control_plane_state": "down",
@@ -398,7 +437,7 @@ mod test {
     #[test]
     fn test_dpu_state_default_values() {
         let json = r#"
-        { 
+        {
             "dpu_midplane_link_state": "up",
             "dpu_midplane_link_time": "Mon Jun 10 03:15:42 PM UTC 2024"
         }"#;
@@ -436,7 +475,7 @@ mod test {
     #[test]
     fn test_deserialize_dash_bfd_probe_state() {
         let json = r#"
-        { 
+        {
             "v4_bfd_up_sessions": "10.0.1.1,10.0.1.2,10.0.1.3",
             "v4_bfd_up_sessions_timestamp": "Mon Jun 10 03:15:42 PM UTC 2024",
             "v6_bfd_up_sessions": "2001:db8::1,2001:db8::2",
@@ -483,7 +522,7 @@ mod test {
     #[test]
     fn test_dash_bfd_probe_state_empty_sessions() {
         let json = r#"
-        { 
+        {
             "v4_bfd_up_sessions": "",
             "v6_bfd_up_sessions": ""
         }"#;
@@ -503,7 +542,7 @@ mod test {
     #[test]
     fn test_dash_bfd_probe_state_partial_data() {
         let json = r#"
-        { 
+        {
             "v4_bfd_up_sessions": "10.1.1.1,10.1.1.2",
             "v4_bfd_up_sessions_timestamp": "Mon Jun 10 03:15:42 PM UTC 2024"
         }"#;

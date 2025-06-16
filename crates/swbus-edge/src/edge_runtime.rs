@@ -129,7 +129,7 @@ mod tests {
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "Cluster"
-        peers:        
+        peers:
         "#,
             port
         );
