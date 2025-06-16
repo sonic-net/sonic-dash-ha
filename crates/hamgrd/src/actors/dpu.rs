@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
+use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
 use swss_common_bridge::consumer::{spawn_consumer_bridge, ConsumerBridge};
 use tracing::{debug, error, info};
 
@@ -54,25 +54,26 @@ impl DpuActor {
 
     // returns the main Db table name that this actor is associated to
     fn dpu_table_name() -> &'static str {
-        "DPU"
+        Dpu::table_name()
     }
 
     fn remote_dpu_table_name() -> &'static str {
-        "REMOTE_DPU"
+        RemoteDpu::table_name()
     }
 
     fn get_dpu_state(incoming: &Incoming) -> Result<DpuState> {
-        let dpu_state_kfv: KeyOpFieldValues = incoming.get("DPU_STATE")?.deserialize_data()?;
+        let dpu_state_kfv: KeyOpFieldValues = incoming.get(DpuState::table_name())?.deserialize_data()?;
         Ok(swss_serde::from_field_values(&dpu_state_kfv.field_values)?)
     }
 
     fn get_bfd_probe_state(incoming: &Incoming) -> Result<DashBfdProbeState> {
-        let bfd_probe_kfv: KeyOpFieldValues = incoming.get("DASH_BFD_PROBE_STATE")?.deserialize_data()?;
+        let bfd_probe_kfv: KeyOpFieldValues = incoming.get(DashBfdProbeState::table_name())?.deserialize_data()?;
         Ok(swss_serde::from_field_values(&bfd_probe_kfv.field_values)?)
     }
 
     fn get_dash_ha_global_config(incoming: &Incoming) -> Result<DashHaGlobalConfig> {
-        let ha_global_config_kfv: KeyOpFieldValues = incoming.get("DASH_HA_GLOBAL_CONFIG")?.deserialize_data()?;
+        let ha_global_config_kfv: KeyOpFieldValues =
+            incoming.get(DashHaGlobalConfig::table_name())?.deserialize_data()?;
         Ok(swss_serde::from_field_values(&ha_global_config_kfv.field_values)?)
     }
 
@@ -88,9 +89,9 @@ impl DpuActor {
         tokio::task::spawn(dpu_ac.run());
 
         // dpu actor is spawned for both local dpu and remote dpu
-        let config_db = crate::db_named("CONFIG_DB").await?;
+        let config_db = crate::db_named(Dpu::db_name()).await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::dpu_table_name(), None, None).await?;
-        let addr = edge_runtime.new_sp("swss-common-bridge", Self::dpu_table_name());
+        let addr = crate::common_bridge_sp::<Dpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
         spawn_consumer_bridge(
             edge_runtime.clone(),
@@ -105,9 +106,9 @@ impl DpuActor {
             |_| true,
         );
 
-        let config_db = crate::db_named("CONFIG_DB").await?;
+        let config_db = crate::db_named(RemoteDpu::db_name()).await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::remote_dpu_table_name(), None, None).await?;
-        let addr = edge_runtime.new_sp("swss-common-bridge", Self::remote_dpu_table_name());
+        let addr = crate::common_bridge_sp::<RemoteDpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
         spawn_consumer_bridge(
             edge_runtime.clone(),
@@ -154,10 +155,8 @@ impl DpuActor {
                 // DASH_HA_GLOBAL_CONFIG from common-bridge sent to this actor instance only.
                 // Key is DASH_HA_GLOBAL_CONFIG
                 self.bridges.push(
-                    spawn_consumer_bridge_for_actor(
+                    spawn_consumer_bridge_for_actor::<DashHaGlobalConfig>(
                         context.get_edge_runtime().clone(),
-                        "CONFIG_DB",
-                        "DASH_HA_GLOBAL_CONFIG",
                         Self::name(),
                         Some(&self.id),
                         true,
@@ -168,10 +167,8 @@ impl DpuActor {
                 // REMOTE_DPU from common-bridge sent to this actor instance only.
                 // Key is REMOTE_DPU|<remote_dpu_id>
                 self.bridges.push(
-                    spawn_consumer_bridge_for_actor(
+                    spawn_consumer_bridge_for_actor::<RemoteDpu>(
                         context.get_edge_runtime().clone(),
-                        "CONFIG_DB",
-                        "REMOTE_DPU",
                         Self::name(),
                         Some(&self.id),
                         false,
@@ -182,10 +179,8 @@ impl DpuActor {
                 // DASH_BFD_PROBE_STATE from common-bridge sent to this actor instance only.
                 // Key is DASH_BFD_PROBE_STATE
                 self.bridges.push(
-                    spawn_consumer_bridge_for_actor(
+                    spawn_consumer_bridge_for_actor::<DashBfdProbeState>(
                         context.get_edge_runtime().clone(),
-                        "DPU_STATE_DB",
-                        "DASH_BFD_PROBE_STATE",
                         Self::name(),
                         Some(&self.id),
                         true,
@@ -196,10 +191,8 @@ impl DpuActor {
                 // DPU_STATE from common-bridge sent to this actor instance only. The selector closure is
                 // used to filter out the DPU_STATE for this DPU instance only.
                 self.bridges.push(
-                    spawn_consumer_bridge_for_actor_with_selector(
+                    spawn_consumer_bridge_for_actor_with_selector::<DpuState, _>(
                         context.get_edge_runtime().clone(),
-                        "CHASSIS_STATE_DB",
-                        "DPU_STATE",
                         Self::name(),
                         Some(&self.id),
                         true, /* key will be DPU_STATE only */
@@ -351,7 +344,7 @@ impl DpuActor {
         };
 
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
-        outgoing.send(outgoing.from_my_sp("swss-common-bridge", "BFD_SESSION_TABLE"), msg);
+        outgoing.send(outgoing.common_bridge_sp::<BfdSessionTable>(), msg);
         Ok(())
     }
 
@@ -362,7 +355,7 @@ impl DpuActor {
         }
         let (_internal, incoming, outgoing) = state.get_all();
         let global_cfg = Self::get_dash_ha_global_config(incoming)?;
-        let remote_dpu_msgs = incoming.get_by_prefix("REMOTE_DPU");
+        let remote_dpu_msgs = incoming.get_by_prefix(RemoteDpu::table_name());
         let mut remote_npus: Vec<String> = remote_dpu_msgs
             .iter()
             .filter_map(|entry| {
@@ -421,7 +414,7 @@ impl DpuActor {
             // HA role is not activated. Do not create BFD sessions
             return Ok(());
         }
-        let kfv: KeyOpFieldValues = incoming.get("DASH_HA_GLOBAL_CONFIG")?.deserialize_data()?;
+        let kfv: KeyOpFieldValues = incoming.get(DashHaGlobalConfig::table_name())?.deserialize_data()?;
         let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&kfv.field_values)?;
         self.update_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing, false)?;
         Ok(())
@@ -490,9 +483,9 @@ impl Actor for DpuActor {
         // the rest of the messages are only for locally managed dpu
         if !self.is_local_managed() {
             return Ok(());
-        } else if key == "DASH_HA_GLOBAL_CONFIG" {
+        } else if key == DashHaGlobalConfig::table_name() {
             return self.handle_dash_ha_global_config(state, key);
-        } else if key == "DPU_STATE" || key == "DASH_BFD_PROBE_STATE" {
+        } else if key == DpuState::table_name() || key == DashBfdProbeState::table_name() {
             return self.update_dpu_state(incoming, outgoing, None);
         } else if HaRoleActivated::is_my_msg(key) {
             // When HA role is activated, reconfigure BFD sessions
@@ -507,7 +500,7 @@ impl Actor for DpuActor {
 
 #[cfg(test)]
 mod test {
-    use crate::db_structs::{BfdSessionTable, RemoteDpu};
+    use crate::db_structs::{BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuState, RemoteDpu};
     use crate::{
         actors::{
             dpu::DpuActor,
@@ -518,6 +511,7 @@ mod test {
 
     use crate::ha_actor_messages::DpuActorState;
     use std::time::Duration;
+    use swss_common::SonicDbTable;
     use swss_serde::to_field_values;
     #[tokio::test]
     async fn dpu_actor() {
@@ -568,43 +562,53 @@ mod test {
         #[rustfmt::skip]
         let commands = [
             // Bring up dpu
-            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
+            send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
             // Receiving DPU config-db object from swss-common bridge
-            send! { key: DpuActor::dpu_table_name(), data: { "key": "switch0_dpu0", "operation": "Set", "field_values": dpu_fvs}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
+            send! { key: Dpu::table_name(), data: { "key": "switch0_dpu0", "operation": "Set", "field_values": dpu_fvs},
+                    addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_state_wo_bfd, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "REMOTE_DPU|switch1_dpu0", data: { "key": "REMOTE_DPU|switch1_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu1_fvs).unwrap() }},
             send! { key: "REMOTE_DPU|switch2_dpu0", data: { "key": "REMOTE_DPU|switch2_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu2_fvs).unwrap()}},
-            send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": dash_global_cfg_fvs} },
+            send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
 
             send! { key: format!("{}vpdu1|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp("ha-scope", "vpdu1|scope1") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             send! { key: "REMOTE_DPU|switch3_dpu0", data: { "key": "REMOTE_DPU|switch3_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu3_fvs).unwrap()}},
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Set", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
-            send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values":serde_json::to_value(to_field_values(&dpu_bfd_up_state).unwrap()).unwrap()} },
+            send! { key: DashBfdProbeState::table_name(), data: { "key": "", "operation": "Set", "field_values":serde_json::to_value(to_field_values(&dpu_bfd_up_state).unwrap()).unwrap()} },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_up_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate DPU_STATE planes going down then up
-            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_down_state).unwrap()).unwrap()} },
+            send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_down_state).unwrap()).unwrap()} },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_pmon_down_state, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "DPU_STATE", data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
+            send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_up_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate BFD probe going down
-            send! { key: "DASH_BFD_PROBE_STATE", data: { "key": "", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_bfd_down_state).unwrap()).unwrap()} },
+            send! { key: DashBfdProbeState::table_name(), data: { "key": "", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_bfd_down_state).unwrap()).unwrap()} },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_bfd_down_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate transition to dead state
             send! { key: format!("{}vpdu1|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "dead"}, addr: runtime.sp("ha-scope", "vpdu1|scope1") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Del", "field_values": bfd_fvs}, addr: runtime.sp("swss-common-bridge", "BFD_SESSION_TABLE") },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Del", "field_values": bfd_fvs},
+                addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Del", "field_values": bfd_fvs},
+                addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Del", "field_values": bfd_fvs},
+                addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Del", "field_values": bfd_fvs},
+                addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             // simulate delete of Dpu entry
-            send! { key: DpuActor::dpu_table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs}, addr: runtime.sp("swss-common-bridge", DpuActor::dpu_table_name()) },
+            send! { key: Dpu::table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs},
+                addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
         ];
         test::run_commands(&runtime, runtime.sp("dpu", "switch0_dpu0"), &commands).await;
         if tokio::time::timeout(Duration::from_secs(1), handle).await.is_err() {
@@ -632,12 +636,12 @@ mod test {
         #[rustfmt::skip]
         let commands = [
             // Receiving DPU config-db object from swss-common bridge
-            send! { key: DpuActor::remote_dpu_table_name(), data: { "key": "test-rdpu", "operation": "Set", "field_values": rdpu_obj}, addr: runtime.sp("swss-common-bridge", DpuActor::remote_dpu_table_name()) },
+            send! { key: RemoteDpu::table_name(), data: { "key": "test-rdpu", "operation": "Set", "field_values": rdpu_obj}, addr: crate::common_bridge_sp::<RemoteDpu>(&runtime.get_swbus_edge()) },
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
             recv! { key: "DPUStateUpdate|test-rdpu", data: rdpu_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // simulate delete of Dpu entry
-            send! { key: DpuActor::remote_dpu_table_name(), data: { "key": DpuActor::remote_dpu_table_name(), "operation": "Del", "field_values": rdpu_obj}, addr: runtime.sp("swss-common-bridge", DpuActor::remote_dpu_table_name()) },
+            send! { key: RemoteDpu::table_name(), data: { "key": RemoteDpu::table_name(), "operation": "Del", "field_values": rdpu_obj}, addr: crate::common_bridge_sp::<RemoteDpu>(&runtime.get_swbus_edge()) },
         ];
         test::run_commands(&runtime, runtime.sp("dpu", "test-rdpu"), &commands).await;
         if tokio::time::timeout(Duration::from_secs(1), handle).await.is_err() {
