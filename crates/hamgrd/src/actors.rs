@@ -50,7 +50,10 @@ pub trait DbBasedActor: Actor {
 
         let config_db = crate::db_named(Self::db_name()).await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
-        let addr = edge_runtime.new_sp("swss-common-bridge", Self::table_name());
+        let addr = edge_runtime.new_sp(
+            "swss-common-bridge",
+            &format!("{}/{}", Self::db_name(), Self::table_name()),
+        );
         let base_addr = edge_runtime.get_base_sp();
         spawn_consumer_bridge(
             edge_runtime.clone(),
@@ -229,7 +232,7 @@ where
 
     let sst = SubscriberStateTable::new_async(db, table_name, None, None).await?;
 
-    let addr = edge_runtime.new_sp("swss-common-bridge", table_name);
+    let addr = edge_runtime.new_sp("swss-common-bridge", &format!("{db_name}/{table_name}"));
 
     if actor_id.is_some() {
         let sp = edge_runtime.new_sp(actor_name, actor_id.unwrap());
@@ -279,7 +282,7 @@ pub async fn spawn_zmq_producer_bridge(
         let dpu_appl_db = crate::db_named(db_name).await?;
         let zpst = ZmqProducerStateTable::new(dpu_appl_db, table_name, zmqc, false).unwrap();
 
-        let sp = edge_runtime.new_sp("swss-common-bridge", table_name);
+        let sp = edge_runtime.new_sp("swss-common-bridge", &format!("{db_name}/{table_name}"));
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, zpst))
     } else {
         if std::env::var("SIM").is_err() {
@@ -288,7 +291,7 @@ pub async fn spawn_zmq_producer_bridge(
         let dpu_appl_db = crate::db_named(db_name).await?;
         let pst = ProducerStateTable::new(dpu_appl_db, table_name).unwrap();
 
-        let sp = edge_runtime.new_sp("swss-common-bridge", table_name);
+        let sp = edge_runtime.new_sp("swss-common-bridge", &format!("{db_name}/{table_name}"));
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, pst))
     }
 }

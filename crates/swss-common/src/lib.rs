@@ -23,4 +23,7 @@ pub trait SonicDbTable {
     fn key_separator() -> char;
     fn table_name() -> &'static str;
     fn db_name() -> &'static str;
+    fn bridge_id() -> String {
+        format!("{}/{}", Self::db_name(), Self::table_name())
+    }
 }

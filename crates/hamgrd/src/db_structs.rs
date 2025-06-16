@@ -4,16 +4,17 @@ use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
+use sonicdb_derive::SonicDb;
 use std::fmt;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
-
 /// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
 const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Default, Debug)]
+#[derive(Serialize, Deserialize, Default, Debug, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_GLOBAL_CONFIG", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct DashHaGlobalConfig {
     // The port of control plane data channel, used for bulk sync.
     pub cp_data_channel_port: Option<u16>,
@@ -35,7 +36,8 @@ pub struct DashHaGlobalConfig {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[skip_serializing_none]
-#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug, SonicDb)]
+#[sonicdb(table_name = "DPU", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct Dpu {
     pub state: Option<String>,
     pub vip_ipv4: Option<String>,
@@ -51,7 +53,8 @@ pub struct Dpu {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, SonicDb)]
+#[sonicdb(table_name = "REMOTE_DPU", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct RemoteDpu {
     pub pa_ipv4: String,
     pub pa_ipv6: Option<String>,
@@ -63,14 +66,16 @@ pub struct RemoteDpu {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
 #[serde_as]
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, SonicDb)]
+#[sonicdb(table_name = "VDPU", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct VDpu {
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub main_dpu_ids: Vec<String>,
 }
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, SonicDb)]
+#[sonicdb(table_name = "BFD_SESSION_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
 pub struct BfdSessionTable {
     pub tx_interval: Option<u32>,
     pub rx_interval: Option<u32>,
@@ -92,7 +97,8 @@ pub enum DpuPmonStateType {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/pmon/smartswitch-pmon.md#dpu_state-definition>
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, SonicDb)]
+#[sonicdb(table_name = "DPU_STATE", key_separator = "|", db_name = "CHASSIS_STATE_DB")]
 pub struct DpuState {
     #[serde(default)]
     pub dpu_midplane_link_state: DpuPmonStateType,
@@ -120,9 +126,23 @@ pub struct DpuState {
     pub dpu_data_plane_time: i64,
 }
 
+impl Default for DpuState {
+    fn default() -> Self {
+        Self {
+            dpu_midplane_link_state: DpuPmonStateType::Unknown,
+            dpu_midplane_link_time: now_in_millis(),
+            dpu_control_plane_state: DpuPmonStateType::Unknown,
+            dpu_control_plane_time: now_in_millis(),
+            dpu_data_plane_state: DpuPmonStateType::Unknown,
+            dpu_data_plane_time: now_in_millis(),
+        }
+    }
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/BFD/SmartSwitchDpuLivenessUsingBfd.md#27-dpu-bfd-session-state-updates>
 #[serde_as]
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, SonicDb)]
+#[sonicdb(table_name = "DASH_BFD_PROBE_STATE", key_separator = "|", db_name = "DPU_STATE_DB")]
 pub struct DashBfdProbeState {
     #[serde(default)]
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
@@ -142,6 +162,17 @@ pub struct DashBfdProbeState {
         serialize_with = "timestamp_serialize"
     )]
     pub v6_bfd_up_sessions_timestamp: i64,
+}
+
+impl Default for DashBfdProbeState {
+    fn default() -> Self {
+        Self {
+            v4_bfd_up_sessions: Vec::new(),
+            v4_bfd_up_sessions_timestamp: now_in_millis(),
+            v6_bfd_up_sessions: Vec::new(),
+            v6_bfd_up_sessions_timestamp: now_in_millis(),
+        }
+    }
 }
 
 fn timestamp_serialize<S>(ts: &i64, serializer: S) -> Result<S::Ok, S::Error>
@@ -169,7 +200,7 @@ where
     }
 }
 
-fn now_in_millis() -> i64 {
+pub fn now_in_millis() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
@@ -177,7 +208,8 @@ fn now_in_millis() -> i64 {
 /// in APPL_DB
 #[serde_as]
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SET_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct DashHaSetConfigTable {
     pub version: String,
     pub vip_v4: String,
@@ -197,7 +229,8 @@ pub struct DashHaSetConfigTable {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
 /// In DPU_APPL_DB
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SET_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
 pub struct DashHaSetTable {
     // Config version.
     pub version: String,
@@ -233,7 +266,8 @@ pub struct DashHaSetTable {
 /// In APPL_DB
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "VNET_ROUTE_TUNNEL_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct VnetRouteTunnelTable {
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub endpoint: Vec<String>,
@@ -251,22 +285,24 @@ pub struct VnetRouteTunnelTable {
 /// In APPL_DB
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SCOPE_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct DashHaScopeConfigTable {
-    pub version: String,
+    pub version: u32,
     pub disable: bool,
     pub desired_ha_state: String,
     #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
     pub approved_pending_operation_ids: Option<Vec<String>>,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-dpu-scope-dpu-driven-setup.md#2312-ha-scope-configurations
+/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations
 /// In DPU_APPL_DB
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SCOPE_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
 pub struct DashHaScopeTable {
-    pub version: String,
+    pub version: u32,
     pub disable: bool,
     pub ha_role: String,
     pub flow_reconcile_requested: bool,
@@ -274,14 +310,15 @@ pub struct DashHaScopeTable {
 }
 
 /// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "DPU_STATE_DB")]
 pub struct DpuDashHaScopeState {
     // The last update time of this state in milliseconds.
-    pub last_updated_time: u64,
+    pub last_updated_time: i64,
     // The current HA role confirmed by ASIC. Please refer to the HA states defined in HA HLD.
     pub ha_role: String,
     // The time when HA role is moved into current one in milliseconds.
-    pub ha_role_start_time: u64,
+    pub ha_role_start_time: i64,
     // The current term confirmed by ASIC.
     pub ha_term: String,
     // DPU is pending on role activation.
@@ -295,63 +332,65 @@ pub struct DpuDashHaScopeState {
 /// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "STATE_DB")]
 pub struct NpuDashHaScopeState {
     // HA scope creation time in milliseconds.
-    pub creation_time_in_ms: u64, /*todo: where is this from */
+    pub creation_time_in_ms: i64, /*todo: where is this from */
     // Last heartbeat time in milliseconds. This is used for leak detection.
     // Heartbeat time happens once per minute and will not change the last state updated time.
-    pub last_heartbeat_time_in_ms: u64, /*todo: what is heartbeat */
+    pub last_heartbeat_time_in_ms: i64, /*todo: what is heartbeat */
     // Data path VIP of the DPU or ENI
     pub vip_v4: String,
     // Data path VIP of the DPU or ENI
-    pub vip_v6: String,
+    pub vip_v6: Option<String>,
     // The IP address of the DPU.
     pub local_ip: String,
     // The IP address of the peer DPU.
     pub peer_ip: String,
 
     // The state of the HA state machine. This is the state in NPU hamgrd.
-    pub local_ha_state: String,
+    // The state of the HA state machine. This is the state in NPU hamgrd.
+    pub local_ha_state: Option<String>,
     // The time when local target HA state is set.
-    pub local_ha_state_last_updated_time_in_ms: u64,
+    pub local_ha_state_last_updated_time_in_ms: Option<i64>,
     // The reason of the last HA state change.
-    pub local_ha_state_last_updated_reason: String,
+    pub local_ha_state_last_updated_reason: Option<String>,
     // The target HA state in ASIC. This is the state that hamgrd generates and asking DPU to move to.
-    pub local_target_asic_ha_state: String,
+    pub local_target_asic_ha_state: Option<String>,
     // The HA state that ASIC acked.
-    pub local_acked_asic_ha_state: String,
+    pub local_acked_asic_ha_state: Option<String>,
     // The current target term of the HA state machine.
-    pub local_target_term: String,
+    pub local_target_term: Option<String>,
     // The current term that acked by ASIC.
-    pub local_acked_term: String,
+    pub local_acked_term: Option<String>,
     // The state of the HA state machine in peer DPU.
     pub peer_ha_state: Option<String>, /*todo: we don't know peer dpu state */
     // The current term in peer DPU.
     pub peer_term: Option<String>,
 
     // The state of local vDPU midplane. The value can be "unknown", "up", "down".
-    pub local_vdpu_midplane_state: String,
+    pub local_vdpu_midplane_state: DpuPmonStateType,
     // Local vDPU midplane state last updated time in milliseconds.
-    pub local_vdpu_midplane_state_last_updated_time_in_ms: u64,
+    pub local_vdpu_midplane_state_last_updated_time_in_ms: i64,
     // The state of local vDPU control plane, which includes DPU OS and certain required firmware. The value can be "unknown", "up", "down".
-    pub local_vdpu_control_plane_state: String,
+    pub local_vdpu_control_plane_state: DpuPmonStateType,
     // Local vDPU control plane state last updated time in milliseconds.
-    pub local_vdpu_control_plane_state_last_updated_time_in_ms: u64,
+    pub local_vdpu_control_plane_state_last_updated_time_in_ms: i64,
     // The state of local vDPU data plane, which includes DPU hardware / ASIC and certain required firmware. The value can be "unknown", "up", "down".
-    pub local_vdpu_data_plane_state: String,
+    pub local_vdpu_data_plane_state: DpuPmonStateType,
     // Local vDPU data plane state last updated time in milliseconds.
-    pub local_vdpu_data_plane_state_last_updated_time_in_ms: u64,
+    pub local_vdpu_data_plane_state_last_updated_time_in_ms: i64,
     // The list of IPv4 peer IPs (NPU IP) of the BFD sessions in up state.
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub local_vdpu_up_bfd_sessions_v4: Vec<String>,
     // Local vDPU BFD sessions v4 last updated time in milliseconds.
-    pub local_vdpu_up_bfd_sessions_v4_update_time_in_ms: u64,
+    pub local_vdpu_up_bfd_sessions_v4_update_time_in_ms: i64,
     // The list of IPv6 peer IPs (NPU IP) of the BFD sessions in up state.
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub local_vdpu_up_bfd_sessions_v6: Vec<String>,
     // Local vDPU BFD sessions v6 last updated time in milliseconds.
-    pub local_vdpu_up_bfd_sessions_v6_update_time_in_ms: u64,
+    pub local_vdpu_up_bfd_sessions_v6_update_time_in_ms: i64,
 
     // GUIDs of pending operation IDs, connected by ","
     #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
@@ -360,23 +399,23 @@ pub struct NpuDashHaScopeState {
     #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
     pub pending_operation_types: Option<Vec<String>>,
     // Last updated time of the pending operation list.
-    pub pending_operation_list_last_updated_time_in_ms: Option<u64>,
+    pub pending_operation_list_last_updated_time_in_ms: Option<i64>,
     // Switchover ID (GUID).
     pub switchover_id: Option<String>,
     // Switchover state. It can be "pending_approval", "approved", "in_progress", "completed", "failed"
     pub switchover_state: Option<String>,
     // The time when operation is created.
-    pub switchover_start_time_in_ms: Option<u64>,
+    pub switchover_start_time_in_ms: Option<i64>,
     // The time when operation is ended.
-    pub switchover_end_time_in_ms: Option<u64>,
+    pub switchover_end_time_in_ms: Option<i64>,
     // The time when operation is approved.
-    pub switchover_approved_time_in_ms: Option<u64>,
+    pub switchover_approved_time_in_ms: Option<i64>,
     // Flow sync session ID.
     pub flow_sync_session_id: Option<String>,
     // Flow sync session state. It can be "in_progress", "completed", "failed"
     pub flow_sync_session_state: Option<String>,
     // Flow sync start time in milliseconds.
-    pub flow_sync_session_start_time_in_ms: Option<u64>,
+    pub flow_sync_session_start_time_in_ms: Option<i64>,
     // The IP endpoint of the server that flow records are sent to.
     pub flow_sync_session_target_server: Option<String>,
 }
@@ -409,14 +448,14 @@ mod test {
     #[test]
     fn test_deserialize_dpu() {
         let json = r#"
-        { 
-            "key": "DPU", 
-            "operation": "Set", 
+        {
+            "key": "DPU",
+            "operation": "Set",
             "field_values": {
-                "pa_ipv4": "1.2.3.4", 
-                "dpu_id": "1", 
-                "orchagent_zmq_port": "8100", 
-                "swbus_port": "23606", 
+                "pa_ipv4": "1.2.3.4",
+                "dpu_id": "1",
+                "orchagent_zmq_port": "8100",
+                "swbus_port": "23606",
                 "midplane_ipv4": "127.0.0.1"
             }
         }"#;
@@ -429,9 +468,9 @@ mod test {
     #[test]
     fn test_serde_vnet_route_tunnel() {
         let json = r#"
-        { 
-            "key": "default|3.2.1.0/32", 
-            "operation": "Set", 
+        {
+            "key": "default|3.2.1.0/32",
+            "operation": "Set",
             "field_values": {
                 "endpoint": "1.2.3.4,2.2.3.4",
                 "endpoint_monitor": "1.2.3.5,2.2.3.5"
@@ -497,7 +536,7 @@ mod test {
     #[test]
     fn test_deserialize_dpu_state() {
         let json = r#"
-        { 
+        {
             "dpu_midplane_link_state": "up",
             "dpu_midplane_link_time": "Mon Jun 10 03:15:42 PM UTC 2024",
             "dpu_control_plane_state": "down",
@@ -543,7 +582,7 @@ mod test {
     #[test]
     fn test_dpu_state_default_values() {
         let json = r#"
-        { 
+        {
             "dpu_midplane_link_state": "up",
             "dpu_midplane_link_time": "Mon Jun 10 03:15:42 PM UTC 2024"
         }"#;
@@ -581,7 +620,7 @@ mod test {
     #[test]
     fn test_deserialize_dash_bfd_probe_state() {
         let json = r#"
-        { 
+        {
             "v4_bfd_up_sessions": "10.0.1.1,10.0.1.2,10.0.1.3",
             "v4_bfd_up_sessions_timestamp": "Mon Jun 10 03:15:42 PM UTC 2024",
             "v6_bfd_up_sessions": "2001:db8::1,2001:db8::2",
@@ -628,7 +667,7 @@ mod test {
     #[test]
     fn test_dash_bfd_probe_state_empty_sessions() {
         let json = r#"
-        { 
+        {
             "v4_bfd_up_sessions": "",
             "v6_bfd_up_sessions": ""
         }"#;
@@ -648,7 +687,7 @@ mod test {
     #[test]
     fn test_dash_bfd_probe_state_partial_data() {
         let json = r#"
-        { 
+        {
             "v4_bfd_up_sessions": "10.1.1.1,10.1.1.2",
             "v4_bfd_up_sessions_timestamp": "Mon Jun 10 03:15:42 PM UTC 2024"
         }"#;

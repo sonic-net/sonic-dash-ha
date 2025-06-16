@@ -16,7 +16,7 @@ use swss_common::{FieldValues, Table};
 use tracing::field::Field;
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
-    const TIMEOUT: Duration = Duration::from_millis(1000);
+    const TIMEOUT: Duration = Duration::from_millis(5000);
     tokio::time::timeout(TIMEOUT, fut).await
 }
 
@@ -204,15 +204,18 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
             }
 
             ChkDb {
-                db,
-                table,
+                db: db_name,
+                table: table_name,
                 key,
                 data,
                 exclude,
             } => {
-                let db = crate::db_named(db).await.unwrap();
-                let mut table = Table::new(db, table).unwrap();
-                let mut actual_data = table.get_async(key).await.unwrap().unwrap();
+                let db = crate::db_named(db_name).await.unwrap();
+                let mut table = Table::new(db, table_name).unwrap();
+                let mut actual_data = table.get_async(key).await.unwrap();
+                let Some(mut actual_data) = actual_data else {
+                    panic!("Key {} not found in {}/{}", key, table_name, db_name);
+                };
                 let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
 
                 exclude
@@ -420,4 +423,126 @@ pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, DashHaSet
         preferred_standalone_vdpu_index: Some(0),
     };
     (format!("haset{switch_pair_id}-{dpu}"), ha_set)
+}
+
+pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTable) {
+    let switch_pair_id = switch / 2;
+    let (_, haset_cfg) = make_dpu_scope_ha_set_config(switch, dpu);
+    let global_cfg = make_dash_ha_global_config();
+    let ha_set = DashHaSetTable {
+        version: "1".to_string(),
+        vip_v4: haset_cfg.vip_v4,
+        vip_v6: haset_cfg.vip_v6,
+        owner: haset_cfg.owner,
+        scope: haset_cfg.scope,
+        local_npu_ip: format!("10.0.{switch}.{dpu}"),
+        local_ip: format!("18.0.{switch}.{dpu}"),
+        peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),
+        cp_data_channel_port: global_cfg.cp_data_channel_port,
+        dp_channel_dst_port: global_cfg.dp_channel_dst_port,
+        dp_channel_src_port_min: global_cfg.dp_channel_src_port_min,
+        dp_channel_src_port_max: global_cfg.dp_channel_src_port_max,
+        dp_channel_probe_interval_ms: global_cfg.dp_channel_probe_interval_ms,
+        dp_channel_probe_fail_threshold: global_cfg.dp_channel_probe_fail_threshold,
+    };
+    (format!("haset{switch_pair_id}-{dpu}"), ha_set)
+}
+
+pub fn make_npu_ha_scope_state(vdpu_state_obj: &VDpuActorState, ha_set_obj: &DashHaSetTable) -> NpuDashHaScopeState {
+    let mut scope_state = NpuDashHaScopeState::default();
+
+    let pmon_state = match vdpu_state_obj.dpu.dpu_pmon_state {
+        Some(ref state) => state.clone(),
+        None => DpuState::default(),
+    };
+    let bfd_state = match vdpu_state_obj.dpu.dpu_bfd_state {
+        Some(ref state) => state.clone(),
+        None => DashBfdProbeState::default(),
+    };
+
+    scope_state.vip_v4 = ha_set_obj.vip_v4.clone();
+    scope_state.vip_v6 = ha_set_obj.vip_v6.clone();
+    scope_state.local_ip = ha_set_obj.local_ip.clone();
+    scope_state.peer_ip = ha_set_obj.peer_ip.clone();
+    scope_state.local_vdpu_midplane_state = pmon_state.dpu_midplane_link_state.clone();
+    scope_state.local_vdpu_midplane_state_last_updated_time_in_ms = pmon_state.dpu_midplane_link_time;
+    scope_state.local_vdpu_control_plane_state = pmon_state.dpu_control_plane_state.clone();
+    scope_state.local_vdpu_control_plane_state_last_updated_time_in_ms = pmon_state.dpu_control_plane_time;
+    scope_state.local_vdpu_data_plane_state = pmon_state.dpu_data_plane_state.clone();
+    scope_state.local_vdpu_data_plane_state_last_updated_time_in_ms = pmon_state.dpu_data_plane_time;
+    scope_state.local_vdpu_up_bfd_sessions_v4 = bfd_state.v4_bfd_up_sessions.clone();
+    scope_state.local_vdpu_up_bfd_sessions_v4_update_time_in_ms = bfd_state.v4_bfd_up_sessions_timestamp;
+    scope_state.local_vdpu_up_bfd_sessions_v6 = bfd_state.v6_bfd_up_sessions.clone();
+    scope_state.local_vdpu_up_bfd_sessions_v6_update_time_in_ms = bfd_state.v6_bfd_up_sessions_timestamp;
+
+    scope_state
+}
+
+pub fn update_npu_ha_scope_state_by_vdpu(
+    npu_ha_scope_state: &mut NpuDashHaScopeState,
+    vdpu_state_obj: &VDpuActorState,
+) {
+    let pmon_state = match vdpu_state_obj.dpu.dpu_pmon_state {
+        Some(ref state) => state.clone(),
+        None => DpuState::default(),
+    };
+    let bfd_state = match vdpu_state_obj.dpu.dpu_bfd_state {
+        Some(ref state) => state.clone(),
+        None => DashBfdProbeState::default(),
+    };
+
+    npu_ha_scope_state.local_vdpu_midplane_state = pmon_state.dpu_midplane_link_state.clone();
+    npu_ha_scope_state.local_vdpu_midplane_state_last_updated_time_in_ms = pmon_state.dpu_midplane_link_time;
+    npu_ha_scope_state.local_vdpu_control_plane_state = pmon_state.dpu_control_plane_state.clone();
+    npu_ha_scope_state.local_vdpu_control_plane_state_last_updated_time_in_ms = pmon_state.dpu_control_plane_time;
+    npu_ha_scope_state.local_vdpu_data_plane_state = pmon_state.dpu_data_plane_state.clone();
+    npu_ha_scope_state.local_vdpu_data_plane_state_last_updated_time_in_ms = pmon_state.dpu_data_plane_time;
+    npu_ha_scope_state.local_vdpu_up_bfd_sessions_v4 = bfd_state.v4_bfd_up_sessions.clone();
+    npu_ha_scope_state.local_vdpu_up_bfd_sessions_v4_update_time_in_ms = bfd_state.v4_bfd_up_sessions_timestamp;
+    npu_ha_scope_state.local_vdpu_up_bfd_sessions_v6 = bfd_state.v6_bfd_up_sessions.clone();
+    npu_ha_scope_state.local_vdpu_up_bfd_sessions_v6_update_time_in_ms = bfd_state.v6_bfd_up_sessions_timestamp;
+}
+
+pub fn update_npu_ha_scope_state_by_dpu_scope_state(
+    npu_ha_scope_state: &mut NpuDashHaScopeState,
+    dpu_ha_scope_state: &DpuDashHaScopeState,
+    target_ha_state: &str,
+) {
+    npu_ha_scope_state.local_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
+    npu_ha_scope_state.local_ha_state_last_updated_time_in_ms = Some(dpu_ha_scope_state.ha_role_start_time);
+    npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
+    npu_ha_scope_state.local_target_asic_ha_state = Some(target_ha_state.to_string());
+    npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
+    npu_ha_scope_state.local_target_term = Some(dpu_ha_scope_state.ha_term.clone());
+    npu_ha_scope_state.local_acked_term = Some(dpu_ha_scope_state.ha_term.clone());
+}
+
+pub fn update_npu_ha_scope_state_pending_ops(
+    npu_ha_scope_state: &mut NpuDashHaScopeState,
+    pending_ops: Vec<(String, String)>,
+) {
+    let mut pending_operation_ids = vec![];
+    let mut pending_operation_types = vec![];
+    for (op_id, op_type) in pending_ops {
+        pending_operation_ids.push(op_id);
+        pending_operation_types.push(op_type);
+    }
+    npu_ha_scope_state.pending_operation_ids = Some(pending_operation_ids);
+    npu_ha_scope_state.pending_operation_types = Some(pending_operation_types);
+    npu_ha_scope_state.pending_operation_list_last_updated_time_in_ms = Some(now_in_millis());
+}
+
+pub fn make_dpu_ha_scope_state(role: &str) -> DpuDashHaScopeState {
+    DpuDashHaScopeState {
+        last_updated_time: now_in_millis(),
+        // The current HA role confirmed by ASIC. Please refer to the HA states defined in HA HLD.
+        ha_role: role.to_string(),
+        // The time when HA role is moved into current one in milliseconds.
+        ha_role_start_time: now_in_millis(),
+        // The current term confirmed by ASIC.
+        ha_term: "1".to_string(),
+        activate_role_pending: false,
+        flow_reconcile_pending: false,
+        brainsplit_recover_pending: false,
+    }
 }

@@ -795,6 +795,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "sonic-common",
+ "sonicdb-derive",
  "swbus-actor",
  "swbus-config",
  "swbus-edge",
@@ -804,6 +805,7 @@ dependencies = [
  "swss-serde",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

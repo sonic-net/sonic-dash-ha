@@ -34,26 +34,6 @@ pub struct DpuActorState {
     pub dpu_bfd_state: Option<DashBfdProbeState>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
-pub struct DpuBfdState {
-    pub v4_bfd_up_sessions: Vec<String>,
-    pub v4_bfd_up_sessions_time_in_ms: i64,
-    pub v6_bfd_up_sessions: Vec<String>,
-    pub v6_bfd_up_sessions_time_in_ms: i64,
-}
-
-impl Default for DpuBfdState {
-    fn default() -> Self {
-        let now = Utc::now().timestamp_millis();
-        Self {
-            v4_bfd_up_sessions: Vec::new(),
-            v4_bfd_up_sessions_time_in_ms: now,
-            v6_bfd_up_sessions: Vec::new(),
-            v6_bfd_up_sessions_time_in_ms: now,
-        }
-    }
-}
-
 impl DpuActorState {
     pub fn from_dpu(
         dpu_name: &str,
@@ -201,7 +181,7 @@ impl ActorRegistration {
         match reg_type {
             RegistrationType::DPUState => "DPUStateRegister|",
             RegistrationType::VDPUState => "VDPUStateRegister|",
-            RegistrationType::HaSetActorState => "HaSetStateRegister|",
+            RegistrationType::HaSetState => "HaSetStateRegister|",
         }
     }
 
