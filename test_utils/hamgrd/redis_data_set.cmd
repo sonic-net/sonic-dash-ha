@@ -82,6 +82,3 @@ HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 version "1"
 HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 disable "true"
 HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 desired_ha_state "active"
 HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 approved_pending_operation_ids ""
-
-#select 4
-#HSET DASH_BFD_PROBE_STATE|dpu0 v4_bfd_up_sessions "10.1.0.32"
