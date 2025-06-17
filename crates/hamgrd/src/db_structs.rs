@@ -207,7 +207,8 @@ pub fn now_in_millis() -> i64 {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2121-ha-set-configurations>
 #[serde_as]
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SET_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct DashHaSetConfigTable {
     pub version: String,
     pub vip_v4: String,
@@ -226,7 +227,8 @@ pub struct DashHaSetConfigTable {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SET_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
 pub struct DashHaSetTable {
     // Config version.
     pub version: String,
@@ -261,7 +263,8 @@ pub struct DashHaSetTable {
 /// https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "VNET_ROUTE_TUNNEL_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct VnetRouteTunnelTable {
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
     pub endpoint: Vec<String>,
