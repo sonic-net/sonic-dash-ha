@@ -12,7 +12,6 @@ use swss_serde::from_table;
 const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
-#[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, Debug, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_GLOBAL_CONFIG", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct DashHaGlobalConfig {

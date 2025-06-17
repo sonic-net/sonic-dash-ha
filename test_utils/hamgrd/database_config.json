@@ -1,0 +1,42 @@
+{
+    "INSTANCES": {
+        "redis": {
+            "hostname": "127.0.0.1",
+            "port": 6379,
+            "unix_socket_path": "/var/run/redis/redis.sock",
+            "persistence_for_warm_boot": "yes"
+        }
+    },
+    "DATABASES": {
+        "APPL_DB": {
+            "id": 0,
+            "separator": ":",
+            "instance": "redis"
+        },
+        "CONFIG_DB": {
+            "id": 1,
+            "separator": "|",
+            "instance": "redis"
+        },
+        "STATE_DB": {
+            "id": 2,
+            "separator": "|",
+            "instance": "redis"
+        },
+        "CHASSIS_STATE_DB": {
+            "id": 3,
+            "separator": "|",
+            "instance": "redis"
+        },
+        "DPU_STATE_DB": {
+            "id": 4,
+            "separator": "|",
+            "instance": "redis"
+        },
+        "DPU_APPL_DB": {
+            "id": 5,
+            "separator": "|",
+            "instance": "redis"
+        }        
+    }
+}

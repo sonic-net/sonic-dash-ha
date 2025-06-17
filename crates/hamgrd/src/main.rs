@@ -15,10 +15,10 @@ mod ha_actor_messages;
 use actors::spawn_zmq_producer_bridge;
 use actors::{dpu::DpuActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::Dpu;
+use db_structs::{DashHaSetConfigTable, Dpu, VDpu};
 use std::any::Any;
-
 use crate::actors::ha_scope::HaScopeActor;
+use crate::db_structs::BfdSessionTable;
 
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
@@ -94,8 +94,7 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 
     // Spawn BFD_SESSION_TABLE zmq producer bridge for DPU actor
     // has service path swss-common-bridge/BFD_SESSION_TABLE.
-    let handle =
-        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "BFD_SESSION_TABLE", &zmq_endpoint).await?;
+    let handle = spawn_zmq_producer_bridge::<BfdSessionTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
     // Spawn DASH_HA_SET_TABLE zmq producer bridge for ha-set actor
@@ -122,8 +121,8 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 // The creator will create the actor when it receives the first message to the actor.
 async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
+    VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?;
+    HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?;
     HaScopeActor::start_actor_creator(edge_runtime.clone()).await?;
     Ok(())
 }
@@ -187,4 +186,14 @@ impl RuntimeData {
     pub fn npu_ipv6(&self) -> Option<Ipv6Addr> {
         self.npu_ipv6
     }
+}
+
+pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
+where
+    T: swss_common::SonicDbTable + 'static,
+{
+    let mut new_sp = runtime.get_base_sp();
+    new_sp.resource_type = "swss-common-bridge".into();
+    new_sp.resource_id = format!("{}/{}", T::db_name(), T::table_name());
+    new_sp
 }

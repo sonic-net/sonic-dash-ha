@@ -9,7 +9,7 @@ use std::sync::Arc;
 use swbus_actor::Context;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
+use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
 use swss_common_bridge::consumer::spawn_consumer_bridge;
 use tracing::error;
 
@@ -30,7 +30,7 @@ impl DbBasedActor for VDpuActor {
     }
 
     fn table_name() -> &'static str {
-        "VDPU"
+        VDpu::table_name()
     }
 
     fn name() -> &'static str {
@@ -161,8 +161,8 @@ impl Actor for VDpuActor {
 
 #[cfg(test)]
 mod test {
+    use crate::db_structs::VDpu;
     use crate::ha_actor_messages::{ActorRegistration, RegistrationType};
-
     use crate::{
         actors::{
             dpu::DpuActor,
@@ -174,6 +174,7 @@ mod test {
         ha_actor_messages::*,
     };
     use std::time::Duration;
+    use swss_common::SonicDbTable;
 
     #[tokio::test]
     async fn vdpu_actor() {
@@ -192,26 +193,34 @@ mod test {
         #[rustfmt::skip]
         let commands = [
             // Receiving DPU config-db object from swss-common bridge
-            send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Set", "field_values": {"main_dpu_ids": "switch1_dpu0" }}, addr: runtime.sp("swss-common-bridge", VDpuActor::table_name()) },
-            recv! { key: ActorRegistration::msg_key(RegistrationType::DPUState, "test-vdpu"), data: { "active": true }, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
+            send! { key: VDpu::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Set", "field_values": {"main_dpu_ids": "switch1_dpu0" }},
+                    addr: crate::common_bridge_sp::<VDpu>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::DPUState, "test-vdpu"), data: { "active": true },
+                    addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
 
             // receive VDPU state registration
-            send! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, "test-ha-set"), data: { "active": true}, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            send! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, "test-ha-set"), data: { "active": true},
+                    addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             // receive DPU state update
             send! { key: DpuActorState::msg_key("switch1_dpu0"), data: dpu_actor_up_state, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": true, "dpu": dpu_actor_up_state }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": true, "dpu": dpu_actor_up_state },
+                    addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             // receive DPU down update
             send! { key: DpuActorState::msg_key("switch1_dpu0"), data: dpu_actor_down_state, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpu": dpu_actor_down_state }, addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
+            recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpu": dpu_actor_down_state },
+                    addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
 
             // receive ha-role-activation
-            send! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp("ha-scope", "test-vdpu|scope1") },
-            recv! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
+            send! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"},
+                    addr: runtime.sp("ha-scope", "test-vdpu|scope1") },
+            recv! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"},
+                    addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
 
-            send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "switch1_dpu0"}}, addr: runtime.sp("swss-common-bridge", VDpuActor::table_name()) },
-            
+            send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "switch1_dpu0"}},
+                    addr: crate::common_bridge_sp::<VDpu>(&runtime.get_swbus_edge()) },
+
         ];
 
         test::run_commands(&runtime, runtime.sp(VDpuActor::name(), "test-vdpu"), &commands).await;
