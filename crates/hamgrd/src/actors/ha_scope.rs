@@ -370,7 +370,7 @@ impl HaScopeActor {
         let (internal, incoming, outgoing) = state.get_all();
 
         let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
-            error!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
+            info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
             return Ok(());
         };
 
@@ -472,6 +472,9 @@ impl HaScopeActor {
 
         // update the DASH_HA_SCOPE_TABLE in DPU
         self.update_dpu_ha_scope_table(state)?;
+
+        // update the NPU DASH_HA_SCOPE_STATE because some fields are derived from dash_ha_scope_config
+        self.update_npu_ha_scope_state_ha_state(state)?;
 
         // need to update operation list if approved_pending_operation_ids is not empty
         let approved_pending_operation_ids = match self
@@ -814,6 +817,9 @@ mod test {
         test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
 
         // execute planned shutdown
+        let mut npu_ha_scope_state7 = npu_ha_scope_state6.clone();
+        npu_ha_scope_state7.local_target_asic_ha_state = Some("dead".to_string());
+        let npu_ha_scope_state_fvs7 = to_field_values(&npu_ha_scope_state7).unwrap();
         #[rustfmt::skip]
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with desired_ha_state = dead
@@ -823,6 +829,11 @@ mod test {
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
             // Recv role activated notification to vdpu
             recv! { key: HaRoleActivated::msg_key(&scope_id), data: { "role": "dead" }, addr: runtime.sp("vdpu", &vdpu0_id) },
+
+            // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
+            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,
+                    exclude: "pending_operation_list_last_updated_time_in_ms" },
+
             // simulate delete of ha-scope entry
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Del",
                     "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }},

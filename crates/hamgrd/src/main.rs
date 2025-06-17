@@ -187,6 +187,6 @@ where
 {
     let mut new_sp = runtime.get_base_sp();
     new_sp.resource_type = "swss-common-bridge".into();
-    new_sp.resource_id = format!("{}/{}", T::db_name(), T::table_name());
+    new_sp.resource_id = format!("{}|{}", T::db_name(), T::table_name());
     new_sp
 }

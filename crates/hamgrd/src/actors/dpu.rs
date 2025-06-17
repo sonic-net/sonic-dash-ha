@@ -338,7 +338,12 @@ impl DpuActor {
         let fv = swss_serde::to_field_values(&bfd_session)?;
         let oper = if shutdown { KeyOperation::Del } else { KeyOperation::Set };
         let kfv = KeyOpFieldValues {
-            key: format!("default|default|{}", peer_ip),
+            key: format!(
+                "default{}default{}{}",
+                BfdSessionTable::key_separator(),
+                BfdSessionTable::key_separator(),
+                peer_ip
+            ),
             operation: oper,
             field_values: fv,
         };
@@ -573,14 +578,14 @@ mod test {
             send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
 
             send! { key: format!("{}vpdu1|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"}, addr: runtime.sp("ha-scope", "vpdu1|scope1") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             send! { key: "REMOTE_DPU|switch3_dpu0", data: { "key": "REMOTE_DPU|switch3_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu3_fvs).unwrap()}},
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             send! { key: DashBfdProbeState::table_name(), data: { "key": "", "operation": "Set", "field_values":serde_json::to_value(to_field_values(&dpu_bfd_up_state).unwrap()).unwrap()} },
@@ -598,13 +603,13 @@ mod test {
 
             // Simulate transition to dead state
             send! { key: format!("{}vpdu1|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "dead"}, addr: runtime.sp("ha-scope", "vpdu1|scope1") },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Del", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Del", "field_values": bfd_fvs},
                 addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Del", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Del", "field_values": bfd_fvs},
                 addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Del", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Del", "field_values": bfd_fvs},
                 addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Del", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Del", "field_values": bfd_fvs},
                 addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             // simulate delete of Dpu entry
             send! { key: Dpu::table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs},
