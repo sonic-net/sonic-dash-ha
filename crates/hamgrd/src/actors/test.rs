@@ -290,8 +290,8 @@ pub fn make_dpu_object(switch: u16, dpu: u32) -> Dpu {
 
 pub fn make_remote_dpu_object(switch: u16, dpu: u32) -> RemoteDpu {
     RemoteDpu {
-        pa_ipv4: format!("4.0.{switch}.{dpu}"),
-        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
+        pa_ipv4: format!("18.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("18:0:{switch}::{dpu}"))),
         dpu_id: dpu,
         swbus_port: 23606 + dpu as u16,
         npu_ipv4: format!("10.0.{switch}.{dpu}"),
