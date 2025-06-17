@@ -35,8 +35,8 @@
         },
         "DPU_APPL_DB": {
             "id": 5,
-            "separator": "|",
+            "separator": ":",
             "instance": "redis"
-        }        
+        }
     }
 }
