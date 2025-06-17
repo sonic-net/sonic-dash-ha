@@ -1,9 +1,8 @@
-use crate::actors::dpu;
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use crate::RuntimeData;
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::{collections::HashMap, future::Future, time::Duration};
 use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
@@ -13,7 +12,6 @@ use swbus_edge::{
     SwbusEdgeRuntime,
 };
 use swss_common::{FieldValues, Table};
-use tracing::field::Field;
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
     const TIMEOUT: Duration = Duration::from_millis(5000);
@@ -212,8 +210,9 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
             } => {
                 let db = crate::db_named(db_name).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
+
                 let mut actual_data = table.get_async(key).await.unwrap();
-                let Some(mut actual_data) = actual_data else {
+                let Some(actual_data) = actual_data.as_mut() else {
                     panic!("Key {} not found in {}/{}", key, table_name, db_name);
                 };
                 let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
@@ -226,7 +225,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                         fvs.remove(id);
                         actual_data.remove(id);
                     });
-                assert_eq!(actual_data, fvs);
+                assert_eq!(actual_data, &fvs);
             }
         }
     }
@@ -364,20 +363,6 @@ pub fn to_local_dpu(dpu_actor_state: &DpuActorState) -> Dpu {
         orchagent_zmq_port: dpu_actor_state.orchagent_zmq_port,
         swbus_port: dpu_actor_state.swbus_port,
         midplane_ipv4: dpu_actor_state.midplane_ipv4.as_ref().unwrap().clone(),
-    }
-}
-
-pub fn to_remote_dpu(dpu_actor_state: &DpuActorState) -> RemoteDpu {
-    if dpu_actor_state.remote_dpu {
-        panic!("Cannot convert remote DPU to local DPU");
-    }
-    RemoteDpu {
-        pa_ipv4: dpu_actor_state.pa_ipv4.clone(),
-        pa_ipv6: dpu_actor_state.pa_ipv6.clone(),
-        dpu_id: dpu_actor_state.dpu_id,
-        swbus_port: dpu_actor_state.swbus_port,
-        npu_ipv4: dpu_actor_state.npu_ipv4.clone(),
-        npu_ipv6: dpu_actor_state.npu_ipv6.clone(),
     }
 }
 

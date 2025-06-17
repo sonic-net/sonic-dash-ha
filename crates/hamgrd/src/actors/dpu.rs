@@ -1,12 +1,10 @@
-use crate::actors::{spawn_consumer_bridge_for_actor, spawn_zmq_producer_bridge, ActorCreator};
+use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
     BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuState, RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, HaRoleActivated, RegistrationType};
 use crate::ServicePath;
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
-use serde_with::{formats::CommaSeparator, serde_as, StringWithSeparator};
 use std::collections::HashSet;
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
@@ -140,7 +138,6 @@ impl DpuActor {
         let npu_ipv6: Option<String> = crate::get_npu_ipv6(context.get_edge_runtime()).map(|ip| ip.to_string());
         let dpu_id = dpu.dpu_id;
         let is_managed = dpu.dpu_id == crate::get_slot_id(context.get_edge_runtime());
-        let zmq_endpoint = format!("{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
 
         let first_time = self.dpu.is_none();
         self.dpu = Some(DpuData::LocalDpu {
@@ -263,7 +260,6 @@ impl DpuActor {
         outgoing: &mut Outgoing,
         target_actor: Option<ServicePath>,
     ) -> Result<()> {
-        let mut up = false;
         let Some(ref dpu_data) = self.dpu else {
             return Ok(());
         };
@@ -433,7 +429,7 @@ impl DpuActor {
         }
     }
 
-    fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str) -> Result<()> {
+    fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
         let incoming = state.incoming();
         if incoming.get_by_prefix(HaRoleActivated::msg_key_prefix()).is_empty() {
             // HA role is not activated. Do not create BFD sessions
@@ -451,7 +447,7 @@ impl DpuActor {
     }
 
     fn handle_ha_role_activation(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
+        let (_internal, incoming, _outgoing) = state.get_all();
         let ha_role: HaRoleActivated = incoming.get(key)?.deserialize_data()?;
         debug!("Received HA role activation: {}", ha_role.role);
 
@@ -489,7 +485,7 @@ impl Actor for DpuActor {
         if !self.is_local_managed() {
             return Ok(());
         } else if key == DashHaGlobalConfig::table_name() {
-            return self.handle_dash_ha_global_config(state, key);
+            return self.handle_dash_ha_global_config(state);
         } else if key == DpuState::table_name() || key == DashBfdProbeState::table_name() {
             return self.update_dpu_state(incoming, outgoing, None);
         } else if HaRoleActivated::is_my_msg(key) {

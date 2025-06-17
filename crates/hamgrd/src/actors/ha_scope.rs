@@ -1,22 +1,16 @@
-use crate::actors::{ha_set, spawn_consumer_bridge_for_actor, ActorCreator, DbBasedActor};
+use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaRoleActivated, HaSetActorState, RegistrationType, VDpuActorState};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::SystemTime;
-use swbus_actor::state::internal::{self, Internal};
-use swbus_actor::state::{self, incoming};
-use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
-use swbus_edge::SwbusEdgeRuntime;
-use swss_common::Table;
-use swss_common::{
-    KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable, ZmqClient, ZmqProducerStateTable,
+use swbus_actor::{
+    state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
+    Actor, ActorMessage, Context, State,
 };
-use swss_common_bridge::{consumer::spawn_consumer_bridge, consumer::ConsumerBridge, producer::spawn_producer_bridge};
-use tokio::time::error::Elapsed;
+use swss_common::Table;
+use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
@@ -46,10 +40,6 @@ impl DbBasedActor for HaScopeActor {
         }
     }
 
-    fn db_name() -> &'static str {
-        DashHaScopeConfigTable::db_name()
-    }
-
     fn table_name() -> &'static str {
         DashHaScopeConfigTable::table_name()
     }
@@ -76,10 +66,6 @@ impl HaScopeActor {
             return None;
         };
         msg.deserialize_data().ok()
-    }
-
-    fn get_dash_ha_scope_config(&self) -> Option<&DashHaScopeConfigTable> {
-        self.dash_ha_scope_config.as_ref()
     }
 
     fn get_dpu_ha_scope_state(&self, incoming: &Incoming) -> Option<DpuDashHaScopeState> {
@@ -172,7 +158,7 @@ impl HaScopeActor {
 // Implements internal action functions for HaScopeActor
 impl HaScopeActor {
     fn register_to_vdpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
-        let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
+        if self.dash_ha_scope_config.is_none() {
             return Ok(());
         };
 
@@ -182,7 +168,7 @@ impl HaScopeActor {
     }
 
     fn register_to_haset_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
-        let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
+        if self.dash_ha_scope_config.is_none() {
             return Ok(());
         };
 
@@ -195,7 +181,7 @@ impl HaScopeActor {
         let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
         };
-        let (internal, incoming, outgoing) = state.get_all();
+        let (internal, _incoming, outgoing) = state.get_all();
 
         let mut activate_role_requested = false;
         let mut flow_reconcile_requested = false;
@@ -250,11 +236,11 @@ impl HaScopeActor {
     }
 
     fn update_npu_ha_scope_state_base(&self, state: &mut State) -> Result<()> {
-        let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
+        if self.dash_ha_scope_config.is_none() {
             return Ok(());
         };
 
-        let (internal, incoming, outgoing) = state.get_all();
+        let (internal, incoming, _outgoing) = state.get_all();
 
         let Some(vdpu) = self.get_vdpu(incoming) else {
             debug!(
@@ -326,7 +312,7 @@ impl HaScopeActor {
             "Update pending operation list from DPU. New operations: {:?}, Approved operations: {:?}",
             new_operations, approved_operations
         );
-        let (internal, incoming, outgoing) = state.get_all();
+        let internal = state.internal();
 
         let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
             error!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
@@ -367,7 +353,7 @@ impl HaScopeActor {
         let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
             return Ok(());
         };
-        let (internal, incoming, outgoing) = state.get_all();
+        let (internal, incoming, _outgoing) = state.get_all();
 
         let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
             info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
@@ -404,9 +390,7 @@ impl HaScopeActor {
     }
 
     fn notify_vdpu_role_activated(&self, incoming: &Incoming, outgoing: &mut Outgoing, ha_role: &str) -> Result<()> {
-        //let (internal, incoming, outgoing) = state.get_all();
-
-        let Some(vdpu) = self.get_vdpu(incoming) else {
+        if self.get_vdpu(incoming).is_none() {
             debug!(
                 "vDPU {} has not been received. Skip role activated notification",
                 &self.vdpu_id
@@ -433,7 +417,7 @@ impl HaScopeActor {
         key: &str,
         context: &mut Context,
     ) -> Result<()> {
-        let (internal, incoming, outgoing) = state.get_all();
+        let (_internal, incoming, outgoing) = state.get_all();
 
         // Retrieve the config update from the incoming message
         let kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
@@ -496,7 +480,7 @@ impl HaScopeActor {
     /// Handles VDPU state update messages for this HA scope.
     /// If the vdpu is unmanaged, the actor is put in dormant state. Otherwise, the actor subscribes to the
     /// DASH_HA_SCOPE_STATE table and updates the NPU HA scope state.
-    async fn handle_vdpu_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+    async fn handle_vdpu_state_update(&mut self, state: &mut State, context: &mut Context) -> Result<()> {
         let (internal, incoming, _outgoing) = state.get_all();
         let Some(vdpu) = self.get_vdpu(incoming) else {
             error!("Failed to retrieve vDPU {} from incoming state", &self.vdpu_id);
@@ -542,7 +526,7 @@ impl HaScopeActor {
 
     /// Handles HaSet state update messages for this HA scope.
     /// Update NPU DASH_HA_SCOPE_STATE
-    fn handle_haset_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+    fn handle_haset_state_update(&mut self, state: &mut State) -> Result<()> {
         self.update_npu_ha_scope_state_base(state)?;
         Ok(())
     }
@@ -550,7 +534,7 @@ impl HaScopeActor {
     /// Handles DPU DASH_HA_SCOPE_STATE update messages for this HA scope.
     /// Update NPU DASH_HA_SCOPE_STATE ha_state related fields
     /// Update NPU DASH_HA_SCOPE_STATE pending operation list if there are new operations requested by DPU
-    fn handle_dpu_ha_scope_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+    fn handle_dpu_ha_scope_state_update(&mut self, state: &mut State) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
         // calculate operation requested by dpu
         let Some(new_dpu_ha_scope_state) = self.get_dpu_ha_scope_state(incoming) else {
@@ -581,7 +565,7 @@ impl HaScopeActor {
                 "active" | "standby" | "standalone" => {
                     self.notify_vdpu_role_activated(incoming, outgoing, &new_dpu_ha_scope_state.ha_role)?;
                 }
-                other => {
+                _ => {
                     // do nothing
                 }
             }
@@ -613,14 +597,14 @@ impl Actor for HaScopeActor {
         }
 
         if VDpuActorState::is_my_msg(key) {
-            return self.handle_vdpu_state_update(state, key, context).await;
+            return self.handle_vdpu_state_update(state, context).await;
         }
         if HaSetActorState::is_my_msg(key) {
-            return self.handle_haset_state_update(state, key, context);
+            return self.handle_haset_state_update(state);
         }
         if key.starts_with(DpuDashHaScopeState::table_name()) {
             // dpu ha scope state update
-            return self.handle_dpu_ha_scope_state_update(state, key, context);
+            return self.handle_dpu_ha_scope_state_update(state);
         }
 
         Ok(())
@@ -632,19 +616,18 @@ mod test {
     use crate::{
         actors::{
             ha_scope::HaScopeActor,
-            ha_set::{self, HaSetActor},
+            ha_set::HaSetActor,
             test::{self, *},
-            vdpu::{self, VDpuActor},
+            vdpu::VDpuActor,
             DbBasedActor,
         },
         db_structs::{
             now_in_millis, DashHaScopeConfigTable, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState,
-            VnetRouteTunnelTable,
         },
         ha_actor_messages::*,
     };
     use std::time::Duration;
-    use swss_common::{DbConnector, SonicDbTable, Table};
+    use swss_common::{SonicDbTable, Table};
     use swss_common_testing::*;
     use swss_serde::to_field_values;
 
@@ -652,7 +635,7 @@ mod test {
     async fn ha_scope_planned_up_then_down() {
         // To enable trace, set ENABLE_TRACE=1 to run test
         sonic_common::log::init_logger_for_test();
-        let redis = Redis::start_config_db();
+        let _redis = Redis::start_config_db();
         let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
 
         // prepare test data
@@ -684,7 +667,6 @@ mod test {
         );
         let npu_ha_scope_state_fvs3 = to_field_values(&npu_ha_scope_state3).unwrap();
 
-        let vdpu_id = "vdpu0-0";
         let scope_id = format!("{}:{}", vdpu0_id, ha_set_id);
         let scope_id_in_state = format!("{}|{}", vdpu0_id, ha_set_id);
         let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
@@ -756,7 +738,7 @@ mod test {
         // get GUID from DASH_HA_SCOPE_STATE pending_operation_ids
         let db = crate::db_named(NpuDashHaScopeState::db_name()).await.unwrap();
         let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
-        let mut npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+        let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
         let op_id = npu_ha_scope_state.pending_operation_ids.unwrap().pop().unwrap();
 
         // continue the test to activate the role
