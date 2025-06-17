@@ -244,10 +244,7 @@ impl HaScopeActor {
         };
 
         let msg = ActorMessage::new(self.ha_scope_id.clone(), &kfv)?;
-        outgoing.send(
-            outgoing.from_my_sp("swss-common-bridge", &DashHaScopeTable::bridge_id()),
-            msg,
-        );
+        outgoing.send(outgoing.common_bridge_sp::<DashHaScopeTable>(), msg);
 
         Ok(())
     }
@@ -525,10 +522,8 @@ impl HaScopeActor {
         if self.bridges.is_empty() {
             // subscribe to dpu DASH_HA_SCOPE_STATE
             self.bridges.push(
-                spawn_consumer_bridge_for_actor(
+                spawn_consumer_bridge_for_actor::<DpuDashHaScopeState>(
                     context.get_edge_runtime().clone(),
-                    "DPU_STATE_DB",
-                    DpuDashHaScopeState::table_name(),
                     Self::name(),
                     Some(&self.id),
                     true,
@@ -602,7 +597,6 @@ impl HaScopeActor {
 
 impl Actor for HaScopeActor {
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        println!("Received message {key}");
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_scope_config_table_message(state, key, context) {
                 let err = format!("handle_dash_ha_scope_config_table_message failed: {e}");
@@ -700,7 +694,7 @@ mod test {
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
                     "field_values": {"version": "1", "disable": "true", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
                     },
-                    addr: runtime.sp("swss-common-bridge", &DashHaScopeConfigTable::bridge_id()) },
+                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
             // Recv registration to vDPU and ha-set
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
@@ -715,7 +709,8 @@ mod test {
             // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role = active
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
                     "field_values": {"version": "1", "ha_role": "active", "disable": "true",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
-                    }, addr: runtime.sp("swss-common-bridge", &DashHaScopeTable::bridge_id()) },
+                    },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state
             chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs1 },
@@ -732,12 +727,13 @@ mod test {
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
                     "field_values": {"version": "2", "disable": "false", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
                     },
-                    addr: runtime.sp("swss-common-bridge", &DashHaScopeConfigTable::bridge_id())},
+                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with disabled = false
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
                     "field_values": {"version": "2", "ha_role": "active", "disable": "false",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
-                    }, addr: runtime.sp("swss-common-bridge", &DashHaScopeTable::bridge_id()) },
+                    },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state
             chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
@@ -784,12 +780,13 @@ mod test {
             send! { key: HaScopeActor::table_name(), data: { "key": &scope_id, "operation": "Set",
                     "field_values": {"version": "3", "disable": "false", "desired_ha_state": "active", "approved_pending_operation_ids": &op_id },
                     },
-                    addr: runtime.sp("swss-common-bridge", &DashHaScopeConfigTable::bridge_id())},
+                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with activate_role_requested=true
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
                     "field_values": {"version": "3", "ha_role": "active", "disable": "false",  "activate_role_requested": "true", "flow_reconcile_requested": "false" },
-                    }, addr: runtime.sp("swss-common-bridge", &DashHaScopeTable::bridge_id()) },
+                    },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with no pending activation
             chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs4,
@@ -823,12 +820,13 @@ mod test {
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
                     "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": "" },
                     },
-                    addr: runtime.sp("swss-common-bridge", &DashHaScopeConfigTable::bridge_id())},
+                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
             // Recv role activated notification to vdpu
             recv! { key: HaRoleActivated::msg_key(&scope_id), data: { "role": "dead" }, addr: runtime.sp("vdpu", &vdpu0_id) },
             // simulate delete of ha-scope entry
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Del",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }}, addr: runtime.sp("swss-common-bridge", &DashHaScopeConfigTable::bridge_id()) },
+                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }},
+                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;

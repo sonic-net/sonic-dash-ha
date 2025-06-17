@@ -13,12 +13,12 @@ mod actors;
 mod db_structs;
 mod ha_actor_messages;
 use actors::spawn_zmq_producer_bridge;
-use actors::{dpu::DpuActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
+use actors::{dpu::DpuActor, ha_scope::HaScopeActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::{DashHaSetConfigTable, Dpu, VDpu};
+use db_structs::{
+    BfdSessionTable, DashHaScopeConfigTable, DashHaScopeTable, DashHaSetConfigTable, DashHaSetTable, Dpu, VDpu,
+};
 use std::any::Any;
-use crate::actors::ha_scope::HaScopeActor;
-use crate::db_structs::BfdSessionTable;
 
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
@@ -99,19 +99,12 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 
     // Spawn DASH_HA_SET_TABLE zmq producer bridge for ha-set actor
     // Has service path swss-common-bridge/DASH_HA_SET_TABLE.
-    let handle =
-        spawn_zmq_producer_bridge(edge_runtime.clone(), "DPU_APPL_DB", "DASH_HA_SET_TABLE", &zmq_endpoint).await?;
+    let handle = spawn_zmq_producer_bridge::<DashHaSetTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
     // Spawn DASH_HA_SCOPE_TABLE zmq producer bridge for ha-set actor
     // Has service path swss-common-bridge/DASH_HA_SCOPE_TABLE.
-    let handle = spawn_zmq_producer_bridge(
-        edge_runtime.clone(),
-        "DPU_APPL_DB",
-        "DASH_HA_SCOPE_TABLE",
-        &zmq_endpoint,
-    )
-    .await?;
+    let handle = spawn_zmq_producer_bridge::<DashHaScopeTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
     Ok(handles)
@@ -123,7 +116,7 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
     VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?;
     HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?;
-    HaScopeActor::start_actor_creator(edge_runtime.clone()).await?;
+    HaScopeActor::start_actor_creator::<DashHaScopeConfigTable>(edge_runtime.clone()).await?;
     Ok(())
 }
 
