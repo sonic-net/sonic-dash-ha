@@ -1,7 +1,7 @@
 use crate::actors::vdpu::VDpuActor;
 use crate::actors::{ha_set, spawn_consumer_bridge_for_actor, ActorCreator, DbBasedActor};
 use crate::db_structs::*;
-use crate::ha_actor_messages::{ActorRegistration, RegistrationType, VDpuActorState};
+use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -59,19 +59,18 @@ impl HaSetActor {
         Ok(global_cfg)
     }
 
-    fn update_dash_ha_set_table(
+    fn prepare_dash_ha_set_table_data(
         &self,
         vdpus: &[VDpuStateExt],
         incoming: &Incoming,
-        outgoing: &mut Outgoing,
-    ) -> Result<()> {
+    ) -> Result<Option<DashHaSetTable>> {
         let Some(dash_ha_set_config) = self.dash_ha_set_config.as_ref() else {
-            return Ok(());
+            return Ok(None);
         };
 
         if !vdpus.iter().any(|vdpu_ext| vdpu_ext.vdpu.dpu.is_managed) {
             debug!("None of DPUs is managed by local HAMGRD. Skip dash_ha_set update");
-            return Ok(());
+            return Ok(None);
         }
 
         // only 2 vdpus are supported at the moment. Skip the rest.
@@ -80,7 +79,7 @@ impl HaSetActor {
             (false, true) => (&vdpus[1].vdpu, &vdpus[0].vdpu),
             (false, false) => {
                 error!("Neither primary nor backup DPU are managed by local HAMGRD. Skip dash-ha-set update");
-                return Ok(());
+                return Ok(None);
             }
         };
 
@@ -102,7 +101,18 @@ impl HaSetActor {
             dp_channel_probe_interval_ms: global_cfg.dp_channel_probe_interval_ms,
             dp_channel_probe_fail_threshold: global_cfg.dp_channel_probe_fail_threshold,
         };
+        Ok(Some(dash_ha_set))
+    }
 
+    fn update_dash_ha_set_table(
+        &self,
+        vdpus: &[VDpuStateExt],
+        incoming: &Incoming,
+        outgoing: &mut Outgoing,
+    ) -> Result<()> {
+        let Some(dash_ha_set) = self.prepare_dash_ha_set_table_data(vdpus, incoming)? else {
+            return Ok(());
+        };
         let fv = swss_serde::to_field_values(&dash_ha_set)?;
         let kfv = KeyOpFieldValues {
             key: self.id.clone(),
@@ -113,6 +123,11 @@ impl HaSetActor {
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
 
+        let msg = HaSetActorState::new_actor_msg(true, &self.id, dash_ha_set).unwrap();
+        let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
+        for actor_sp in peer_actors {
+            outgoing.send(actor_sp, msg.clone());
+        }
         Ok(())
     }
 
@@ -283,12 +298,7 @@ impl HaSetActor {
         Ok(())
     }
 
-    async fn handle_dash_ha_global_config(
-        &mut self,
-        state: &mut State,
-        key: &str,
-        context: &mut Context,
-    ) -> Result<()> {
+    fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (internal, incoming, outgoing) = state.get_all();
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
@@ -299,7 +309,7 @@ impl HaSetActor {
         Ok(())
     }
 
-    async fn handle_vdpu_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+    fn handle_vdpu_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (internal, incoming, outgoing) = state.get_all();
         // vdpu update affects dash-ha-set in DPU and vxlan tunnel
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
@@ -307,6 +317,27 @@ impl HaSetActor {
         };
         self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
         self.update_vnet_route_tunnel_table(&vdpus, incoming, internal)?;
+        Ok(())
+    }
+
+    async fn handle_haset_state_registration(&mut self, state: &mut State, key: &str) -> Result<()> {
+        let (_, incoming, outgoing) = state.get_all();
+
+        let entry = incoming.get_entry(key)?;
+        let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
+        if active {
+            let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
+                return Ok(());
+            };
+            let Some(dash_ha_set) = self.prepare_dash_ha_set_table_data(&vdpus, incoming)? else {
+                return Ok(());
+            };
+
+            let msg = HaSetActorState::new_actor_msg(true, &self.id, dash_ha_set).unwrap();
+            let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
+
+            outgoing.send(entry.source.clone(), msg);
+        }
         Ok(())
     }
 }
@@ -327,9 +358,11 @@ impl Actor for HaSetActor {
         }
 
         if VDpuActorState::is_my_msg(key) {
-            return self.handle_vdpu_state_update(state, key, context).await;
+            return self.handle_vdpu_state_update(state, key, context);
         } else if key == DashHaGlobalConfig::table_name() {
-            return self.handle_dash_ha_global_config(state, key, context).await;
+            return self.handle_dash_ha_global_config(state, key, context);
+        } else if ActorRegistration::is_my_msg(key, RegistrationType::HaSetState) {
+            return self.handle_haset_state_registration(state, key).await;
         }
         Ok(())
     }
@@ -372,22 +405,8 @@ mod test {
         let vdpu0_state = serde_json::to_value(&vdpu0_state_obj).unwrap();
         let vdpu1_state = serde_json::to_value(&vdpu1_state_obj).unwrap();
 
-        let ha_set_obj = serde_json::json!({
-            "version": ha_set_cfg.version,
-            "vip_v4": ha_set_cfg.vip_v4,
-            "vip_v6": ha_set_cfg.vip_v6,
-            "owner": ha_set_cfg.owner,
-            "scope": ha_set_cfg.scope,
-            "local_npu_ip": vdpu0_state_obj.dpu.npu_ipv4,
-            "local_ip": vdpu0_state_obj.dpu.pa_ipv4,
-            "peer_ip": vdpu1_state_obj.dpu.pa_ipv4,
-            "cp_data_channel_port": global_cfg.cp_data_channel_port.unwrap().to_string(),
-            "dp_channel_dst_port": global_cfg.dp_channel_dst_port.unwrap().to_string(),
-            "dp_channel_src_port_min": global_cfg.dp_channel_src_port_min.unwrap().to_string(),
-            "dp_channel_src_port_max": global_cfg.dp_channel_src_port_max.unwrap().to_string(),
-            "dp_channel_probe_interval_ms": global_cfg.dp_channel_probe_interval_ms.unwrap().to_string(),
-            "dp_channel_probe_fail_threshold": global_cfg.dp_channel_probe_fail_threshold.unwrap().to_string(),
-        });
+        let (_, ha_set_obj) = make_dpu_scope_ha_set_obj(0, 0);
+        let ha_set_obj_fvs = serde_json::to_value(swss_serde::to_field_values(&ha_set_obj).unwrap()).unwrap();
 
         let expected_vnet_route = VnetRouteTunnelTable {
             endpoint: vec![
@@ -423,14 +442,20 @@ mod test {
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            // Send registration request from ha-scope actor
+            send! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &format!("vdpu0:{ha_set_id}")), data: { "active": true},
+                    addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
             send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": global_cfg_fvs } },
             // Simulate VDPU state update for vdpu0
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state, addr: runtime.sp("vdpu", &vdpu0_id) },
             // Simulate VDPU state update for vdpu1 (backup)
             send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
             // Verify that the DASH_HA_SET_TABLE was updated
-            recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj},
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            // Verify that haset actor state is sent to ha-scope actor
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj },
+                    addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
             chkdb! { db: "APPL_DB", table: "VNET_ROUTE_TUNNEL_TABLE", key: &format!("default:{}", ha_set_cfg.vip_v4), data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
@@ -443,7 +468,7 @@ mod test {
         }
     }
 
-    // test remote ha-set, when both vdpus are remote
+    // test remote ha-set, when both vdpus are remote. ha-set is responsible to program vnet route to remote dpus
     #[tokio::test]
     async fn remote_ha_set_actor() {
         // To enable trace, set ENABLE_TRACE=1 to run test

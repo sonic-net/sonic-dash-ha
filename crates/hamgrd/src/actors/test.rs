@@ -287,8 +287,8 @@ pub fn make_dpu_object(switch: u16, dpu: u32) -> Dpu {
 
 pub fn make_remote_dpu_object(switch: u16, dpu: u32) -> RemoteDpu {
     RemoteDpu {
-        pa_ipv4: format!("4.0.{switch}.{dpu}"),
-        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
+        pa_ipv4: format!("18.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("18:0:{switch}::{dpu}"))),
         dpu_id: dpu,
         swbus_port: 23606 + dpu as u16,
         npu_ipv4: format!("10.0.{switch}.{dpu}"),
@@ -418,6 +418,29 @@ pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, DashHaSet
         pinned_vdpu_bfd_probe_states: None,
         preferred_vdpu_ids: Some(vec![vdpu0_id]),
         preferred_standalone_vdpu_index: Some(0),
+    };
+    (format!("haset{switch_pair_id}-{dpu}"), ha_set)
+}
+
+pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTable) {
+    let switch_pair_id = switch / 2;
+    let (_, haset_cfg) = make_dpu_scope_ha_set_config(switch, dpu);
+    let global_cfg = make_dash_ha_global_config();
+    let ha_set = DashHaSetTable {
+        version: "1".to_string(),
+        vip_v4: haset_cfg.vip_v4,
+        vip_v6: haset_cfg.vip_v6,
+        owner: haset_cfg.owner,
+        scope: haset_cfg.scope,
+        local_npu_ip: format!("10.0.{switch}.{dpu}"),
+        local_ip: format!("18.0.{switch}.{dpu}"),
+        peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),
+        cp_data_channel_port: global_cfg.cp_data_channel_port,
+        dp_channel_dst_port: global_cfg.dp_channel_dst_port,
+        dp_channel_src_port_min: global_cfg.dp_channel_src_port_min,
+        dp_channel_src_port_max: global_cfg.dp_channel_src_port_max,
+        dp_channel_probe_interval_ms: global_cfg.dp_channel_probe_interval_ms,
+        dp_channel_probe_fail_threshold: global_cfg.dp_channel_probe_fail_threshold,
     };
     (format!("haset{switch_pair_id}-{dpu}"), ha_set)
 }
