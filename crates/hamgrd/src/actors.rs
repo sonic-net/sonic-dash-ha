@@ -3,10 +3,9 @@
 //! <https://github.com/r12f/SONiC/blob/user/r12f/hamgrd/doc/smart-switch/high-availability/smart-switch-ha-hamgrd.md#2-key-actors>
 
 pub mod dpu;
-pub mod vdpu;
-
 pub mod ha_scope;
 pub mod ha_set;
+pub mod vdpu;
 
 #[cfg(test)]
 pub mod test;
@@ -17,10 +16,56 @@ use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
-use swss_common_bridge::consumer::spawn_consumer_bridge;
+use swss_common::{
+    KeyOpFieldValues, KeyOperation, ProducerStateTable, SonicDbTable, SubscriberStateTable, ZmqClient,
+    ZmqProducerStateTable,
+};
+use swss_common_bridge::{consumer::spawn_consumer_bridge, consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
+use tokio::task::JoinHandle;
 use tracing::error;
+
+pub trait DbBasedActor: Actor {
+    fn name() -> &'static str;
+    fn table_name() -> &'static str;
+    fn new(key: String) -> AnyhowResult<Self>
+    where
+        Self: Sized;
+
+    async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<()>
+    where
+        Self: Sized,
+        T: SonicDbTable + 'static,
+    {
+        let ac = ActorCreator::new(
+            edge_runtime.new_sp(Self::name(), ""),
+            edge_runtime.clone(),
+            false,
+            |key: String| -> AnyhowResult<Self> { Self::new(key) },
+        );
+
+        tokio::task::spawn(ac.run());
+
+        let config_db = crate::db_named(T::db_name()).await?;
+        let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
+        let addr = crate::common_bridge_sp::<T>(&edge_runtime);
+        let base_addr = edge_runtime.get_base_sp();
+        spawn_consumer_bridge(
+            edge_runtime.clone(),
+            addr,
+            sst,
+            move |kfv: &KeyOpFieldValues| {
+                let mut addr = base_addr.clone();
+                addr.resource_type = Self::name().to_owned();
+                addr.resource_id = kfv.key.clone();
+                (addr, T::table_name().to_owned())
+            },
+            |_| true,
+        );
+        Ok(())
+    }
+}
+
 pub struct ActorCreator<F, T>
 where
     F: Fn(String) -> AnyhowResult<T>,
@@ -137,20 +182,104 @@ where
     }
 }
 
-pub async fn spawn_consumer_bridge_for_actor(
+pub async fn spawn_consumer_bridge_for_actor<T>(
     edge_runtime: Arc<SwbusEdgeRuntime>,
-    db_name: &'static str,
-    table_name: &'static str,
     actor_name: &'static str,
-) -> AnyhowResult<()> {
-    let db = crate::db_named(db_name).await?;
+    actor_id: Option<&str>,
+    single_entry: bool,
+) -> AnyhowResult<ConsumerBridge>
+where
+    T: SonicDbTable + 'static,
+{
+    spawn_consumer_bridge_for_actor_with_selector::<T, _>(edge_runtime, actor_name, actor_id, single_entry, |_| true)
+        .await
+}
 
-    let sst = SubscriberStateTable::new_async(db, table_name, None, None).await?;
+/// Spawn a consumer bridge for an actor. The bridge subscribes to the given db and table.
+/// The bridge will send messages to the actor when there is update on the table. If actor_id is
+/// provided, the message destination is `sp(actor_name, actor_id)`. Otherwise, the
+/// service path is constructed as `sp(actor_name, key)`, where key is the key of the table entry.
+/// The ActorMessage payload is the KeyOpFieldValues of the table entry. If single_entry is set,
+/// the key of the ActorMessage is the table_name. Otherwise, the key is table_name|key.
+/// selector is a function that takes a KeyOpFieldValues and returns a boolean. If the function
+/// returns true, the message is sent to the actor. Otherwise, the message is ignored.
+///
+pub async fn spawn_consumer_bridge_for_actor_with_selector<T, F>(
+    edge_runtime: Arc<SwbusEdgeRuntime>,
+    actor_name: &'static str,
+    actor_id: Option<&str>,
+    single_entry: bool,
+    selector: F,
+) -> AnyhowResult<ConsumerBridge>
+where
+    T: SonicDbTable + 'static,
+    F: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
+{
+    let db = crate::db_named(T::db_name()).await?;
 
-    let addr = crate::sp("swss-common-bridge", table_name);
-    spawn_consumer_bridge(edge_runtime, addr, sst, |kfv: &KeyOpFieldValues| {
-        (crate::sp(actor_name, &kfv.key), table_name.to_owned())
-    });
+    let sst = SubscriberStateTable::new_async(db, T::table_name(), None, None).await?;
 
-    Ok(())
+    let addr = crate::common_bridge_sp::<T>(&edge_runtime);
+
+    if actor_id.is_some() {
+        let sp = edge_runtime.new_sp(actor_name, actor_id.unwrap());
+        Ok(ConsumerBridge::spawn(
+            edge_runtime,
+            addr,
+            sst,
+            move |kfv: &KeyOpFieldValues| {
+                let key = match single_entry {
+                    true => T::table_name().to_owned(),
+                    false => format!("{}|{}", T::table_name(), kfv.key),
+                };
+                (sp.clone(), key)
+            },
+            selector,
+        ))
+    } else {
+        let base_addr = edge_runtime.get_base_sp();
+        Ok(ConsumerBridge::spawn(
+            edge_runtime,
+            addr,
+            sst,
+            move |kfv: &KeyOpFieldValues| {
+                let mut addr = base_addr.clone();
+                addr.resource_type = actor_name.to_owned();
+                addr.resource_id = kfv.key.clone();
+                (
+                    addr,
+                    match single_entry {
+                        true => T::table_name().to_owned(),
+                        false => format!("{}|{}", T::table_name(), kfv.key),
+                    },
+                )
+            },
+            selector,
+        ))
+    }
+}
+
+pub async fn spawn_zmq_producer_bridge<T>(
+    edge_runtime: Arc<SwbusEdgeRuntime>,
+    zmq_endpoint: &str,
+) -> AnyhowResult<JoinHandle<()>>
+where
+    T: SonicDbTable + 'static,
+{
+    if let Ok(zmqc) = ZmqClient::new(zmq_endpoint) {
+        let dpu_appl_db = crate::db_named(T::db_name()).await?;
+        let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, false).unwrap();
+
+        let sp = crate::common_bridge_sp::<T>(&edge_runtime);
+        Ok(spawn_producer_bridge(edge_runtime.clone(), sp, zpst))
+    } else {
+        if std::env::var("SIM").is_err() {
+            anyhow::bail!("Failed to connect to ZMQ server at {}", zmq_endpoint);
+        }
+        let dpu_appl_db = crate::db_named(T::db_name()).await?;
+        let pst = ProducerStateTable::new(dpu_appl_db, T::table_name()).unwrap();
+
+        let sp = crate::common_bridge_sp::<T>(&edge_runtime);
+        Ok(spawn_producer_bridge(edge_runtime.clone(), sp, pst))
+    }
 }

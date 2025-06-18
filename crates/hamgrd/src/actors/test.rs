@@ -110,6 +110,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                                 request_id,
                                 error_code,
                                 error_message,
+                                response_body: None,
                             },
                         ..
                     })) if request_id == sent_id => (error_code, error_message),
@@ -156,6 +157,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                         request_id,
                         error_code: SwbusErrorCode::Ok,
                         error_message: "".to_string(),
+                        response_body: None,
                     },
                 };
                 client.send(ack).await.unwrap();

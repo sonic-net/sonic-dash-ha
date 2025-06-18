@@ -5,12 +5,19 @@ use std::path::PathBuf;
 #[cfg(not(target_os = "windows"))]
 use swss_common::{link_to_swsscommon_logger, LoggerConfigChangeHandler};
 
+use lazy_static::lazy_static;
+use std::sync::Mutex;
 use tracing::info;
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{
-    self, filter, fmt::format::FmtSpan, prelude::__tracing_subscriber_SubscriberExt, reload, util::SubscriberInitExt,
-    Layer, Registry,
+    self, filter, fmt, fmt::format::FmtSpan, prelude::__tracing_subscriber_SubscriberExt, reload,
+    util::SubscriberInitExt, Layer, Registry,
 };
+
+lazy_static! {
+    static ref LOG_FOR_TEST_INIT: Mutex<bool> = Mutex::new(false);
+}
+
 #[cfg(debug_assertions)]
 const DEFAULT_LOG_LEVEL: &str = "debug";
 
@@ -154,6 +161,47 @@ fn new_file_subscriber(
     Ok(tracing_subscriber::fmt::layer().with_writer(syslog))
 }
 
+/// Init logger for tests only, which uses stdout/stderr as output, if ENABLE_TRACE is set to 1 or true
+pub fn init_logger_for_test() {
+    let trace_enabled: bool = std::env::var("ENABLE_TRACE")
+        .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !trace_enabled {
+        return;
+    }
+
+    let mut log_init_guard = LOG_FOR_TEST_INIT
+        .lock()
+        .unwrap_or_else(|err| panic!("Failed to lock: {}", err));
+    if *log_init_guard {
+        return;
+    }
+    *log_init_guard = true;
+
+    let stdout_level = tracing::level_filters::LevelFilter::DEBUG;
+    // Create a stdout logger for `info!` and lower severity levels
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_filter(stdout_level);
+
+    // Create a stderr logger for `error!` and higher severity levels
+    let stderr_layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_filter(tracing::level_filters::LevelFilter::ERROR);
+
+    // Combine the layers and set them as the global subscriber
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(stderr_layer)
+        .init();
+}
 mod test {
     #[test]
     fn log_can_be_initialized() {

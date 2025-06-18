@@ -29,7 +29,7 @@ impl CmdHandler for TraceRouteCmd {
         src_sp.resource_type = "traceroute".to_string();
         src_sp.resource_id = "0".to_string();
         // Register the channel to the runtime to receive response
-        ctx.runtime.lock().await.add_handler(src_sp.clone(), recv_queue_tx);
+        ctx.runtime.add_handler(src_sp.clone(), recv_queue_tx);
 
         // Send ping messages
         info!(
@@ -46,7 +46,7 @@ impl CmdHandler for TraceRouteCmd {
             body: Some(swbus_message::Body::TraceRouteRequest(TraceRouteRequest::new())),
         };
         let start = Instant::now();
-        ctx.runtime.lock().await.send(trace_route_msg).await.unwrap();
+        ctx.runtime.send(trace_route_msg).await.unwrap();
 
         for i in 0..self.max_hop {
             // wait on the channel to receive response or timeout

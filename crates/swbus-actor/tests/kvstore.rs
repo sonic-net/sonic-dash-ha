@@ -5,8 +5,16 @@ use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::Table;
 use swss_common_testing::Redis;
 use tokio::{
+    sync::mpsc,
     sync::oneshot::{channel, Sender},
     time::timeout,
+};
+
+use std::sync::Arc;
+use swbus_actor::state::ActorStateDump;
+use swbus_edge::swbus_proto::swbus::{
+    request_response::ResponseBody, swbus_message::Body, ManagementRequest, ManagementRequestType, SwbusErrorCode,
+    SwbusMessage, SwbusMessageHeader,
 };
 
 fn sp(name: &str) -> ServicePath {
@@ -15,9 +23,16 @@ fn sp(name: &str) -> ServicePath {
 
 #[tokio::test]
 async fn echo() {
+    // Add a handler to the runtime to receive management response
+    let (mgmt_resp_queue_tx, mut mgmt_resp_queue_rx) = mpsc::channel::<SwbusMessage>(1);
+
     let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"));
+    swbus_edge.add_handler(sp("mgmt_resp"), mgmt_resp_queue_tx);
+
     swbus_edge.start().await.unwrap();
-    let actor_runtime = ActorRuntime::new(swbus_edge.into());
+    let swbus_edge = Arc::new(swbus_edge);
+    let actor_runtime = ActorRuntime::new(swbus_edge.clone());
+
     swbus_actor::set_global_runtime(actor_runtime);
 
     let (notify_done, is_done) = channel();
@@ -29,6 +44,126 @@ async fn echo() {
         .await
         .expect("timeout")
         .unwrap();
+    verify_actor_state(swbus_edge, &mut mgmt_resp_queue_rx).await;
+}
+
+async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_rx: &mut mpsc::Receiver<SwbusMessage>) {
+    // send a request to get actor state
+    let mgmt_request = ManagementRequest::new(ManagementRequestType::HamgrdGetActorState);
+
+    let header = SwbusMessageHeader::new(sp("mgmt_resp"), sp("kv"), 1);
+
+    let request_msg = SwbusMessage {
+        header: Some(header),
+        body: Some(Body::ManagementRequest(mgmt_request)),
+    };
+    swbus_edge.send(request_msg).await.unwrap();
+    let expected_json = r#"
+    {
+        "incoming": {
+            "": {
+            "msg": {
+                "key": "",
+                "data": {
+                "Get": {
+                    "key": "count"
+                }
+                }
+            },
+            "source": {
+                "region_id": "test",
+                "cluster_id": "test",
+                "node_id": "test",
+                "service_type": "test",
+                "service_id": "test",
+                "resource_type": "test",
+                "resource_id": "client"
+            },
+            "request_id": 0,
+            "version": 2001,
+            "created_time": 0,
+            "last_updated_time": 0,
+            "response": "Ok",
+            "acked": true
+            }
+        },
+        "internal": {
+            "data": {
+            "swss_table_name": "kv-actor-data",
+            "swss_key": "kv-actor-data",
+            "fvs": {
+                "count": "1000"
+            },
+            "mutated": false,
+            "backup_fvs": {
+                "count": "999"
+            },
+            "last_updated_time": 0
+            }
+        },
+        "outgoing":{
+            "outgoing_queued":[],
+            "outgoing_sent":{
+                "kv-get":{
+                    "msg":{
+                        "key":"kv-get",
+                        "data":{
+                            "key":"count",
+                            "val":"1000"
+                        }
+                    },
+                    "id":0,
+                    "created_time":0,
+                    "last_updated_time":0,
+                    "last_sent_time":0,
+                    "version":1001,
+                    "acked":true,
+                    "response":"Ok",
+                    "response_source":{
+                        "region_id":"test",
+                        "cluster_id":"test",
+                        "node_id":"test",
+                        "service_type":"test",
+                        "service_id":"test",
+                        "resource_type":"test",
+                        "resource_id":"client"
+                    }
+                }
+            }
+        }
+    }
+    "#;
+
+    let expected: ActorStateDump = serde_json::from_str(expected_json).unwrap();
+    match timeout(Duration::from_secs(3), mgmt_resp_queue_rx.recv()).await {
+        Ok(Some(msg)) => match msg.body {
+            Some(Body::Response(ref response)) => {
+                assert_eq!(response.request_id, 1);
+                assert_eq!(response.error_code, SwbusErrorCode::Ok as i32);
+                match response.response_body {
+                    Some(ResponseBody::ManagementQueryResult(ref result)) => {
+                        println!("{}", &result.value);
+                        let mut state: ActorStateDump = serde_json::from_str(&result.value).unwrap();
+                        let inner_fields = state.outgoing.outgoing_sent.get_mut("kv-get").unwrap();
+                        inner_fields.id = 0;
+                        inner_fields.created_time = 0;
+                        inner_fields.last_updated_time = 0;
+                        inner_fields.last_sent_time = 0;
+
+                        assert_eq!(state, expected);
+                    }
+                    _ => panic!("message body is not a ManagementQueryResult"),
+                }
+            }
+            _ => panic!("message body is not a Response"),
+        },
+        Ok(None) => {
+            panic!("channel broken");
+        }
+        Err(_) => {
+            panic!("request timeout: didn't receive response");
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]

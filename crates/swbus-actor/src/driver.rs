@@ -1,8 +1,9 @@
-use crate::{Actor, Context, State};
+use crate::{state::ActorStateDump, Actor, Context, State};
+use std::collections::HashMap;
 use std::sync::Arc;
 use swbus_edge::{
-    simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::SwbusErrorCode,
+    simple_client::{IncomingMessage, MessageBody, MessageResponseBody, OutgoingMessage, SimpleSwbusEdgeClient},
+    swbus_proto::swbus::{ManagementRequestType, ServicePath, SwbusErrorCode},
 };
 use tracing::info;
 
@@ -66,6 +67,7 @@ impl<A: Actor> ActorDriver<A> {
                             request_id: id,
                             error_code,
                             error_message,
+                            response_body: None,
                         },
                     })
                     .await
@@ -79,10 +81,14 @@ impl<A: Actor> ActorDriver<A> {
                 request_id,
                 error_code,
                 error_message,
+                ..
             } => self
                 .state
                 .outgoing
                 .handle_response(request_id, error_code, &error_message, source),
+            MessageBody::ManagementRequest { request, args } => {
+                self.handle_management_request(id, &source, request, args).await;
+            }
         }
     }
 
@@ -104,5 +110,51 @@ impl<A: Actor> ActorDriver<A> {
         };
 
         self.state.incoming.request_handled(key, error_code, &error_message);
+    }
+
+    async fn handle_management_request(
+        &mut self,
+        request_id: u64,
+        source: &ServicePath,
+        request: ManagementRequestType,
+        _args: HashMap<String, String>,
+    ) {
+        match request {
+            ManagementRequestType::HamgrdGetActorState => {
+                let state = self.dump_state();
+
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source.clone(),
+                        body: MessageBody::Response {
+                            request_id,
+                            error_code: SwbusErrorCode::Ok,
+                            error_message: "".into(),
+                            response_body: Some(MessageResponseBody::ManagementQueryResult {
+                                payload: serde_json::to_string(&state).unwrap(),
+                            }),
+                        },
+                    })
+                    .await
+                    .expect("failed to send swbus message");
+            }
+            _ => {
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source.clone(),
+                        body: MessageBody::Response {
+                            request_id,
+                            error_code: SwbusErrorCode::InvalidArgs,
+                            error_message: format!("Unsupported request type: {:?}", request),
+                            response_body: None,
+                        },
+                    })
+                    .await
+                    .expect("failed to send swbus message");
+            }
+        }
+    }
+    fn dump_state(&self) -> ActorStateDump {
+        self.state.dump_state()
     }
 }

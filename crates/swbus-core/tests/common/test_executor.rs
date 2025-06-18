@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sonic_common::log::init_logger_for_test;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
@@ -82,6 +83,8 @@ impl TopoRuntime {
     /// The client configurations are a map of client names to the client configuration.
     /// The client configuration contains the server (swbusd) name where the client is connected and the service path of the client.
     pub async fn bring_up(&mut self) {
+        init_logger_for_test();
+
         let file = File::open("tests/data/topos.json").unwrap();
         let reader = BufReader::new(file);
 
@@ -131,7 +134,7 @@ impl TopoRuntime {
 
         while start.elapsed() < Duration::from_secs(10) {
             match SwbusCoreClient::connect(addr.clone(), client_sp.clone(), receive_queue_tx.clone()).await {
-                Ok((_, send_queue_tx, _)) => {
+                Ok((_, send_queue_tx)) => {
                     self.client_receivers.insert(name.to_string(), receive_queue_rx);
                     self.client_senders.insert(name.to_string(), send_queue_tx);
                     info!("Client {} connected to {}", name, node_addr);

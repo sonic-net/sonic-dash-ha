@@ -16,7 +16,7 @@ impl SwbusConnProxy {
     }
 
     pub async fn try_queue(&self, message: Result<SwbusMessage, Status>) -> Result<()> {
-        let tx = self.send_queue_tx.clone();
+        let tx = &self.send_queue_tx;
 
         match tx.try_send(message) {
             Ok(_) => Ok(()),
