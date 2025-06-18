@@ -8,14 +8,12 @@ pub use types::*;
 
 /// Rust wrapper around `swss::SonicDBConfig::initialize`.
 pub fn sonic_db_config_initialize(path: &str) -> Result<(), Exception> {
-    println!("sonic_db_config_initialize called");
     let path = cstr(path);
     unsafe { swss_try!(bindings::SWSSSonicDBConfig_initialize(path.as_ptr())) }
 }
 
 /// Rust wrapper around `swss::SonicDBConfig::initializeGlobalConfig`.
 pub fn sonic_db_config_initialize_global(path: &str) -> Result<(), Exception> {
-    println!("sonic_db_config_initialize_global called");
     let path = cstr(path);
     unsafe { swss_try!(bindings::SWSSSonicDBConfig_initializeGlobalConfig(path.as_ptr())) }
 }

@@ -244,19 +244,19 @@ mod test {
         // Populate the CONFIG_DB for testing
         populate_configdb_for_test();
 
-        let config_fromdb = get_dpu_config_from_db(0).unwrap();
+        let config_fromdb = get_dpu_config_from_db(6).unwrap();
 
         let expected = Dpu {
             state: None,
             vip_ipv6: None,
-            pa_ipv4: "1.2.3.0".to_string(),
-            vip_ipv4: Some("4.5.6.0".to_string()),
+            pa_ipv4: "1.2.3.6".to_string(),
+            vip_ipv4: Some("4.5.6.6".to_string()),
             pa_ipv6: None,
-            dpu_id: 0,
+            dpu_id: 6,
             orchagent_zmq_port: 8100,
-            swbus_port: 23606,
-            midplane_ipv4: "169.254.1.0".to_string(),
-            vdpu_id: Some("vpdu0".to_string()),
+            swbus_port: 23612,
+            midplane_ipv4: "169.254.1.6".to_string(),
+            vdpu_id: Some("vpdu6".to_string()),
         };
 
         assert_eq!(config_fromdb, expected);
@@ -267,7 +267,7 @@ mod test {
         let table = Table::new(db, "DPU").unwrap();
 
         // create local dpu table first
-        for d in 0..2 {
+        for d in 6..8 {
             let dpu_fvs = vec![
                 ("pa_ipv4".to_string(), Ipv4Addr::new(1, 2, 3, d).to_string()),
                 ("vip_ipv4".to_string(), Ipv4Addr::new(4, 5, 6, d).to_string()),

@@ -146,7 +146,6 @@ pub fn sonic_db_config_init_for_test() {
 
     let mut sonic_db_init = SONIC_DB_INITIALIZED.lock().unwrap();
     if !*sonic_db_init {
-        println!("sonic_db_config_init_for_test called");
         fs::write("/tmp/db_config_test.json", DB_CONFIG_JSON).unwrap();
         fs::write("/tmp/db_global_config_test.json", DB_GLOBAL_CONFIG_JSON).unwrap();
         sonic_db_config_initialize("/tmp/db_config_test.json").unwrap();
@@ -167,7 +166,6 @@ fn config_db_config_init_for_test(sock_str: &str) {
 
     let mut config_db_init = CONIFG_DB_INITIALIZED.lock().unwrap();
     if !*config_db_init {
-        println!("config_db_config_init_for_test called");
         let port = random_port();
         let db_config_json = CONFIG_DB_REDIS_CONFIG_JSON
             .replace("{port}", &port.to_string())

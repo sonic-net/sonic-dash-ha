@@ -512,9 +512,12 @@ mod test {
     use crate::ha_actor_messages::DpuActorState;
     use std::time::Duration;
     use swss_common::SonicDbTable;
+    use swss_common_testing::Redis;
     use swss_serde::to_field_values;
+
     #[tokio::test]
     async fn dpu_actor() {
+        let _ = Redis::start_config_db();
         let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
         // prepare test data
         let dpu_pmon_up_state = make_dpu_pmon_state(true);
@@ -618,6 +621,8 @@ mod test {
 
     #[tokio::test]
     async fn remote_dpu_actor() {
+        let _ = Redis::start_config_db();
+
         let runtime = test::create_actor_runtime(1, "10.0.0.0", "10::").await;
 
         let rdpu_actor = DpuActor {
