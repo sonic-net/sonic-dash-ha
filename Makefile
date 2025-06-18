@@ -74,5 +74,5 @@ ci-lint:
 	cargo clippy --release --workspace --all-features --no-deps -- --deny "clippy::all"
 
 ci-test:
-	cargo test           --workspace --all-features
-	cargo test --release --workspace --all-features
+	cargo test           --workspace --all-features -- --nocapture
+	cargo test --release --workspace --all-features -- --nocapture
