@@ -204,7 +204,6 @@ pub fn now_in_millis() -> i64 {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2121-ha-set-configurations>
-/// in APPL_DB
 #[serde_as]
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, SonicDb)]
@@ -226,7 +225,6 @@ pub struct DashHaSetConfigTable {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
-/// In DPU_APPL_DB
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SET_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
@@ -279,8 +277,7 @@ pub struct VnetRouteTunnelTable {
     pub check_directly_connected: Option<bool>,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-dpu-scope-dpu-driven-setup.md#2122-ha-scope-configurations
-/// In APPL_DB
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-dpu-scope-dpu-driven-setup.md#2122-ha-scope-configurations>
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
@@ -293,8 +290,7 @@ pub struct DashHaScopeConfigTable {
     pub approved_pending_operation_ids: Option<Vec<String>>,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations
-/// In DPU_APPL_DB
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations>
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
@@ -307,7 +303,7 @@ pub struct DashHaScopeTable {
     pub activate_role_requested: bool,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "DPU_STATE_DB")]
 pub struct DpuDashHaScopeState {
@@ -327,7 +323,7 @@ pub struct DpuDashHaScopeState {
     pub brainsplit_recover_pending: bool,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
