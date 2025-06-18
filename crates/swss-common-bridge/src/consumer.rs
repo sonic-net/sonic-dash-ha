@@ -21,34 +21,46 @@ impl ConsumerBridge {
     /// `dest_generator` is a function that takes a `&KeyOpFieldValues` read from `table`
     /// and generates the `ServicePath` address and `String` input table key that
     /// the data will be sent to.
-    pub fn spawn<T, F>(rt: Arc<SwbusEdgeRuntime>, addr: ServicePath, table: T, dest_generator: F) -> Self
+    pub fn spawn<T, F, S>(
+        rt: Arc<SwbusEdgeRuntime>,
+        addr: ServicePath,
+        table: T,
+        dest_generator: F,
+        selector: S,
+    ) -> Self
     where
         T: ConsumerTable,
         F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
+        S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
     {
-        let task = spawn_consumer_bridge(rt, addr, table, dest_generator);
+        let task = spawn_consumer_bridge(rt, addr, table, dest_generator, selector);
         ConsumerBridge {
             _task: AbortOnDropHandle::new(task),
         }
     }
 }
 
-pub fn spawn_consumer_bridge<T, F>(
+pub fn spawn_consumer_bridge<T, F, S>(
     rt: Arc<SwbusEdgeRuntime>,
     addr: ServicePath,
     mut table: T,
     mut dest_generator: F,
+    selector: S,
 ) -> JoinHandle<()>
 where
     T: ConsumerTable,
     F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
+    S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
 {
-    let swbus = SimpleSwbusEdgeClient::new(rt, addr, false);
+    let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
         let mut table_cache = TableCache::default();
         let mut send_kfv = async |kfv: KeyOpFieldValues| {
             // Merge the kfv to get the whole table as an update
             let kfv = table_cache.merge_kfv(kfv);
+            if !selector(&kfv) {
+                return;
+            }
 
             // Use user-provided function to generate Actor's ServicePath and input table key
             let (destination, key) = dest_generator(&kfv);
@@ -236,12 +248,16 @@ mod test {
         let rt = Arc::new(swbus_edge);
 
         // Create edge client to receive updates from the bridge
-        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true);
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
 
         // Spawn the bridge
-        let bridge = spawn_consumer_bridge(rt.clone(), sp("mytable-bridge"), consumer_table, |_| {
-            (sp("receiver"), "".into())
-        });
+        let bridge = spawn_consumer_bridge(
+            rt.clone(),
+            sp("mytable-bridge"),
+            consumer_table,
+            |_| (sp("receiver"), "".into()),
+            |_| true,
+        );
 
         // Send some updates we should receive
         let mut kfvs = random_kfvs();
@@ -261,9 +277,13 @@ mod test {
         // Test rehydration
         if let Some(rehydrate_table) = rehydrate_table {
             // Spawn new bridge to rehydrate with
-            let _bridge_rehydrate = spawn_consumer_bridge(rt, sp("mytable-bridge"), rehydrate_table, |_| {
-                (sp("receiver"), "".into())
-            });
+            let _bridge_rehydrate = spawn_consumer_bridge(
+                rt,
+                sp("mytable-bridge"),
+                rehydrate_table,
+                |_| (sp("receiver"), "".into()),
+                |_| true,
+            );
 
             // Receive all updates that are in the database (no DELs because those aren't saved)
             let n_set_kfvs = kfvs.iter().filter(|kfv| kfv.operation == KeyOperation::Set).count();

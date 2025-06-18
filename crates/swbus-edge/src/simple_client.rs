@@ -24,13 +24,14 @@ pub struct SimpleSwbusEdgeClient {
     handler_rx: Mutex<Receiver<SwbusMessage>>,
     source: ServicePath,
     id_generator: MessageIdGenerator,
+    sink: bool,
 }
 
 impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
     ///
     /// `public` determines whether the client is registered using [`SwbusEdgeRuntime::add_handler`] or [`SwbusEdgeRuntime::add_private_handler`].
-    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool) -> Self {
+    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool, sink: bool) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         if public {
             rt.add_handler(source.clone(), handler_tx);
@@ -43,7 +44,12 @@ impl SimpleSwbusEdgeClient {
             handler_rx: Mutex::new(handler_rx),
             source,
             id_generator: MessageIdGenerator::new(),
+            sink,
         }
+    }
+
+    pub fn get_edge_runtime(&self) -> &Arc<SwbusEdgeRuntime> {
+        &self.rt
     }
 
     /// Receive a message.
@@ -66,6 +72,18 @@ impl SimpleSwbusEdgeClient {
         let source = header.source.unwrap();
         let destination = header.destination.unwrap();
         let body = msg.body.unwrap();
+
+        if self.sink && destination != self.source {
+            // sink will drop all messages not to itself and reply with NoRoute
+            return HandleReceivedMessage::Respond(SwbusMessage::new(
+                SwbusMessageHeader::new(self.source.clone(), source, self.id_generator.generate()),
+                Body::Response(RequestResponse::infra_error(
+                    id,
+                    SwbusErrorCode::NoRoute,
+                    "Route not found",
+                )),
+            ));
+        }
 
         match body {
             Body::DataRequest(DataRequest { payload }) => HandleReceivedMessage::PassToActor(IncomingMessage {

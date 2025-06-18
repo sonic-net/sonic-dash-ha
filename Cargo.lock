@@ -792,6 +792,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sonic-common",
+ "sonicdb-derive",
  "swbus-actor",
  "swbus-config",
  "swbus-edge",

@@ -190,6 +190,7 @@ mod test {
             swbus_edge.clone(),
             ServicePath::from_string("unknown.unknown.unknown/hamgrd/0/test/0").unwrap(),
             true,
+            false,
         ));
         let mut incoming = Incoming::new(swbus_edge.clone());
 

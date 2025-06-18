@@ -19,7 +19,7 @@ impl ActorRuntime {
         // TODO: Add privacy option
         let sp = self.sp(resource_type, resource_id);
         info!("Spawning actor at {}", sp.to_longest_path());
-        let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), sp, true);
+        let swbus_client = SimpleSwbusEdgeClient::new(self.swbus_edge.clone(), sp, true, false);
         let actor_driver = ActorDriver::new(actor, swbus_client);
 
         tokio::task::spawn(actor_driver.run())

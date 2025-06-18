@@ -60,16 +60,8 @@ async fn main() {
     //actors::dpu::spawn_dpu_actors().await.unwrap();
     start_actor_creators(&swbus_edge).await.unwrap();
 
-    init_actor_supporting_services(&swbus_edge).await.unwrap();
     // Wait for Ctrl+C to exit
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-}
-
-fn sp(resource_type: &str, resource_id: &str) -> ServicePath {
-    swbus_actor::get_global_runtime()
-        .as_ref()
-        .unwrap()
-        .sp(resource_type, resource_id)
 }
 
 async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
@@ -89,8 +81,12 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()
     Ok(())
 }
 
-async fn init_actor_supporting_services(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-    DpuActor::init_supporting_services(edge_runtime).await?;
-    //HaSetActor::init_supporting_services(edge_runtime).await?;
-    Ok(())
+pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
+where
+    T: swss_common::SonicDbTable + 'static,
+{
+    let mut new_sp = runtime.get_base_sp();
+    new_sp.resource_type = "swss-common-bridge".into();
+    new_sp.resource_id = format!("{}|{}", T::db_name(), T::table_name());
+    new_sp
 }

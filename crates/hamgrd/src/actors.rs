@@ -1,7 +1,8 @@
 //! Actors
 //!
 //! <https://github.com/r12f/SONiC/blob/user/r12f/hamgrd/doc/smart-switch/high-availability/smart-switch-ha-hamgrd.md#2-key-actors>
-
+// temporarily enable it until vdpu/ha-set actors are implemented
+#![allow(unused)]
 pub mod dpu;
 pub mod ha_scope;
 pub mod ha_set;

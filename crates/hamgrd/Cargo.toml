@@ -20,6 +20,7 @@ swss-common-bridge = { path = "../swss-common-bridge" }
 swss-serde = { path = "../swss-serde" }
 swbus-config.workspace = true
 sonic-common.workspace = true
+sonicdb-derive.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 serde.workspace = true

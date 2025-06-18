@@ -74,7 +74,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
         match cmd {
             Send { addr, .. } | Recv { addr, .. } => {
                 if !clients.contains_key(addr) {
-                    let client = SimpleSwbusEdgeClient::new(runtime.get_swbus_edge(), addr.clone(), true);
+                    let client = SimpleSwbusEdgeClient::new(runtime.get_swbus_edge(), addr.clone(), true, false);
                     clients.insert(addr.clone(), client);
                 }
             }

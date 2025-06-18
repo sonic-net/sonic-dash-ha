@@ -1,15 +1,17 @@
-use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
+use crate::actors::ActorCreator;
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
+use sonicdb_derive::SonicDb;
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
+use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
 use swss_common_bridge::consumer::spawn_consumer_bridge;
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, PartialEq, Eq, Debug, SonicDb)]
+#[sonicdb(table_name = "DPU", key_separator = "|", db_name = "CONFIG_DB")]
 struct Dpu {
     pa_ipv4: String,
 }
@@ -67,24 +69,24 @@ impl DpuActor {
         );
 
         tokio::task::spawn(dpu_ac.run());
-        let config_db = crate::db_named("CONFIG_DB").await?;
-        let sst = SubscriberStateTable::new_async(config_db, Self::table_name(), None, None).await?;
-        let addr = crate::sp("swss-common-bridge", Self::table_name());
-        spawn_consumer_bridge(edge_runtime.clone(), addr, sst, |kfv: &KeyOpFieldValues| {
-            (crate::sp(Self::name(), &kfv.key), Self::table_name().to_owned())
-        });
-        Ok(())
-    }
 
-    pub async fn init_supporting_services(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-        spawn_consumer_bridge_for_actor(edge_runtime.clone(), "CHASSIS_STATE_DB", "DPU_STATE", Self::name()).await?;
-        spawn_consumer_bridge_for_actor(
+        // dpu actor is spawned for both local dpu and remote dpu
+        let config_db = crate::db_named(Dpu::db_name()).await?;
+        let sst = SubscriberStateTable::new_async(config_db, Dpu::table_name(), None, None).await?;
+        let addr = crate::common_bridge_sp::<Dpu>(&edge_runtime);
+        let base_addr = edge_runtime.get_base_sp();
+        spawn_consumer_bridge(
             edge_runtime.clone(),
-            "CHASSIS_STATE_DB",
-            "DASH_BFD_PROBE_STATE",
-            Self::name(),
-        )
-        .await?;
+            addr,
+            sst,
+            move |kfv: &KeyOpFieldValues| {
+                let mut addr = base_addr.clone();
+                addr.resource_type = Self::name().to_owned();
+                addr.resource_id = kfv.key.clone();
+                (addr, Dpu::table_name().to_owned())
+            },
+            |_| true,
+        );
         Ok(())
     }
 
