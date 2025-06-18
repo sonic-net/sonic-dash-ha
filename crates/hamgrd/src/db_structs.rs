@@ -261,8 +261,7 @@ pub struct DashHaSetTable {
     pub dp_channel_probe_fail_threshold: Option<u32>,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db
-/// In APPL_DB
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db>
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
