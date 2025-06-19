@@ -186,6 +186,8 @@ impl HaSetActorState {
 pub struct ActorRegistration {
     pub active: bool,
 }
+
+#[allow(clippy::enum_variant_names)]
 pub enum RegistrationType {
     DPUState,
     VDPUState,
