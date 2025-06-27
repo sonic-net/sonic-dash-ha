@@ -1,4 +1,4 @@
-select 1
+select 4
 hset DEVICE_METADATA|localhost region region-a cluster cluster-a
 HSET "LOOPBACK_INTERFACE|Loopback0|127.0.0.1/32" "NULL" "NULL"
 hset LOOPBACK_INTERFACE|Loopback0 NULL NULL
@@ -41,7 +41,7 @@ HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_src_port_max" "7010"
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_probe_interval_ms" "500"
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_probe_fail_threshold" "5"
 
-select 3
+select 13
 HSET DPU_STATE|dpu0 dpu_midplane_link_state up
 HSET DPU_STATE|dpu0 dpu_control_plane_state up
 HSET DPU_STATE|dpu0 dpu_data_plane_state up

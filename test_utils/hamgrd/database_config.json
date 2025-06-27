@@ -14,28 +14,28 @@
             "instance": "redis"
         },
         "CONFIG_DB": {
-            "id": 1,
-            "separator": "|",
-            "instance": "redis"
-        },
-        "STATE_DB": {
-            "id": 2,
-            "separator": "|",
-            "instance": "redis"
-        },
-        "CHASSIS_STATE_DB": {
-            "id": 3,
-            "separator": "|",
-            "instance": "redis"
-        },
-        "DPU_STATE_DB": {
             "id": 4,
             "separator": "|",
             "instance": "redis"
         },
+        "STATE_DB": {
+            "id": 6,
+            "separator": "|",
+            "instance": "redis"
+        },
+        "CHASSIS_STATE_DB": {
+            "id": 13,
+            "separator": "|",
+            "instance": "redis"
+        },
         "DPU_APPL_DB": {
-            "id": 5,
+            "id": 15,
             "separator": ":",
+            "instance": "redis"
+        },
+        "DPU_STATE_DB": {
+            "id": 17,
+            "separator": "|",
             "instance": "redis"
         }
     }
