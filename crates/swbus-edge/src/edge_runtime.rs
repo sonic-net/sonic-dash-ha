@@ -1,29 +1,34 @@
 use crate::core_client::SwbusCoreClient;
 use crate::message_handler_proxy::SwbusMessageHandlerProxy;
 use crate::message_router::SwbusMessageRouter;
+use crate::RuntimeEnv;
 use std::io;
 use std::sync::Arc;
+use std::sync::RwLock;
 use swbus_proto::result::*;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::RwLock;
+use tokio::sync::RwLock as AsyncRwLock;
 use tracing::info;
-
 pub(crate) const SWBUS_RECV_QUEUE_SIZE: usize = 10000;
 
 pub struct SwbusEdgeRuntime {
     swbus_uri: String,
     message_router: SwbusMessageRouter,
     sender_to_message_router: Sender<SwbusMessage>,
-    tx_to_swbusd: Arc<RwLock<Option<mpsc::Sender<SwbusMessage>>>>,
+    //base service path with service type and service id
+    base_sp: ServicePath,
+    runtime_env: RwLock<Option<Box<dyn RuntimeEnv>>>,
+    tx_to_swbusd: Arc<AsyncRwLock<Option<mpsc::Sender<SwbusMessage>>>>,
 }
 
 impl SwbusEdgeRuntime {
     pub fn new(swbus_uri: String, sp: ServicePath) -> Self {
         let (local_msg_tx, local_msg_rx) = channel(SWBUS_RECV_QUEUE_SIZE);
         let (remote_msg_tx, remote_msg_rx) = channel(SWBUS_RECV_QUEUE_SIZE);
+        let base_sp = sp.clone();
         let swbus_client = SwbusCoreClient::new(swbus_uri.clone(), sp, remote_msg_tx);
         let tx_to_swbusd = swbus_client.send_queue_tx.clone();
         let message_router = SwbusMessageRouter::new(swbus_client, local_msg_rx, remote_msg_rx);
@@ -32,6 +37,8 @@ impl SwbusEdgeRuntime {
             swbus_uri,
             message_router,
             sender_to_message_router: local_msg_tx,
+            base_sp,
+            runtime_env: RwLock::new(None),
             tx_to_swbusd,
         }
     }
@@ -41,15 +48,28 @@ impl SwbusEdgeRuntime {
         self.message_router.start().await
     }
 
+    pub fn new_sp(&self, resource_type: &str, resource_id: &str) -> ServicePath {
+        let mut new_sp = self.base_sp.clone();
+        new_sp.resource_type = resource_type.to_string();
+        new_sp.resource_id = resource_id.to_string();
+        new_sp
+    }
+
+    pub fn get_base_sp(&self) -> ServicePath {
+        self.base_sp.clone()
+    }
+
     /// Add handler that can be reached from any swbus client.
     pub fn add_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
+        info!("Added handler for service path: {}", svc_path.to_longest_path());
         self.message_router.add_route(svc_path, proxy);
     }
 
     /// Add handler that can only be reached from within this edge runtime.
     pub fn add_private_handler(&self, svc_path: ServicePath, handler_tx: Sender<SwbusMessage>) {
         let proxy = SwbusMessageHandlerProxy::new(handler_tx);
+        info!("Added private handler for service path: {}", svc_path.to_longest_path());
         self.message_router.add_private_route(svc_path, proxy);
     }
 
@@ -64,6 +84,17 @@ impl SwbusEdgeRuntime {
                     format!("Message router channel is broken: {}", e),
                 ),
             )),
+        }
+    }
+
+    pub fn get_runtime_env(&self) -> std::sync::RwLockReadGuard<'_, Option<Box<dyn RuntimeEnv>>> {
+        self.runtime_env.read().unwrap()
+    }
+
+    pub fn set_runtime_env(&mut self, runtime_env: Box<dyn RuntimeEnv>) {
+        let mut guard = self.runtime_env.write().unwrap();
+        if guard.is_none() {
+            *guard = Some(runtime_env);
         }
     }
 
@@ -98,7 +129,7 @@ mod tests {
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "Cluster"
-        peers:        
+        peers:
         "#,
             port
         );

@@ -18,6 +18,8 @@ pub struct SwbusConfig {
     pub endpoint: SocketAddr,
     pub routes: Vec<RouteConfig>,
     pub peers: Vec<PeerConfig>,
+    pub npu_ipv4: Option<Ipv4Addr>,
+    pub npu_ipv6: Option<Ipv6Addr>,
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Deserialize)]
@@ -33,6 +35,17 @@ pub struct PeerConfig {
     pub id: ServicePath,
     pub endpoint: SocketAddr,
     pub conn_type: ConnectionType,
+}
+
+impl SwbusConfig {
+    pub fn get_swbusd_service_path(&self) -> Option<ServicePath> {
+        for route in &self.routes {
+            if route.scope == RouteScope::Cluster {
+                return Some(route.key.clone());
+            }
+        }
+        None
+    }
 }
 
 #[derive(Error, Debug)]
@@ -355,6 +368,8 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
         endpoint: myendpoint.unwrap(),
         routes: myroutes.unwrap(),
         peers,
+        npu_ipv4: my_ipv4,
+        npu_ipv6: my_ipv6,
     })
 }
 
@@ -363,8 +378,19 @@ pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
     let reader = BufReader::new(file);
 
     // Parse the YAML data
-    let swbus_config: SwbusConfig = serde_yaml::from_reader(reader)
+    let mut swbus_config: SwbusConfig = serde_yaml::from_reader(reader)
         .map_err(|e| SwbusConfigError::InvalidConfig(format!("Failed to parse YAML file: {}", e)))?;
+    let ip = swbus_config.endpoint.ip();
+
+    match ip {
+        IpAddr::V4(ipv4) => {
+            swbus_config.npu_ipv4 = Some(ipv4);
+        }
+        IpAddr::V6(ipv6) => {
+            swbus_config.npu_ipv6 = Some(ipv6);
+        }
+    }
+
     Ok(swbus_config)
 }
 
@@ -517,7 +543,8 @@ mod tests {
         file.write_all(yaml_content.as_bytes()).unwrap();
 
         let mut expected = swbus_config_from_yaml(file_path.to_str().unwrap()).unwrap();
-
+        expected.npu_ipv4 = Some(Ipv4Addr::from_str("10.0.1.0").unwrap());
+        expected.npu_ipv6 = Some(Ipv6Addr::from_str("2001:db8:1::").unwrap());
         // sort before compare
         config_fromdb.routes.sort_by(|a, b| a.key.cmp(&b.key));
         config_fromdb.peers.sort_by(|a, b| a.id.cmp(&b.id));

@@ -135,6 +135,21 @@ impl Outgoing {
         }
     }
 
+    pub fn from_my_sp(&self, resource_type: &str, resource_id: &str) -> ServicePath {
+        let mut sp = self.swbus_client.get_service_path().clone();
+        sp.resource_type = resource_type.into();
+        sp.resource_id = resource_id.into();
+        sp
+    }
+
+    pub fn common_bridge_sp<T>(&self) -> ServicePath
+    where
+        T: swss_common::SonicDbTable + 'static,
+    {
+        let resource_id = format!("{}|{}", T::db_name(), T::table_name());
+        self.from_my_sp("swss-common-bridge", &resource_id)
+    }
+
     pub(crate) fn dump_state(&self) -> OutgoingStateData {
         let state_data = OutgoingStateData {
             outgoing_queued: self.queued_messages.clone(),

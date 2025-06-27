@@ -122,8 +122,23 @@ const CONFIG_DB_REDIS_CONFIG_JSON: &str = r#"
             }
         },
         "DATABASES": {
+            "APPL_DB": {
+                "id": 0,
+                "separator": ":",
+                "instance": "redis"
+            },
             "CONFIG_DB": {
                 "id": 1,
+                "separator": "|",
+                "instance": "redis"
+            },
+            "STATE_DB": {
+                "id": 2,
+                "separator": "|",
+                "instance": "redis"
+            },
+            "DPU_STATE_DB": {
+                "id": 3,
                 "separator": "|",
                 "instance": "redis"
             }

@@ -1,3 +1,4 @@
+use super::get_unix_time;
 use crate::actor_message::ActorMessage;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -6,8 +7,6 @@ use swbus_edge::{
     simple_client::{MessageBody, MessageId, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
 };
-
-use super::get_unix_time;
 
 /// Incoming state table - messages from other actors identified by a string key.
 pub struct Incoming {
@@ -31,6 +30,16 @@ impl Incoming {
             swbus_edge,
             table: HashMap::new(),
         }
+    }
+
+    pub fn get_by_prefix(&self, prefix: &str) -> Vec<&IncomingTableEntry> {
+        // ideally we should use a radix trie here, but didn't find a suitable and stable
+        // implementation in Rust. This is a simple and inefficient implementation but we don't
+        // expect the table to be very large.
+        self.table
+            .iter()
+            .filter_map(|(key, value)| if key.starts_with(prefix) { Some(value) } else { None })
+            .collect()
     }
 
     /// Inserts an actor message (and associated metadata) into the incoming table.
@@ -160,5 +169,47 @@ impl PartialEq for IncomingTableEntry {
             && self.msg == other.msg
             && self.response == other.response
             && self.acked == other.acked
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::actor_message::ActorMessage;
+    use swbus_edge::swbus_proto::swbus::ServicePath;
+    use swbus_edge::SwbusEdgeRuntime;
+
+    #[test]
+    fn test_incoming_table() {
+        let swbus_edge = Arc::new(SwbusEdgeRuntime::new(
+            "none".to_string(),
+            ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
+        ));
+
+        let swbus_edge = Arc::new(SimpleSwbusEdgeClient::new(
+            swbus_edge.clone(),
+            ServicePath::from_string("unknown.unknown.unknown/hamgrd/0/test/0").unwrap(),
+            true,
+            false,
+        ));
+        let mut incoming = Incoming::new(swbus_edge.clone());
+
+        let msg1 = ActorMessage::new("actor_registration-source/0", &1).unwrap();
+        let msg2 = ActorMessage::new("actor_registration-source/1", &2).unwrap();
+
+        let source1 = ServicePath::from_string("unknown.unknown.unknown/hamgrd/0/source/0").unwrap();
+        let source2 = ServicePath::from_string("unknown.unknown.unknown/hamgrd/0/source/0").unwrap();
+
+        incoming.insert(msg1.clone(), source1.clone(), 0);
+        incoming.insert(msg2.clone(), source2.clone(), 1);
+
+        assert_eq!(incoming.get("actor_registration-source/0").unwrap(), &msg1);
+        assert_eq!(incoming.get("actor_registration-source/1").unwrap(), &msg2);
+
+        assert_eq!(incoming.get_entry("actor_registration-source/0").unwrap().msg, msg1);
+        assert_eq!(incoming.get_entry("actor_registration-source/1").unwrap().msg, msg2);
+
+        let regs = incoming.get_by_prefix("actor_registration-");
+        assert_eq!(regs.len(), 2);
     }
 }
