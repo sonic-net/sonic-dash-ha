@@ -76,7 +76,8 @@ impl DpuActor {
     }
 
     // DpuActor is spawned in response to swss-common-bridge message for DPU and REMOTE_DPU table
-    pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<()> {
+    pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<Vec<ConsumerBridge>> {
+        let mut bridges = Vec::new();
         let dpu_ac = ActorCreator::new(
             edge_runtime.new_sp(Self::name(), ""),
             edge_runtime.clone(),
@@ -91,7 +92,7 @@ impl DpuActor {
         let sst = SubscriberStateTable::new_async(config_db, Self::dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<Dpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        spawn_consumer_bridge(
+        bridges.push(ConsumerBridge::spawn(
             edge_runtime.clone(),
             addr,
             sst,
@@ -102,13 +103,13 @@ impl DpuActor {
                 (addr, Self::dpu_table_name().to_owned())
             },
             |_| true,
-        );
+        ));
 
         let config_db = crate::db_named(RemoteDpu::db_name()).await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::remote_dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<RemoteDpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        spawn_consumer_bridge(
+        bridges.push(ConsumerBridge::spawn(
             edge_runtime.clone(),
             addr,
             sst,
@@ -119,8 +120,8 @@ impl DpuActor {
                 (addr, Self::remote_dpu_table_name().to_owned())
             },
             |_| true,
-        );
-        Ok(())
+        ));
+        Ok(bridges)
     }
 
     async fn handle_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {

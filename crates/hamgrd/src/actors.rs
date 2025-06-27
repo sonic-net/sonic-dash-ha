@@ -32,7 +32,7 @@ pub trait DbBasedActor: Actor {
     where
         Self: Sized;
 
-    async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<()>
+    async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<Vec<ConsumerBridge>>
     where
         Self: Sized,
         T: SonicDbTable + 'static,
@@ -50,7 +50,7 @@ pub trait DbBasedActor: Actor {
         let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<T>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        spawn_consumer_bridge(
+        Ok(vec![ConsumerBridge::spawn(
             edge_runtime.clone(),
             addr,
             sst,
@@ -61,8 +61,7 @@ pub trait DbBasedActor: Actor {
                 (addr, T::table_name().to_owned())
             },
             |_| true,
-        );
-        Ok(())
+        )])
     }
 }
 

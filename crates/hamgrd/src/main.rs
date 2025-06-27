@@ -7,6 +7,7 @@ use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
 use swss_common::DbConnector;
+use swss_common_bridge::consumer::ConsumerBridge;
 use tokio::{signal, task::JoinHandle, time::timeout};
 use tracing::error;
 mod actors;
@@ -71,7 +72,7 @@ async fn main() {
         }
     });
 
-    start_actor_creators(&swbus_edge).await.unwrap();
+    let _bridges = start_actor_creators(&swbus_edge).await.unwrap();
 
     // Wait for Ctrl+C to exit
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
@@ -112,12 +113,13 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 
 // actor-creator creates are private swbus message handler to handle messages to actor but actor do not exist.
 // The creator will create the actor when it receives the first message to the actor.
-async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-    DpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?;
-    HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?;
-    HaScopeActor::start_actor_creator::<DashHaScopeConfigTable>(edge_runtime.clone()).await?;
-    Ok(())
+async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<Vec<ConsumerBridge>> {
+    let mut bridges: Vec<ConsumerBridge> = Vec::new();
+    bridges.append(&mut DpuActor::start_actor_creator(edge_runtime.clone()).await?);
+    bridges.append(&mut VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaScopeActor::start_actor_creator::<DashHaScopeConfigTable>(edge_runtime.clone()).await?);
+    Ok(bridges)
 }
 
 pub fn get_slot_id(swbus_edge: &Arc<SwbusEdgeRuntime>) -> u32 {
