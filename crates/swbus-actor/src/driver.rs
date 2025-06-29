@@ -125,7 +125,7 @@ impl<A: Actor> ActorDriver<A> {
                         body: MessageBody::Response {
                             request_id,
                             error_code: SwbusErrorCode::InvalidArgs,
-                            error_message: format!("Unsupported request type: {:?}", request),
+                            error_message: format!("Unsupported request type: {request:?}"),
                             response_body: None,
                         },
                     })

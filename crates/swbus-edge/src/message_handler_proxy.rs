@@ -21,7 +21,7 @@ impl SwbusMessageHandlerProxy {
                 SwbusErrorCode::ConnectionError,
                 io::Error::new(
                     io::ErrorKind::ConnectionAborted,
-                    format!("Message handler channel is broken: {}", e),
+                    format!("Message handler channel is broken: {e}"),
                 ),
             )),
         }
