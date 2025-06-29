@@ -154,7 +154,7 @@ fn new_file_subscriber(
     use color_eyre::eyre::ContextCompat;
 
     let identity =
-        std::ffi::CString::new(program_name).wrap_err(format!("Unable to create syslog identity: {}", program_name))?;
+        std::ffi::CString::new(program_name).wrap_err(format!("Unable to create syslog identity: {program_name}"))?;
     let (options, facility) = Default::default();
     let syslog =
         syslog_tracing::Syslog::new(identity, options, facility).wrap_err("Unable to create syslog writer.")?;
@@ -173,7 +173,7 @@ pub fn init_logger_for_test() {
 
     let mut log_init_guard = LOG_FOR_TEST_INIT
         .lock()
-        .unwrap_or_else(|err| panic!("Failed to lock: {}", err));
+        .unwrap_or_else(|err| panic!("Failed to lock: {err}"));
     if *log_init_guard {
         return;
     }

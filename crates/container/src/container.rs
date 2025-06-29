@@ -93,7 +93,7 @@ impl<'a> Container<'a> {
                 "config file isn't an object at the top level".to_string(),
             ))?
             .get(field)
-            .ok_or(Error::JSONData(format!("field {} not found", field)))
+            .ok_or(Error::JSONData(format!("field {field} not found")))
             .cloned()
     }
 
@@ -104,7 +104,7 @@ impl<'a> Container<'a> {
             DB_FEATURE_TABLE
         };
 
-        let data = db_connector.hgetall(&format!("{}|{}", table_name, key))?;
+        let data = db_connector.hgetall(&format!("{table_name}|{key}"))?;
         for (field, default) in fields.iter_mut() {
             if let Some(value) = data.get(field as &str) {
                 *default = value.to_str()?.to_string()
@@ -153,7 +153,7 @@ impl<'a> Container<'a> {
         if self.db_connections.remote_ctr_enabled {
             self.db_connections.state_db.hset(
                 DB_KUBE_LABEL_TABLE,
-                &format!("{}|{}_enabled", DB_KUBE_LABEL_SET_KEY, feature),
+                &format!("{DB_KUBE_LABEL_SET_KEY}|{feature}_enabled"),
                 &CxxString::new(if create { "true" } else { "false" }),
             )?;
         }
