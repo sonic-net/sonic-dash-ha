@@ -89,7 +89,7 @@ impl SwbusServiceHost {
             .map_err(|e| {
                 SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
-                    io::Error::other(format!("Failed to listen at {}: {}", addr, e)),
+                    io::Error::other(format!("Failed to listen at {addr}: {e}")),
                 )
             })?;
         debug!("SwbusServiceServer terminated");

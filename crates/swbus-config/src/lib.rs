@@ -123,7 +123,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     debug!("Collecting routes for local dpu{}", dpu_id);
 
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4.as_ref() {
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, dpu_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv4}-dpu{dpu_id}"), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
             scope: RouteScope::Cluster,
@@ -131,7 +131,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     }
 
     if let Some(npu_ipv6) = dpu_entry.npu_ipv6.as_ref() {
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, dpu_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv6}-dpu{dpu_id}"), "", "", "", "");
         routes.push(RouteConfig {
             key: sp,
             scope: RouteScope::Cluster,
@@ -139,7 +139,7 @@ fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, clust
     }
 
     if routes.is_empty() {
-        SwbusConfigError::InvalidConfig(format!("No valid routes found in local dpu{}", dpu_id));
+        SwbusConfigError::InvalidConfig(format!("No valid routes found in local dpu{dpu_id}"));
     }
 
     debug!("Routes collected: {:?}", &routes);
@@ -163,14 +163,12 @@ fn peer_config_from_dpu_entry(
     if dpu_type != "cluster" {
         // ignore external DPUs, not for DASH smartswitch
         return Err(SwbusConfigError::InvalidConfig(format!(
-            "Unsupported DPU type: {}",
-            dpu_type
+            "Unsupported DPU type: {dpu_type}"
         )));
     }
 
     let swbusd_port = dpu_entry.swbus_port.ok_or(SwbusConfigError::InvalidConfig(format!(
-        "swbusd_port is not found in dpu {} is not found",
-        key
+        "swbusd_port is not found in dpu {key} is not found"
     )))?;
 
     let dpu_id = dpu_entry.dpu_id;
@@ -178,9 +176,9 @@ fn peer_config_from_dpu_entry(
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4 {
         let npu_ipv4 = npu_ipv4
             .parse::<Ipv4Addr>()
-            .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv4 address: {}", npu_ipv4)))?;
+            .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv4 address: {npu_ipv4}")))?;
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv4, dpu_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv4}-dpu{dpu_id}"), "", "", "", "");
         peers.push(PeerConfig {
             id: sp,
             endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), swbusd_port),
@@ -191,9 +189,9 @@ fn peer_config_from_dpu_entry(
     if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
         let npu_ipv6 = npu_ipv6
             .parse::<Ipv6Addr>()
-            .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {}", npu_ipv6)))?;
+            .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {npu_ipv6}")))?;
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{}-dpu{}", npu_ipv6, dpu_id), "", "", "", "");
+        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv6}-dpu{dpu_id}"), "", "", "", "");
         peers.push(PeerConfig {
             id: sp,
             endpoint: SocketAddr::new(IpAddr::V6(npu_ipv6), swbusd_port),
@@ -239,7 +237,7 @@ fn get_loopback_address(lb_index: u32) -> Result<(Option<Ipv4Addr>, Option<Ipv6A
         .get_keys()
         .map_err(|e| ("Failed to get keys from LOOPBACK_INTERFACE table".into(), e))?;
 
-    let lb_prefix = format!("Loopback{}|", lb_index);
+    let lb_prefix = format!("Loopback{lb_index}|");
     for mut key in keys {
         if !key.starts_with(lb_prefix.as_str()) {
             continue;
@@ -291,7 +289,7 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
 
     for key in keys {
         let mut dpu: ConfigDBDPUEntry =
-            from_table(&table, &key).map_err(|e| (format!("reading DPU entry {}", key), e))?;
+            from_table(&table, &key).map_err(|e| (format!("reading DPU entry {key}"), e))?;
 
         dpu.npu_ipv4 = my_ipv4;
         dpu.npu_ipv6 = my_ipv6;
@@ -300,12 +298,11 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
         if dpu.dpu_id == dpu_id {
             // Check if the DPU entry is valid and has the required fields
             let swbusd_port = dpu.swbus_port.ok_or(SwbusConfigError::InvalidConfig(format!(
-                "swbusd_port is not found in dpu{} is not found",
-                dpu_id
+                "swbusd_port is not found in dpu{dpu_id} is not found"
             )))?;
 
             myroutes = Some(route_config_from_dpu_entry(&dpu, &region, &cluster).map_err(|e| {
-                error!("Failed to collect routes for dpu{}: {}", dpu_id, e);
+                error!("Failed to collect routes for dpu{dpu_id}: {e}");
                 e
             })?);
 
@@ -325,8 +322,7 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
     }
     if myroutes.is_none() {
         return Err(SwbusConfigError::InvalidConfig(format!(
-            "DPU at slot {} is not found",
-            dpu_id
+            "DPU at slot {dpu_id} is not found"
         )));
     }
 
@@ -339,7 +335,7 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
 
     for key in keys {
         let remote_dpu: ConfigDBRemoteDPUEntry =
-            from_table(&table, &key).map_err(|e| (format!("reading REMOTE_DPU entry {}", key), e))?;
+            from_table(&table, &key).map_err(|e| (format!("reading REMOTE_DPU entry {key}"), e))?;
 
         let peer = peer_config_from_dpu_entry(&key, remote_dpu, &region, &cluster).map_err(|e| {
             error!("Failed to collect peers from {}: {}", key, e);
@@ -364,7 +360,7 @@ pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
 
     // Parse the YAML data
     let swbus_config: SwbusConfig = serde_yaml::from_reader(reader)
-        .map_err(|e| SwbusConfigError::InvalidConfig(format!("Failed to parse YAML file: {}", e)))?;
+        .map_err(|e| SwbusConfigError::InvalidConfig(format!("Failed to parse YAML file: {e}")))?;
     Ok(swbus_config)
 }
 
@@ -412,7 +408,7 @@ pub mod test_utils {
                 npu_ipv6: None,
                 swbus_port: Some(23606 + d as u16),
             };
-            to_table(&dpu, &table, &format!("dpu{}", d)).unwrap();
+            to_table(&dpu, &table, &format!("dpu{d}")).unwrap();
         }
 
         let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
@@ -423,11 +419,11 @@ pub mod test_utils {
                 let dpu = ConfigDBRemoteDPUEntry {
                     dpu_type: Some("cluster".to_string()),
                     dpu_id: d,
-                    npu_ipv4: Some(format!("10.0.1.{}", s)),
-                    npu_ipv6: Some(format!("2001:db8:1::{}", s)),
+                    npu_ipv4: Some(format!("10.0.1.{s}")),
+                    npu_ipv6: Some(format!("2001:db8:1::{s}")),
                     swbus_port: Some(23606 + d as u16),
                 };
-                let key = format!("dpu{}_{}", s, d);
+                let key = format!("dpu{s}_{d}");
                 to_table(&dpu, &table, &key).unwrap();
                 assert_eq!(table.hget(&key, "type").unwrap().as_ref().unwrap(), "cluster");
             }
@@ -440,11 +436,11 @@ pub mod test_utils {
         let db = DbConnector::new_named(CONFIG_DB, false, 0).unwrap();
         let table = Table::new(db, "DPU").unwrap();
         for d in 0..2 {
-            table.del(&format!("dpu{}", d)).unwrap();
+            table.del(&format!("dpu{d}")).unwrap();
         }
         for s in 1..3 {
             for d in 0..2 {
-                table.del(&format!("dpu{}_{}", s, d)).unwrap();
+                table.del(&format!("dpu{s}_{d}")).unwrap();
             }
         }
     }
@@ -484,13 +480,13 @@ mod tests {
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::-dpu1"
             endpoint: "[2001:db8:1::]:23607"
-            conn_type: "Cluster"            
+            conn_type: "Cluster"
           - id: "region-a.cluster-a.10.0.1.1-dpu0"
             endpoint: "10.0.1.1:23606"
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::1-dpu0"
             endpoint: "[2001:db8:1::1]:23606"
-            conn_type: "Cluster"   
+            conn_type: "Cluster"
           - id: "region-a.cluster-a.10.0.1.1-dpu1"
             endpoint: "10.0.1.1:23607"
             conn_type: "Cluster"
@@ -502,13 +498,13 @@ mod tests {
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::2-dpu0"
             endpoint: "[2001:db8:1::2]:23606"
-            conn_type: "Cluster"   
+            conn_type: "Cluster"
           - id: "region-a.cluster-a.10.0.1.2-dpu1"
             endpoint: "10.0.1.2:23607"
             conn_type: "Cluster"
           - id: "region-a.cluster-a.2001:db8:1::2-dpu1"
             endpoint: "[2001:db8:1::2]:23607"
-            conn_type: "Cluster"               
+            conn_type: "Cluster"
         "#;
 
         let dir = tempdir().unwrap();
@@ -553,7 +549,7 @@ mod tests {
         match result {
             Ok(_) => {}
             Err(e) => {
-                panic!("Failed to load config from yaml: {}", e);
+                panic!("Failed to load config from yaml: {e}");
             }
         }
 
