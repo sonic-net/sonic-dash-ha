@@ -70,7 +70,7 @@ extern "C" fn priority_change_notify(_component: *const c_char, priority: *const
 
     logger.set_level(priority.to_string());
 
-    println!("Priority set to: {}", priority);
+    println!("Priority set to: {priority}");
 }
 
 extern "C" fn output_change_notify(_component: *const c_char, output: *const c_char) {
@@ -80,7 +80,7 @@ extern "C" fn output_change_notify(_component: *const c_char, output: *const c_c
     let mut logger = LOGGER.lock().unwrap();
     logger.handler.as_mut().unwrap().as_mut().on_log_output_change(output);
     logger.set_output(output.to_string());
-    println!("Output set to: {}", output);
+    println!("Output set to: {output}");
 }
 
 pub fn log_level() -> String {

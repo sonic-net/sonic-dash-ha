@@ -102,6 +102,7 @@ pub async fn run_commands(aut: ServicePath, commands: &[Command]) {
                                 request_id,
                                 error_code,
                                 error_message,
+                                response_body: None,
                             },
                         ..
                     })) if request_id == sent_id => (error_code, error_message),

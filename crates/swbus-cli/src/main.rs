@@ -9,7 +9,6 @@ use swbus_edge::edge_runtime::SwbusEdgeRuntime;
 use swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 use tokio::time::{self, Duration, Instant};
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, Layer};
@@ -43,7 +42,7 @@ struct CommandContext {
     debug: bool,
     // The source servicepath of swbus-cli
     sp: ServicePath,
-    runtime: Arc<Mutex<SwbusEdgeRuntime>>,
+    runtime: Arc<SwbusEdgeRuntime>,
     id_generator: MessageIdGenerator,
 }
 
@@ -129,7 +128,7 @@ fn get_swbus_config(config_file: Option<&str>) -> Result<SwbusConfig> {
     match config_file {
         Some(config_file) => {
             let config = swbus_config_from_yaml(config_file)
-                .context(format!("Failed to read swbusd config from file {}", config_file))?;
+                .context(format!("Failed to read swbusd config from file {config_file}"))?;
             Ok(config)
         }
         None => {
@@ -159,14 +158,22 @@ async fn main() {
 
     sp.service_type = "swbus-cli".to_string();
     sp.service_id = Uuid::new_v4().to_string();
-    let runtime = Arc::new(Mutex::new(SwbusEdgeRuntime::new(
-        format!("http://{}", swbus_config.endpoint),
-        sp.clone(),
-    )));
-    let runtime_clone = runtime.clone();
-    tokio::spawn(async move {
-        runtime_clone.lock().await.start().await.unwrap();
-    });
+    let mut runtime = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), sp.clone());
+    runtime.start().await.unwrap();
+    let runtime = Arc::new(runtime);
+
+    let start = Instant::now();
+    // wait until swbusd is connected
+    loop {
+        if runtime.swbusd_connected().await {
+            break;
+        }
+        if start.elapsed() > Duration::from_secs(10) {
+            error!("Failed to connect to swbusd");
+            return;
+        }
+        time::sleep(Duration::from_millis(100)).await;
+    }
 
     let ctx = CommandContext {
         debug: args.debug,
@@ -257,13 +264,13 @@ mod tests {
         // Mock the config database with a sample configuration
         populate_configdb_for_test();
 
-        std::env::set_var("DEV", format!("dpu{}", slot));
+        std::env::set_var("DEV", format!("dpu{slot}"));
         let config = get_swbus_config(None).unwrap();
         assert_eq!(config.endpoint.to_string(), format!("{}:{}", "10.0.1.0", 23606 + slot));
         let expected_sp = ServicePath::with_node(
             "region-a",
             "cluster-a",
-            &format!("{}-dpu{}", npu_ipv4, slot),
+            &format!("{npu_ipv4}-dpu{slot}"),
             "",
             "",
             "",

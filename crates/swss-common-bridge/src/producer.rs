@@ -63,6 +63,7 @@ where
                         request_id: msg.id,
                         error_code,
                         error_message,
+                        response_body: None,
                     },
                 })
                 .await
@@ -162,7 +163,7 @@ mod test {
             let msg = OutgoingMessage {
                 destination: sp("mytable-bridge"),
                 body: MessageBody::Request {
-                    payload: encode_kfv(&kfv),
+                    payload: encode_kfv(kfv),
                 },
             };
             swbus.send(msg).await.unwrap();

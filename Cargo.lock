@@ -1924,6 +1924,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sonicdb-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "swss-common",
+ "syn 2.0.58",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1975,8 +1985,11 @@ name = "swbus-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "serde_json",
  "serde_yaml",
+ "swbus-actor",
  "swbus-config",
  "swbus-core",
  "swbus-edge",
@@ -2026,6 +2039,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sonic-common",
  "strum",
  "swbus-config",
  "swbus-edge",
@@ -2047,7 +2061,12 @@ dependencies = [
  "contracts",
  "dashmap",
  "prost",
+ "rand",
+ "serde_yaml",
+ "sonic-common",
  "strum",
+ "swbus-config",
+ "swbus-core",
  "swbus-proto",
  "thiserror",
  "tokio",

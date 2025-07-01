@@ -1,11 +1,12 @@
 use crate::SwbusEdgeRuntime;
+use std::collections::HashMap;
 use std::sync::Arc;
 use swbus_proto::{
     message_id_generator::MessageIdGenerator,
     result::Result,
     swbus::{
-        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage,
-        SwbusMessageHeader,
+        request_response::ResponseBody, swbus_message::Body, DataRequest, ManagementQueryResult, ManagementRequest,
+        ManagementRequestType, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage, SwbusMessageHeader,
     },
 };
 use tokio::sync::{
@@ -86,6 +87,7 @@ impl SimpleSwbusEdgeClient {
                     request_id,
                     error_code: SwbusErrorCode::try_from(error_code).unwrap_or(SwbusErrorCode::UnknownError),
                     error_message,
+                    response_body: None,
                 },
             }),
             Body::PingRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
@@ -96,6 +98,27 @@ impl SimpleSwbusEdgeClient {
                 SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
                 Body::Response(RequestResponse::ok(id)),
             )),
+            Body::ManagementRequest(ManagementRequest { request, arguments }) => {
+                let request_type = match ManagementRequestType::try_from(request) {
+                    Ok(request_type) => request_type,
+                    Err(_) => {
+                        // TODO: Log error
+                        return HandleReceivedMessage::Ignore;
+                    }
+                };
+                HandleReceivedMessage::PassToActor(IncomingMessage {
+                    id,
+                    source,
+                    destination,
+                    body: MessageBody::ManagementRequest {
+                        request: request_type,
+                        args: arguments
+                            .iter()
+                            .map(|arg| (arg.name.clone(), arg.value.clone()))
+                            .collect(),
+                    },
+                })
+            }
             _ => HandleReceivedMessage::Ignore,
         }
     }
@@ -128,12 +151,20 @@ impl SimpleSwbusEdgeClient {
                     request_id,
                     error_code,
                     error_message,
-                } => Body::Response(RequestResponse {
-                    request_id,
-                    error_code: error_code.into(),
-                    error_message,
-                    response_body: None,
-                }),
+                    response_body,
+                } => {
+                    let response_body = response_body.map(|MessageResponseBody::ManagementQueryResult { payload }| {
+                        ResponseBody::ManagementQueryResult(ManagementQueryResult { value: payload })
+                    });
+
+                    Body::Response(RequestResponse {
+                        request_id,
+                        error_code: error_code.into(),
+                        error_message,
+                        response_body,
+                    })
+                }
+                MessageBody::ManagementRequest { .. } => unimplemented!(),
             }),
         };
         (id, msg)
@@ -157,7 +188,17 @@ pub enum MessageBody {
         request_id: MessageId,
         error_code: SwbusErrorCode,
         error_message: String,
+        response_body: Option<MessageResponseBody>,
     },
+    ManagementRequest {
+        request: ManagementRequestType,
+        args: HashMap<String, String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum MessageResponseBody {
+    ManagementQueryResult { payload: String },
 }
 
 /// A message received from another Swbus client.
