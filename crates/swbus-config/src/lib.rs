@@ -35,6 +35,17 @@ pub struct PeerConfig {
     pub conn_type: ConnectionType,
 }
 
+impl SwbusConfig {
+    pub fn get_swbusd_service_path(&self) -> Option<ServicePath> {
+        for route in &self.routes {
+            if route.scope == RouteScope::Cluster {
+                return Some(route.key.clone());
+            }
+        }
+        None
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum SwbusConfigError {
     #[error("Invalid config: {0}")]
@@ -306,10 +317,10 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
                 e
             })?);
 
-            if let Some(npu_ipv4) = dpu.npu_ipv4 {
-                myendpoint = Some(SocketAddr::new(std::net::IpAddr::V4(npu_ipv4), swbusd_port));
-            } else if let Some(npu_ipv6) = dpu.npu_ipv6 {
-                myendpoint = Some(SocketAddr::new(std::net::IpAddr::V6(npu_ipv6), swbusd_port));
+            if dpu.npu_ipv4.is_some() {
+                myendpoint = Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), swbusd_port));
+            } else if dpu.npu_ipv6.is_some() {
+                myendpoint = Some(SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), swbusd_port));
             }
             continue;
         }
@@ -468,7 +479,7 @@ mod tests {
 
         // create equivalent config in yaml
         let yaml_content = r#"
-        endpoint: "10.0.1.0:23606"
+        endpoint: "0.0.0.0:23606"
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "Cluster"

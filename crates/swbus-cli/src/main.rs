@@ -149,17 +149,11 @@ async fn main() {
     init_logger(args.debug);
 
     let swbus_config = get_swbus_config(args.config_file.as_deref()).unwrap();
-    let mut sp: Option<ServicePath> = None;
-    for route in &swbus_config.routes {
-        if route.scope == RouteScope::Cluster {
-            sp = Some(route.key.clone());
-            break;
-        }
-    }
-    if sp.is_none() {
+    let mut sp = swbus_config.get_swbusd_service_path().unwrap_or_else(|| {
         error!("No cluster route found, please check the config");
-    }
-    let mut sp = sp.unwrap();
+        std::process::exit(1);
+    });
+
     sp.service_type = "swbus-cli".to_string();
     sp.service_id = Uuid::new_v4().to_string();
     let mut runtime = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), sp.clone());
@@ -270,7 +264,7 @@ mod tests {
 
         std::env::set_var("DEV", format!("dpu{slot}"));
         let config = get_swbus_config(None).unwrap();
-        assert_eq!(config.endpoint.to_string(), format!("{}:{}", npu_ipv4, 23606 + slot));
+        assert_eq!(config.endpoint.to_string(), format!("{}:{}", "0.0.0.0", 23606 + slot));
         let expected_sp = ServicePath::with_node(
             "region-a",
             "cluster-a",
