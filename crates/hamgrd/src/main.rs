@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Ok};
 use clap::Parser;
 use sonic_common::log;
 use std::{sync::Arc, time::Duration};
@@ -10,6 +10,9 @@ use tokio::signal;
 use tokio::time::timeout;
 use tracing::error;
 mod actors;
+mod ha_actor_messages;
+use actors::dpu::DpuActor;
+use anyhow::Result;
 
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
@@ -23,7 +26,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
     if let Err(e) = log::init("hamgrd", true) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
     }
 
     // Read swbusd config from redis or yaml file
@@ -40,18 +43,15 @@ async fn main() {
     // Setup swbus and actor runtime
     let mut swbus_edge = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), swbus_sp);
     swbus_edge.start().await.unwrap();
-    let actor_runtime = ActorRuntime::new(Arc::new(swbus_edge));
+    let swbus_edge = Arc::new(swbus_edge);
+    let actor_runtime = ActorRuntime::new(swbus_edge.clone());
     set_global_runtime(actor_runtime);
 
-    actors::dpu::spawn_dpu_actors().await.unwrap();
+    //actors::dpu::spawn_dpu_actors().await.unwrap();
+    start_actor_creators(&swbus_edge).await.unwrap();
 
     // Wait for Ctrl+C to exit
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-}
-
-fn sp(resource_type: &str, resource_id: &str) -> ServicePath {
-    let rt = swbus_actor::get_global_runtime().as_ref().unwrap().get_swbus_edge();
-    rt.new_sp(resource_type, resource_id)
 }
 
 async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
@@ -60,4 +60,23 @@ async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
         .map_err(|_| anyhow!("Connecting to db `{name}` timed out"))?
         .map_err(|e| anyhow!("Connecting to db `{name}`: {e}"))?;
     Ok(db)
+}
+
+// actor-creator creates are private swbus message handler to handle messages to actor but actor do not exist.
+// The creator will create the actor when it receives the first message to the actor.
+async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
+    DpuActor::start_actor_creator(edge_runtime.clone()).await?;
+    //VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
+    //HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
+    Ok(())
+}
+
+pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
+where
+    T: swss_common::SonicDbTable + 'static,
+{
+    let mut new_sp = runtime.get_base_sp();
+    new_sp.resource_type = "swss-common-bridge".into();
+    new_sp.resource_id = format!("{}|{}", T::db_name(), T::table_name());
+    new_sp
 }

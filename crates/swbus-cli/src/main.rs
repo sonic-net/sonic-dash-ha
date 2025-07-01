@@ -150,9 +150,8 @@ async fn main() {
     init_logger(args.debug);
 
     let swbus_config = get_swbus_config(args.config_file.as_deref()).unwrap();
-
     let mut sp = swbus_config.get_swbusd_service_path().unwrap_or_else(|| {
-        error!("No cluster route found in swbusd config");
+        error!("No cluster route found, please check the config");
         std::process::exit(1);
     });
 
