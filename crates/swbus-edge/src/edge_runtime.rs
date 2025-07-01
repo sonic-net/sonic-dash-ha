@@ -17,9 +17,9 @@ pub struct SwbusEdgeRuntime {
     swbus_uri: String,
     message_router: SwbusMessageRouter,
     sender_to_message_router: Sender<SwbusMessage>,
-    tx_to_swbusd: Arc<RwLock<Option<mpsc::Sender<SwbusMessage>>>>,
     //base service path with service type and service id
     base_sp: ServicePath,
+    tx_to_swbusd: Arc<RwLock<Option<mpsc::Sender<SwbusMessage>>>>,
 }
 
 impl SwbusEdgeRuntime {
@@ -35,8 +35,8 @@ impl SwbusEdgeRuntime {
             swbus_uri,
             message_router,
             sender_to_message_router: local_msg_tx,
-            tx_to_swbusd,
             base_sp,
+            tx_to_swbusd,
         }
     }
 

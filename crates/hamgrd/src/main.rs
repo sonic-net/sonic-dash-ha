@@ -3,7 +3,7 @@ use clap::Parser;
 use sonic_common::log;
 use std::{sync::Arc, time::Duration};
 use swbus_actor::{set_global_runtime, ActorRuntime};
-use swbus_config::{swbus_config_from_db, swbus_config_from_yaml};
+use swbus_config::swbus_config_from_db;
 use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::DbConnector;
 use tokio::signal;
@@ -17,13 +17,9 @@ use anyhow::Result;
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
 struct Args {
-    // The slot id of the DPU. If this is set, it will read configuration from DPU table in config_db.
-    // Otherwise, it will read configuration from the yaml file and bind to the specified address.
+    // The slot id of the DPU. It will read configuration from DPU table in config_db that matches the slot_id.
     #[arg(short = 's', long)]
-    slot_id: Option<u32>,
-    /// swbusd config in yaml file, including routes and peer information.
-    #[arg(short = 'c', long)]
-    config: Option<String>,
+    slot_id: u32,
 }
 
 #[tokio::main]
@@ -34,13 +30,7 @@ async fn main() {
     }
 
     // Read swbusd config from redis or yaml file
-    let swbus_config = match args.slot_id {
-        Some(slot_id) => swbus_config_from_db(slot_id).unwrap(),
-        None => {
-            let config_path = args.config.expect("route_config is required when slot_id is not set");
-            swbus_config_from_yaml(&config_path).unwrap()
-        }
-    };
+    let swbus_config = swbus_config_from_db(args.slot_id).unwrap();
 
     let mut swbus_sp = swbus_config.get_swbusd_service_path().unwrap_or_else(|| {
         error!("No cluster route found in swbusd config");
