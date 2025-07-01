@@ -140,7 +140,6 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
         swbus_actor::spawn(actor, "test", &s);
     }
 
-
     if timeout(Duration::from_secs(5), recv_done.recv()).await.is_err() {
         Some("test timed out")
     } else {
