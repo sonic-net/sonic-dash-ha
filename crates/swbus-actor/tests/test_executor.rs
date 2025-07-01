@@ -133,12 +133,13 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
             name: s.clone(),
             db: redis.db_connector(),
             notify_done: notify_done.clone(),
-            spec: t.actors.remove(&s).expect(&format!("No actor in test json named {s}")),
+            spec: t.actors.remove(&s).expect("No actor in test json named {s}"),
             env: Environment::default(),
         };
 
         swbus_actor::spawn(actor, "test", &s);
     }
+
 
     if timeout(Duration::from_secs(5), recv_done.recv()).await.is_err() {
         Some("test timed out")
@@ -229,7 +230,7 @@ impl Actor for TestActor {
         let handle_message_map = mem::take(&mut self.spec.handle_message);
         if let Some(actions) = handle_message_map.get(key).or_else(|| handle_message_map.get("*")) {
             for action in actions {
-                self.run_action(&action, state).await?;
+                self.run_action(action, state).await?;
             }
         }
         self.spec.handle_message = handle_message_map;

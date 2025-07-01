@@ -76,7 +76,7 @@ impl SwbusEdgeRuntime {
                 SwbusErrorCode::ConnectionError,
                 io::Error::new(
                     io::ErrorKind::ConnectionAborted,
-                    format!("Message router channel is broken: {}", e),
+                    format!("Message router channel is broken: {e}"),
                 ),
             )),
         }
@@ -109,13 +109,12 @@ mod tests {
 
         let config = format!(
             r#"
-        endpoint: "127.0.0.1:{}"
+        endpoint: "127.0.0.1:{port}"
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "Cluster"
         peers:
-        "#,
-            port
+        "#
         );
         serde_yaml::from_str(&config).unwrap()
     }
