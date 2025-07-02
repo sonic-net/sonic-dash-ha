@@ -111,18 +111,6 @@ impl SwbusMessageRouter {
             return;
         }
 
-        // Try stripping the service id
-        partial_dest.service_id.clear();
-        if try_route(routes, &partial_dest, privacy, &message).await {
-            return;
-        }
-
-        // Try stripping the service type
-        partial_dest.service_type.clear();
-        if try_route(routes, &partial_dest, privacy, &message).await {
-            return;
-        }
-
         // Give up at this point and send out to swbus
         if let Err(e) = swbus_client.send(message).await {
             error!("Failed to send message to swbusd: {e}");

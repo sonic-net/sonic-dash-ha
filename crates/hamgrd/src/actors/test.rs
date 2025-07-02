@@ -1,5 +1,10 @@
-use serde_json::Value;
-use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
+use crate::db_structs::*;
+use crate::ha_actor_messages::*;
+use crate::RuntimeData;
+use anyhow::Result;
+use serde_json::{json, Value};
+use std::{collections::HashMap, future::Future, time::Duration};
+use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
@@ -8,7 +13,7 @@ use swbus_edge::{
 };
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
-    const TIMEOUT: Duration = Duration::from_millis(1000);
+    const TIMEOUT: Duration = Duration::from_millis(5000);
     tokio::time::timeout(TIMEOUT, fut).await
 }
 
@@ -166,11 +171,179 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
     }
 }
 
-pub async fn create_actor_runtime() -> ActorRuntime {
-    let mut swbus_edge = SwbusEdgeRuntime::new(
+pub async fn create_edge_runtime() -> SwbusEdgeRuntime {
+    let mut swbus_edge: SwbusEdgeRuntime = SwbusEdgeRuntime::new(
         "none".to_string(),
         ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
     );
     swbus_edge.start().await.unwrap();
-    ActorRuntime::new(Arc::new(swbus_edge))
+    swbus_edge
+}
+
+pub async fn create_actor_runtime(slot: u32, npu_ipv4: &str, npu_ipv6: &str) -> ActorRuntime {
+    let mut edge = create_edge_runtime().await;
+
+    let runtime_data = RuntimeData::new(
+        slot,
+        Some(npu_ipv4.parse::<Ipv4Addr>().expect("Bad ipv4 address is provided")),
+        Some(npu_ipv6.parse::<Ipv6Addr>().expect("Bad ipv6 address is provided")),
+    );
+
+    edge.set_runtime_env(Box::new(runtime_data));
+    ActorRuntime::new(Arc::new(edge))
+}
+
+fn normalize_ipv6(ipv6: &str) -> String {
+    let ipv6_addr = ipv6.parse::<Ipv6Addr>().expect("Bad ipv4 address is provided");
+    ipv6_addr.to_string()
+}
+
+pub fn make_dash_ha_global_config() -> DashHaGlobalConfig {
+    DashHaGlobalConfig {
+        dpu_bfd_probe_interval_in_ms: Some(1000),
+        dpu_bfd_probe_multiplier: Some(3),
+        cp_data_channel_port: Some(12345),
+        dp_channel_dst_port: Some(23456),
+        dp_channel_src_port_min: Some(34567),
+        dp_channel_src_port_max: Some(45678),
+        dp_channel_probe_fail_threshold: Some(3),
+        dp_channel_probe_interval_ms: Some(1000),
+    }
+}
+
+pub fn make_dpu_object(switch: u16, dpu: u32) -> Dpu {
+    Dpu {
+        state: Some("up".to_string()),
+        vip_ipv4: Some(format!("3.2.1.{switch}")),
+        vip_ipv6: Some(normalize_ipv6(&format!("3:2:1::{switch}"))),
+        pa_ipv4: format!("18.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("18:0:{switch}::{dpu}"))),
+        dpu_id: dpu,
+        vdpu_id: Some(format!("vdpu{}", switch * 8 + dpu as u16)),
+        orchagent_zmq_port: 8100,
+        swbus_port: 23606 + dpu as u16,
+        midplane_ipv4: format!("169.254.1.{dpu}"),
+    }
+}
+
+pub fn make_remote_dpu_object(switch: u16, dpu: u32) -> RemoteDpu {
+    RemoteDpu {
+        pa_ipv4: format!("4.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
+        dpu_id: dpu,
+        swbus_port: 23606 + dpu as u16,
+        npu_ipv4: format!("10.0.{switch}.{dpu}"),
+        npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
+    }
+}
+
+pub fn make_dpu_pmon_state(all_up: bool) -> DpuState {
+    let state = if all_up {
+        DpuPmonStateType::Up
+    } else {
+        DpuPmonStateType::Down
+    };
+
+    DpuState {
+        dpu_midplane_link_state: state.clone(),
+        dpu_midplane_link_time: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+        dpu_control_plane_state: state.clone(),
+        dpu_control_plane_time: 1718096215000, // Tue Jun 11 09:30:15 AM UTC 2024
+        dpu_data_plane_state: state.clone(),
+        dpu_data_plane_time: 1718231130000, // Wed Jun 12 11:45:30 PM UTC 2024
+    }
+}
+
+pub fn make_dpu_bfd_state(v4_up_sessions: Vec<&str>, v6_up_sessions: Vec<&str>) -> DashBfdProbeState {
+    DashBfdProbeState {
+        v4_bfd_up_sessions: v4_up_sessions.iter().map(|&s| s.to_string()).collect::<Vec<String>>(),
+        v4_bfd_up_sessions_timestamp: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+        v6_bfd_up_sessions: v6_up_sessions.iter().map(|&s| s.to_string()).collect::<Vec<String>>(),
+        v6_bfd_up_sessions_timestamp: 1718053542000, // Mon Jun 10 03:15:42 PM UTC 2024
+    }
+}
+pub fn make_local_dpu_actor_state(
+    switch: u16,
+    dpu: u32,
+    is_managed: bool,
+    dpu_pmon_state: Option<DpuState>,
+    dpu_bfd_state: Option<DashBfdProbeState>,
+) -> DpuActorState {
+    DpuActorState {
+        remote_dpu: false,
+        // If true, this is a DPU locally manamaged by this hamgrd.
+        is_managed,
+        dpu_name: format!("switch{switch}_dpu{dpu}"),
+        up: false,
+        state: Some("up".to_string()),
+        vip_ipv4: Some(format!("3.2.1.{switch}")),
+        vip_ipv6: Some(normalize_ipv6(&format!("3:2:1::{switch}"))),
+        pa_ipv4: format!("4.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
+        dpu_id: dpu,
+        vdpu_id: Some(format!("vdpu{}", switch * 8 + dpu as u16)),
+        orchagent_zmq_port: 8100,
+        swbus_port: 23606 + dpu as u16,
+        midplane_ipv4: Some(format!("169.254.1.{dpu}")),
+        npu_ipv4: format!("10.0.{switch}.{dpu}"),
+        npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
+        dpu_pmon_state,
+        dpu_bfd_state,
+    }
+}
+
+pub fn make_remote_dpu_actor_state(switch: u16, dpu: u32) -> DpuActorState {
+    DpuActorState {
+        remote_dpu: true,
+        // If true, this is a DPU locally manamaged by this hamgrd.
+        is_managed: false,
+        dpu_name: format!("switch{switch}_dpu{dpu}"),
+        up: false,
+        state: Some("up".to_string()),
+        vip_ipv4: None,
+        vip_ipv6: None,
+        pa_ipv4: format!("4.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
+        dpu_id: dpu,
+        vdpu_id: None,
+        orchagent_zmq_port: 0,
+        swbus_port: 23606 + dpu as u16,
+        midplane_ipv4: None,
+        npu_ipv4: format!("10.0.{switch}.{dpu}"),
+        npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
+        dpu_pmon_state: None,
+        dpu_bfd_state: None,
+    }
+}
+
+pub fn to_local_dpu(dpu_actor_state: &DpuActorState) -> Dpu {
+    if dpu_actor_state.remote_dpu {
+        panic!("Cannot convert remote DPU to local DPU");
+    }
+    Dpu {
+        state: dpu_actor_state.state.clone(),
+        vip_ipv4: dpu_actor_state.vip_ipv4.clone(),
+        vip_ipv6: dpu_actor_state.vip_ipv6.clone(),
+        pa_ipv4: dpu_actor_state.pa_ipv4.clone(),
+        pa_ipv6: dpu_actor_state.pa_ipv6.clone(),
+        dpu_id: dpu_actor_state.dpu_id,
+        vdpu_id: dpu_actor_state.vdpu_id.clone(),
+        orchagent_zmq_port: dpu_actor_state.orchagent_zmq_port,
+        swbus_port: dpu_actor_state.swbus_port,
+        midplane_ipv4: dpu_actor_state.midplane_ipv4.as_ref().unwrap().clone(),
+    }
+}
+
+pub fn to_remote_dpu(dpu_actor_state: &DpuActorState) -> RemoteDpu {
+    if dpu_actor_state.remote_dpu {
+        panic!("Cannot convert remote DPU to local DPU");
+    }
+    RemoteDpu {
+        pa_ipv4: dpu_actor_state.pa_ipv4.clone(),
+        pa_ipv6: dpu_actor_state.pa_ipv6.clone(),
+        dpu_id: dpu_actor_state.dpu_id,
+        swbus_port: dpu_actor_state.swbus_port,
+        npu_ipv4: dpu_actor_state.npu_ipv4.clone(),
+        npu_ipv6: dpu_actor_state.npu_ipv6.clone(),
+    }
 }

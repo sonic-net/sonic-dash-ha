@@ -18,14 +18,17 @@ swbus-actor = { path = "../swbus-actor" }
 swss-common = { path = "../swss-common" }
 swss-common-bridge = { path = "../swss-common-bridge" }
 swss-serde = { path = "../swss-serde" }
+swss-common-testing.workspace = true
 swbus-config.workspace = true
 sonic-common.workspace = true
 sonicdb-derive.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 serde.workspace = true
+serde_with.workspace = true
 clap.workspace = true
 tracing.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
