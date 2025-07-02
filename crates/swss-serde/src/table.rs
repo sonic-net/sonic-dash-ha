@@ -105,7 +105,7 @@ impl<'de> SeqAccess<'de> for TableSeqDeserializer<'_, '_> {
                 let value = self.table.hget(self.key, field).map_err(Error::new)?;
                 seed.deserialize(FieldValueDeserializer::new(value.as_ref()))
                     .map(Some)
-                    .map_err(|e| Error::new(format!("{}: {}", field, e)))
+                    .map_err(|e| Error::new(format!("{field}: {e}")))
             }
             None => Ok(None),
         }

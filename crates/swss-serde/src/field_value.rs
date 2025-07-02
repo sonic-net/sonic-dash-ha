@@ -283,9 +283,16 @@ impl<'de> Deserializer<'de> for FieldValueDeserializer<'_> {
         self.deserialize_str(visitor)
     }
 
+    // ignored_any is used for deserializing a field value into a type that doesn't matter. This can
+    // happen if deserializer sees a field that is not in the struct definition. In this case, we
+    // just parse the field value as a string, which is all the redis value can be.
+    fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_string(self.parse()?)
+    }
+
     // Unsupported types
     forward_to_deserialize_any! {
-        char unit unit_struct ignored_any newtype_struct tuple tuple_struct map struct
+        char unit unit_struct newtype_struct tuple tuple_struct map struct
     }
 
     fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {

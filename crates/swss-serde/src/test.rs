@@ -24,20 +24,62 @@ struct S {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct D {
     #[serde(default)]
-    a: i32,
+    x: i32,
     #[serde(default)]
-    b: String,
+    y: String,
     #[serde(default)]
-    c: Vec<E>,
+    z: Vec<E>,
 }
 
 #[test]
 fn field_values_with_default() {
     let fvs = FieldValues::default();
     let d: D = from_field_values(&fvs).unwrap();
-    assert_eq!(d.a, i32::default());
-    assert_eq!(d.b, String::default());
-    assert_eq!(d.c, Vec::default());
+    assert_eq!(d.x, i32::default());
+    assert_eq!(d.y, String::default());
+    assert_eq!(d.z, Vec::default());
+}
+
+#[test]
+fn field_values_union() {
+    let s: S = S {
+        a: 5,
+        b: random_string(),
+        c: vec![E::VariantA, E::VariantB, E::VariantA],
+        d: Some(32131),
+        e: None,
+    };
+    let d: D = D {
+        x: 5,
+        y: random_string(),
+        z: vec![E::VariantA, E::VariantB, E::VariantA],
+    };
+    let fvs_s = to_field_values(&s).unwrap();
+    let fvs_d = to_field_values(&d).unwrap();
+    let mut fvs = fvs_s.clone();
+    fvs.extend(fvs_d);
+
+    let s2: S = from_field_values(&fvs).unwrap();
+    let d2: D = from_field_values(&fvs).unwrap();
+    assert_eq!(s, s2);
+    assert_eq!(d, d2);
+}
+
+#[test]
+fn field_values_subset() {
+    let s: S = S {
+        a: 5,
+        b: random_string(),
+        c: vec![E::VariantA, E::VariantB, E::VariantA],
+        d: Some(32131),
+        e: None,
+    };
+
+    let mut fvs = to_field_values(&s).unwrap();
+    fvs.insert("f".into(), "123".into());
+    fvs.insert("g".into(), "VariantA".into());
+    let s2: S = from_field_values(&fvs).unwrap();
+    assert_eq!(s, s2);
 }
 
 #[test]

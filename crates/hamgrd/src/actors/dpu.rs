@@ -338,7 +338,7 @@ impl DpuActor {
         let fv = swss_serde::to_field_values(&bfd_session)?;
         let oper = if shutdown { KeyOperation::Del } else { KeyOperation::Set };
         let kfv = KeyOpFieldValues {
-            key: format!("default|default|{}", peer_ip),
+            key: format!("default|default|{peer_ip}"),
             operation: oper,
             field_values: fv,
         };
