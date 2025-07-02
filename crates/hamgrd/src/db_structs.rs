@@ -275,7 +275,7 @@ mod test {
                 ("orchagent_zmq_port".to_string(), "8100".to_string()),
                 ("swbus_port".to_string(), (23606 + d as u16).to_string()),
                 ("midplane_ipv4".to_string(), Ipv4Addr::new(169, 254, 1, d).to_string()),
-                ("vdpu_id".to_string(), format!("vpdu{}", d)),
+                ("vdpu_id".to_string(), format!("vpdu{d}")),
             ];
             table.set(&d.to_string(), dpu_fvs).unwrap();
         }
