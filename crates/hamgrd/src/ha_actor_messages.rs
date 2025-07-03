@@ -5,6 +5,7 @@ use anyhow::Result;
 use chrono::{format::ParseError, DateTime, TimeZone, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::skip_serializing_none;
+use std::{collections::HashMap, hash::Hash};
 use swbus_actor::{state::incoming::Incoming, ActorMessage};
 use swbus_edge::swbus_proto::swbus::ServicePath;
 
@@ -128,11 +129,16 @@ impl DpuActorState {
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct VDpuActorState {
     pub up: bool,
+    pub dpu: DpuActorState,
 }
 
 impl VDpuActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up })
+    pub fn new_actor_msg(up: bool, my_id: &str, dpu: DpuActorState) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { up, dpu })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
     }
 
     pub fn msg_key_prefix() -> &'static str {

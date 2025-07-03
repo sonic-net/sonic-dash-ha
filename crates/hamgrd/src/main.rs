@@ -12,10 +12,10 @@ use tracing::error;
 mod actors;
 mod db_structs;
 mod ha_actor_messages;
-use actors::dpu::DpuActor;
 use actors::spawn_zmq_producer_bridge;
+use actors::{dpu::DpuActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::Dpu;
+use db_structs::{Dpu, VDpu};
 use std::any::Any;
 
 use crate::db_structs::BfdSessionTable;
@@ -104,7 +104,7 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 // The creator will create the actor when it receives the first message to the actor.
 async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    //VDpuActor::start_actor_creator(edge_runtime.clone()).await?;
+    VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?;
     //HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
     Ok(())
 }
