@@ -208,7 +208,7 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
     let keys = table.get_keys().context("Failed to get keys from DPU table")?;
 
     for key in keys {
-        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {}", key))?;
+        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {key}"))?;
 
         // find the DPU entry for the slot
         if dpu.dpu_id == dpu_id {
@@ -284,7 +284,7 @@ mod test {
                 ("orchagent_zmq_port".to_string(), "8100".to_string()),
                 ("swbus_port".to_string(), (23606 + d as u16).to_string()),
                 ("midplane_ipv4".to_string(), Ipv4Addr::new(169, 254, 1, d).to_string()),
-                ("vdpu_id".to_string(), format!("vpdu{}", d)),
+                ("vdpu_id".to_string(), format!("vpdu{d}")),
             ];
             table.set(&d.to_string(), dpu_fvs).unwrap();
         }

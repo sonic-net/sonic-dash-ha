@@ -32,7 +32,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
     if let Err(e) = log::init("hamgrd", true) {
-        eprintln!("Failed to initialize logging: {}", e);
+        eprintln!("Failed to initialize logging: {e}");
     }
 
     // Read swbusd config from redis or yaml file

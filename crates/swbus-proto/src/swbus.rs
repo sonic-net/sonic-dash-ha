@@ -140,7 +140,7 @@ impl ServicePath {
         .join("/");
         match rsc_str.is_empty() {
             true => loc_str.to_string(),
-            false => format!("{}/{}", loc_str, rsc_str),
+            false => format!("{loc_str}/{rsc_str}"),
         }
     }
 
@@ -243,8 +243,7 @@ where
     match ServicePath::from_string(&s) {
         Ok(sp) => Ok(Some(sp)),
         Err(_) => Err(serde::de::Error::custom(format!(
-            "Failed to parse service path from string: {}",
-            s
+            "Failed to parse service path from string: {s}"
         ))),
     }
 }
@@ -259,8 +258,7 @@ where
     match ServicePath::from_string(&s) {
         Ok(sp) => Ok(sp),
         Err(_) => Err(serde::de::Error::custom(format!(
-            "Failed to parse service path from string: {}",
-            s
+            "Failed to parse service path from string: {s}"
         ))),
     }
 }

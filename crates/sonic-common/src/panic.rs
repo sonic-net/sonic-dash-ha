@@ -23,7 +23,7 @@ pub fn init(program_name: &'static str) -> Result<()> {
         tracing::error!("Error: {}", msg);
 
         #[cfg(not(debug_assertions))]
-        eprintln!("{}", msg);
+        eprintln!("{msg}");
 
         #[cfg(not(debug_assertions))]
         report_panic_as_dump(program_name, panic_info);

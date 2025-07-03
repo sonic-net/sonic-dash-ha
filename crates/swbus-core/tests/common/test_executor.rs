@@ -130,7 +130,7 @@ impl TopoRuntime {
     async fn start_client(&mut self, name: &str, node_addr: &SocketAddr, client_sp: ServicePath) {
         let (receive_queue_tx, receive_queue_rx) = mpsc::channel::<SwbusMessage>(2);
         let start = Instant::now();
-        let addr = format!("http://{}", node_addr);
+        let addr = format!("http://{node_addr}");
 
         while start.elapsed() < Duration::from_secs(10) {
             match SwbusCoreClient::connect(addr.clone(), client_sp.clone(), receive_queue_tx.clone()).await {
@@ -217,7 +217,7 @@ async fn receive_and_compare(topo: &mut TopoRuntime, expected_responses: &[Messa
                 panic!("channel broken");
             }
             Err(_) => {
-                panic!("timeout waiting for response: {:?}", resp);
+                panic!("timeout waiting for response: {resp:?}");
             }
         }
     }
