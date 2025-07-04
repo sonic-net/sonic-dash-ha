@@ -29,6 +29,14 @@ impl Internal {
         self.table.insert(key.into(), entry);
     }
 
+    pub fn has_entry(&self, key: &str, swss_key: &str) -> bool {
+        let entry = self.table.get(key);
+        match entry {
+            Some(entry) => entry.data.swss_key == swss_key,
+            None => false,
+        }
+    }
+
     pub(crate) fn new() -> Self {
         Self::default()
     }

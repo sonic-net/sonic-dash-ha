@@ -1,3 +1,4 @@
+use crate::actors::dpu;
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use crate::RuntimeData;
@@ -11,6 +12,8 @@ use swbus_edge::{
     swbus_proto::swbus::{ServicePath, SwbusErrorCode},
     SwbusEdgeRuntime,
 };
+use swss_common::{FieldValues, Table};
+use tracing::field::Field;
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
     const TIMEOUT: Duration = Duration::from_millis(5000);
@@ -55,6 +58,30 @@ macro_rules! recv {
 }
 pub use recv;
 
+#[macro_export]
+macro_rules! chkdb {
+    (db: $db:expr, table: $table:expr, key: $key:expr, data: $data:tt) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from($db),
+            table: String::from($table),
+            key: String::from($key),
+            data: serde_json::json!($data),
+            exclude: "".to_string(),
+        }
+    };
+
+    (db: $db:expr, table: $table:expr, key: $key:expr, data: $data:tt, exclude: $exclude:expr) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from($db),
+            table: String::from($table),
+            key: String::from($key),
+            data: serde_json::json!($data),
+            exclude: String::from($exclude),
+        }
+    };
+}
+pub use chkdb;
+
 pub enum Command {
     Send {
         key: String,
@@ -66,6 +93,13 @@ pub enum Command {
         key: String,
         data: Value,
         addr: ServicePath,
+    },
+    ChkDb {
+        db: String,
+        table: String,
+        key: String,
+        data: Value,
+        exclude: String,
     },
 }
 
@@ -83,6 +117,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                     clients.insert(addr.clone(), client);
                 }
             }
+            ChkDb { .. } => {}
         }
     }
 
@@ -167,6 +202,29 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 };
                 client.send(ack).await.unwrap();
             }
+
+            ChkDb {
+                db,
+                table,
+                key,
+                data,
+                exclude,
+            } => {
+                let db = crate::db_named(db).await.unwrap();
+                let mut table = Table::new(db, table).unwrap();
+                let mut actual_data = table.get_async(key).await.unwrap().unwrap();
+                let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+
+                exclude
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .for_each(|id| {
+                        fvs.remove(id);
+                        actual_data.remove(id);
+                    });
+                assert_eq!(actual_data, fvs);
+            }
         }
     }
 }
@@ -212,10 +270,11 @@ pub fn make_dash_ha_global_config() -> DashHaGlobalConfig {
 }
 
 pub fn make_dpu_object(switch: u16, dpu: u32) -> Dpu {
+    let switch_pair_id = switch / 2;
     Dpu {
         state: Some("up".to_string()),
-        vip_ipv4: Some(format!("3.2.1.{switch}")),
-        vip_ipv6: Some(normalize_ipv6(&format!("3:2:1::{switch}"))),
+        vip_ipv4: Some(format!("3.2.{switch_pair_id}.{dpu}")),
+        vip_ipv6: Some(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
         pa_ipv4: format!("18.0.{switch}.{dpu}"),
         pa_ipv6: Some(normalize_ipv6(&format!("18:0:{switch}::{dpu}"))),
         dpu_id: dpu,
@@ -228,8 +287,8 @@ pub fn make_dpu_object(switch: u16, dpu: u32) -> Dpu {
 
 pub fn make_remote_dpu_object(switch: u16, dpu: u32) -> RemoteDpu {
     RemoteDpu {
-        pa_ipv4: format!("4.0.{switch}.{dpu}"),
-        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
+        pa_ipv4: format!("18.0.{switch}.{dpu}"),
+        pa_ipv6: Some(normalize_ipv6(&format!("18:0:{switch}::{dpu}"))),
         dpu_id: dpu,
         swbus_port: 23606 + dpu as u16,
         npu_ipv4: format!("10.0.{switch}.{dpu}"),
@@ -269,51 +328,22 @@ pub fn make_local_dpu_actor_state(
     dpu_pmon_state: Option<DpuState>,
     dpu_bfd_state: Option<DashBfdProbeState>,
 ) -> DpuActorState {
-    DpuActorState {
-        remote_dpu: false,
-        // If true, this is a DPU locally manamaged by this hamgrd.
+    let dpu_obj = make_dpu_object(switch, dpu);
+
+    DpuActorState::from_dpu(
+        &format!("switch{switch}_dpu{dpu}"),
+        &dpu_obj,
         is_managed,
-        dpu_name: format!("switch{switch}_dpu{dpu}"),
-        up: false,
-        state: Some("up".to_string()),
-        vip_ipv4: Some(format!("3.2.1.{switch}")),
-        vip_ipv6: Some(normalize_ipv6(&format!("3:2:1::{switch}"))),
-        pa_ipv4: format!("4.0.{switch}.{dpu}"),
-        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
-        dpu_id: dpu,
-        vdpu_id: Some(format!("vdpu{}", switch * 8 + dpu as u16)),
-        orchagent_zmq_port: 8100,
-        swbus_port: 23606 + dpu as u16,
-        midplane_ipv4: Some(format!("169.254.1.{dpu}")),
-        npu_ipv4: format!("10.0.{switch}.{dpu}"),
-        npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
+        &format!("10.0.{switch}.{dpu}"),
+        &Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
         dpu_pmon_state,
         dpu_bfd_state,
-    }
+    )
 }
 
 pub fn make_remote_dpu_actor_state(switch: u16, dpu: u32) -> DpuActorState {
-    DpuActorState {
-        remote_dpu: true,
-        // If true, this is a DPU locally manamaged by this hamgrd.
-        is_managed: false,
-        dpu_name: format!("switch{switch}_dpu{dpu}"),
-        up: false,
-        state: Some("up".to_string()),
-        vip_ipv4: None,
-        vip_ipv6: None,
-        pa_ipv4: format!("4.0.{switch}.{dpu}"),
-        pa_ipv6: Some(normalize_ipv6(&format!("4:0:{switch}::{dpu}"))),
-        dpu_id: dpu,
-        vdpu_id: None,
-        orchagent_zmq_port: 0,
-        swbus_port: 23606 + dpu as u16,
-        midplane_ipv4: None,
-        npu_ipv4: format!("10.0.{switch}.{dpu}"),
-        npu_ipv6: Some(normalize_ipv6(&format!("10:0:{switch}::{dpu}"))),
-        dpu_pmon_state: None,
-        dpu_bfd_state: None,
-    }
+    let remote_dpu = make_remote_dpu_object(switch, dpu);
+    DpuActorState::from_remote_dpu(&format!("switch{switch}_dpu{dpu}"), &remote_dpu)
 }
 
 pub fn to_local_dpu(dpu_actor_state: &DpuActorState) -> Dpu {
@@ -346,4 +376,71 @@ pub fn to_remote_dpu(dpu_actor_state: &DpuActorState) -> RemoteDpu {
         npu_ipv4: dpu_actor_state.npu_ipv4.clone(),
         npu_ipv6: dpu_actor_state.npu_ipv6.clone(),
     }
+}
+
+pub fn make_vdpu_actor_state(up: bool, dpu_state: &DpuActorState) -> (String, VDpuActorState) {
+    let parts: Vec<&str> = dpu_state
+        .dpu_name
+        .split(['s', 'w', 'i', 't', 'c', 'h', '_', 'd', 'p', 'u'])
+        .filter(|p| !p.is_empty())
+        .collect();
+    let vdpu_id = match parts.len() {
+        2 => format!("vdpu{}-{}", parts[0], parts[1]),
+        _ => panic!("Invalid DPU name: {}", &dpu_state.dpu_name),
+    };
+
+    (
+        vdpu_id,
+        VDpuActorState {
+            up,
+            dpu: dpu_state.clone(),
+        },
+    )
+}
+
+/// Create a DashHaSetConfigTable for a given DPU
+/// The allocation scheme is as follows:
+/// switch_n/dpu_x and switch_n+1/dpu_x are in the same HA set, where n is even
+/// vdpu id is vdpu{switch id * 8}-{dpu}
+pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, DashHaSetConfigTable) {
+    let switch_pair_id = switch / 2;
+    let vdpu0_id = format!("vdpu{}-{dpu}", switch_pair_id * 2);
+    let vdpu1_id = format!("vdpu{}-{dpu}", switch_pair_id * 2 + 1);
+    let ha_set = DashHaSetConfigTable {
+        version: "1".to_string(),
+        vip_v4: format!("3.2.{switch_pair_id}.{dpu}"),
+        vip_v6: Some(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
+        // dpu or switch
+        owner: Some("dpu".to_string()),
+        // dpu or eni
+        scope: Some("dpu".to_string()),
+        vdpu_ids: vec![vdpu0_id.clone(), vdpu1_id.clone()],
+        pinned_vdpu_bfd_probe_states: None,
+        preferred_vdpu_ids: Some(vec![vdpu0_id]),
+        preferred_standalone_vdpu_index: Some(0),
+    };
+    (format!("haset{switch_pair_id}-{dpu}"), ha_set)
+}
+
+pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTable) {
+    let switch_pair_id = switch / 2;
+    let (_, haset_cfg) = make_dpu_scope_ha_set_config(switch, dpu);
+    let global_cfg = make_dash_ha_global_config();
+    let ha_set = DashHaSetTable {
+        version: "1".to_string(),
+        vip_v4: haset_cfg.vip_v4,
+        vip_v6: haset_cfg.vip_v6,
+        owner: haset_cfg.owner,
+        scope: haset_cfg.scope,
+        local_npu_ip: format!("10.0.{switch}.{dpu}"),
+        local_ip: format!("18.0.{switch}.{dpu}"),
+        peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),
+        cp_data_channel_port: global_cfg.cp_data_channel_port,
+        dp_channel_dst_port: global_cfg.dp_channel_dst_port,
+        dp_channel_src_port_min: global_cfg.dp_channel_src_port_min,
+        dp_channel_src_port_max: global_cfg.dp_channel_src_port_max,
+        dp_channel_probe_interval_ms: global_cfg.dp_channel_probe_interval_ms,
+        dp_channel_probe_fail_threshold: global_cfg.dp_channel_probe_fail_threshold,
+    };
+    (format!("haset{switch_pair_id}-{dpu}"), ha_set)
 }

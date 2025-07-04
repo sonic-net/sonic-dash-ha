@@ -13,9 +13,9 @@ mod actors;
 mod db_structs;
 mod ha_actor_messages;
 use actors::spawn_zmq_producer_bridge;
-use actors::{dpu::DpuActor, vdpu::VDpuActor, DbBasedActor};
+use actors::{dpu::DpuActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::{Dpu, VDpu};
+use db_structs::{DashHaSetConfigTable, Dpu, VDpu};
 use std::any::Any;
 
 use crate::db_structs::BfdSessionTable;
@@ -78,7 +78,7 @@ async fn main() {
 }
 
 async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
-    let db = timeout(Duration::from_secs(5), DbConnector::new_named_async(name, true, 11000))
+    let db = timeout(Duration::from_secs(5), DbConnector::new_named_async(name, false, 11000))
         .await
         .map_err(|_| anyhow!("Connecting to db `{name}` timed out"))?
         .map_err(|e| anyhow!("Connecting to db `{name}`: {e}"))?;
@@ -105,7 +105,7 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
 async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
     DpuActor::start_actor_creator(edge_runtime.clone()).await?;
     VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?;
-    //HaSetActor::start_actor_creator(edge_runtime.clone()).await?;
+    HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?;
     Ok(())
 }
 

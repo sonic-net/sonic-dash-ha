@@ -1,10 +1,11 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
-//#![allow(unused)]
+#![allow(unused)]
 use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
 use sonicdb_derive::SonicDb;
+use std::fmt;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
 
@@ -51,6 +52,7 @@ pub struct Dpu {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
+#[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, SonicDb)]
 #[sonicdb(table_name = "REMOTE_DPU", key_separator = "|", db_name = "CONFIG_DB")]
 pub struct RemoteDpu {
@@ -71,6 +73,7 @@ pub struct VDpu {
     pub main_dpu_ids: Vec<String>,
 }
 
+#[skip_serializing_none]
 #[derive(Serialize, Deserialize, SonicDb)]
 #[sonicdb(table_name = "BFD_SESSION_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
 pub struct BfdSessionTable {
@@ -201,6 +204,80 @@ pub fn now_in_millis() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2121-ha-set-configurations>
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SET_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
+pub struct DashHaSetConfigTable {
+    pub version: String,
+    pub vip_v4: String,
+    pub vip_v6: Option<String>,
+    // dpu or switch
+    pub owner: Option<String>,
+    // dpu or eni
+    pub scope: Option<String>,
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    pub vdpu_ids: Vec<String>,
+    pub pinned_vdpu_bfd_probe_states: Option<String>,
+    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
+    pub preferred_vdpu_ids: Option<Vec<String>>,
+    pub preferred_standalone_vdpu_index: Option<u32>,
+}
+
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(table_name = "DASH_HA_SET_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
+pub struct DashHaSetTable {
+    // Config version.
+    pub version: String,
+    // IPv4 Data path VIP.
+    pub vip_v4: String,
+    // IPv4 Data path VIP.
+    pub vip_v6: Option<String>,
+    // Owner of HA state machine. It can be controller, switch.
+    pub owner: Option<String>,
+    // Scope of HA set. It can be dpu, eni.
+    pub scope: Option<String>,
+    // The IP address of local NPU. It can be IPv4 or IPv6. Used for setting up the BFD session.
+    pub local_npu_ip: String,
+    // The IP address of local DPU.
+    pub local_ip: String,
+    // The IP address of peer DPU.
+    pub peer_ip: String,
+    // The port of control plane data channel, used for bulk sync.
+    pub cp_data_channel_port: Option<u16>,
+    // The destination port used when tunneling packetse via DPU-to-DPU data plane channel.
+    pub dp_channel_dst_port: Option<u16>,
+    // The min source port used when tunneling packetse via DPU-to-DPU data plane channel.
+    pub dp_channel_src_port_min: Option<u16>,
+    // The max source port used when tunneling packetse via DPU-to-DPU data plane channel.
+    pub dp_channel_src_port_max: Option<u16>,
+    // The interval of sending each DPU-to-DPU data path probe.
+    pub dp_channel_probe_interval_ms: Option<u32>,
+    // The number of probe failure needed to consider data plane channel is dead.
+    pub dp_channel_probe_fail_threshold: Option<u32>,
+}
+
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db>
+#[skip_serializing_none]
+#[serde_as]
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "VNET_ROUTE_TUNNEL_TABLE", key_separator = ":", db_name = "APPL_DB")]
+pub struct VnetRouteTunnelTable {
+    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    pub endpoint: Vec<String>,
+    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
+    pub endpoint_monitor: Option<Vec<String>>,
+    pub monitoring: Option<String>,
+    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
+    pub primary: Option<Vec<String>>,
+    pub rx_monitor_timer: Option<u32>,
+    pub tx_monitor_timer: Option<u32>,
+    pub check_directly_connected: Option<bool>,
+}
+
 pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
     let db = DbConnector::new_named("CONFIG_DB", false, 0).context("connecting config_db")?;
     let table = Table::new(db, "DPU").context("opening DPU table")?;
@@ -247,6 +324,30 @@ mod test {
     }
 
     #[test]
+    fn test_serde_vnet_route_tunnel() {
+        let json = r#"
+        {
+            "key": "default|3.2.1.0/32",
+            "operation": "Set",
+            "field_values": {
+                "endpoint": "1.2.3.4,2.2.3.4",
+                "endpoint_monitor": "1.2.3.5,2.2.3.5"
+            }
+        }"#;
+        let kfv: KeyOpFieldValues = serde_json::from_str(json).unwrap();
+        let vnet: VnetRouteTunnelTable = swss_serde::from_field_values(&kfv.field_values).unwrap();
+        println!("{:?}", vnet);
+        assert!(vnet.endpoint == vec!["1.2.3.4", "2.2.3.4"]);
+        assert!(vnet.endpoint_monitor == Some(vec!["1.2.3.5".into(), "2.2.3.5".into()]));
+        assert!(vnet.monitoring.is_none());
+        let fvs = swss_serde::to_field_values(&vnet).unwrap();
+        println!("{:?}", fvs);
+        assert!(fvs["endpoint"] == "1.2.3.4,2.2.3.4");
+        assert!(fvs["endpoint_monitor"] == "1.2.3.5,2.2.3.5");
+        assert!(!fvs.contains_key("monitoring"));
+    }
+
+    #[test]
     fn test_get_dpu_config_from_db() {
         let _ = Redis::start_config_db();
 
@@ -284,7 +385,7 @@ mod test {
                 ("orchagent_zmq_port".to_string(), "8100".to_string()),
                 ("swbus_port".to_string(), (23606 + d as u16).to_string()),
                 ("midplane_ipv4".to_string(), Ipv4Addr::new(169, 254, 1, d).to_string()),
-                ("vdpu_id".to_string(), format!("vpdu{d}")),
+                ("vdpu_id".to_string(), format!("vpdu{}", d)),
             ];
             table.set(&d.to_string(), dpu_fvs).unwrap();
         }

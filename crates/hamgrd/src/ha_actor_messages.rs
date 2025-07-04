@@ -1,6 +1,6 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
 #![allow(unused)]
-use crate::db_structs::{DashBfdProbeState, Dpu, DpuState, RemoteDpu};
+use crate::db_structs::{DashBfdProbeState, DashHaSetTable, Dpu, DpuState, RemoteDpu};
 use anyhow::Result;
 use chrono::{format::ParseError, DateTime, TimeZone, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -155,12 +155,43 @@ impl VDpuActorState {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct HaSetActorState {
+    pub up: bool,
+    pub ha_set: DashHaSetTable,
+}
+
+impl HaSetActorState {
+    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { up: true, ha_set })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "HaSetStateUpdate|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActorRegistration {
     pub active: bool,
 }
+
+#[allow(clippy::enum_variant_names)]
 pub enum RegistrationType {
     DPUState,
     VDPUState,
+    HaSetState,
 }
 
 impl ActorRegistration {
@@ -172,6 +203,7 @@ impl ActorRegistration {
         match reg_type {
             RegistrationType::DPUState => "DPUStateRegister|",
             RegistrationType::VDPUState => "VDPUStateRegister|",
+            RegistrationType::HaSetState => "HaSetStateRegister|",
         }
     }
 

@@ -1,4 +1,4 @@
-use crate::{state::ActorStateDump, Actor, Context, State};
+use crate::{state::ActorStateDump, Actor, ActorMessage, Context, State};
 use std::collections::HashMap;
 use std::sync::Arc;
 use swbus_edge::{
@@ -60,6 +60,11 @@ impl<A: Actor> ActorDriver<A> {
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
+                let Ok(actor_msg) = ActorMessage::deserialize(&payload) else {
+                    eprintln!("Received invalid actor message from {source}");
+                    return;
+                };
+                debug!("received from {}: {:?}", source.to_longest_path(), actor_msg);
                 let res = self.state.incoming.handle_request(id, source.clone(), &payload).await;
                 let (error_code, error_message) = match &res {
                     Ok(_) => (SwbusErrorCode::Ok, String::new()),
