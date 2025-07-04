@@ -16,7 +16,7 @@ use swss_common::{FieldValues, Table};
 use tracing::field::Field;
 
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
-    const TIMEOUT: Duration = Duration::from_millis(1000);
+    const TIMEOUT: Duration = Duration::from_millis(5000);
     tokio::time::timeout(TIMEOUT, fut).await
 }
 

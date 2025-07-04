@@ -61,7 +61,7 @@ mod tests {
         if let SwbusError::RouteError { code, .. } = error {
             assert_eq!(code, SwbusErrorCode::QueueFull);
         } else {
-            panic!("Expected RouteError, got {:?}", error);
+            panic!("Expected RouteError, got {error:?}");
         }
     }
 }

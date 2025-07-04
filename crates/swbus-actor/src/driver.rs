@@ -56,6 +56,7 @@ impl<A: Actor> ActorDriver<A> {
     }
     #[instrument(name="handle_swbus_message", level="debug", skip_all, fields(actor=self.swbus_edge.get_service_path().to_longest_path(), id=%msg.id))]
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
+        debug!("received message: {msg:?}");
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
@@ -157,7 +158,7 @@ impl<A: Actor> ActorDriver<A> {
                         body: MessageBody::Response {
                             request_id,
                             error_code: SwbusErrorCode::InvalidArgs,
-                            error_message: format!("Unsupported request type: {:?}", request),
+                            error_message: format!("Unsupported request type: {request:?}"),
                             response_body: None,
                         },
                     })

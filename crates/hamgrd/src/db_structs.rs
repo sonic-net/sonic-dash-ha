@@ -285,7 +285,7 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
     let keys = table.get_keys().context("Failed to get keys from DPU table")?;
 
     for key in keys {
-        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {}", key))?;
+        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {key}"))?;
 
         // find the DPU entry for the slot
         if dpu.dpu_id == dpu_id {

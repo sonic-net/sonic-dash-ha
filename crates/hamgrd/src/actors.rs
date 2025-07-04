@@ -30,7 +30,6 @@ use tracing::error;
 
 pub trait DbBasedActor: Actor {
     fn name() -> &'static str;
-    fn db_name() -> &'static str;
     fn table_name() -> &'static str;
     fn new(key: String) -> AnyhowResult<Self>
     where

@@ -34,10 +34,6 @@ impl DbBasedActor for HaSetActor {
         Ok(actor)
     }
 
-    fn db_name() -> &'static str {
-        DashHaSetConfigTable::db_name()
-    }
-
     fn table_name() -> &'static str {
         DashHaSetConfigTable::table_name()
     }
@@ -344,11 +340,9 @@ impl HaSetActor {
 
 impl Actor for HaSetActor {
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        println!("Received message {key}");
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_set_config_table_message(state, key, context).await {
-                let err = format!("handle_dash_ha_set_config_table_message failed: {e}");
-                println!("{}", err);
+                error!("handle_dash_ha_set_config_table_message failed: {e}");
             }
             return Ok(());
         }

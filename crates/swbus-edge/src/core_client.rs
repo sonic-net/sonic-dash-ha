@@ -53,19 +53,15 @@ impl SwbusCoreClient {
     ) -> Result<(tokio::task::JoinHandle<Result<()>>, mpsc::Sender<SwbusMessage>)> {
         let (send_queue_tx, send_queue_rx) = mpsc::channel::<SwbusMessage>(100);
 
-        let endpoint = Endpoint::from_str(&uri).map_err(|e| {
-            SwbusError::input(
-                SwbusErrorCode::InvalidArgs,
-                format!("Failed to create endpoint: {}.", e),
-            )
-        })?;
+        let endpoint = Endpoint::from_str(&uri)
+            .map_err(|e| SwbusError::input(SwbusErrorCode::InvalidArgs, format!("Failed to create endpoint: {e}.")))?;
 
         let channel = match endpoint.connect().await {
             Ok(c) => c,
             Err(e) => {
                 return Err(SwbusError::connection(
                     SwbusErrorCode::ConnectionError,
-                    io::Error::new(io::ErrorKind::ConnectionReset, format!("Failed to connect: {:?}", e)),
+                    io::Error::new(io::ErrorKind::ConnectionReset, format!("Failed to connect: {e:?}")),
                 ));
             }
         };
