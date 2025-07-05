@@ -166,7 +166,7 @@ impl SwbusNextHop {
             }
             _ => Err(SwbusError::input(
                 SwbusErrorCode::InvalidArgs,
-                format!("Invalid management request: {:?}", mgmt_request),
+                format!("Invalid management request: {mgmt_request:?}"),
             )),
         }
     }

@@ -1,7 +1,7 @@
 use crate::actors::dpu::DpuActor;
 use crate::actors::DbBasedActor;
 use crate::db_structs::VDpu;
-use crate::ha_actor_messages::{ActorRegistration, DpuActorState, HaRoleActivated, RegistrationType, VDpuActorState};
+use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
 use swbus_actor::Context;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, State};
@@ -111,17 +111,6 @@ impl VDpuActor {
         }
         Ok(())
     }
-
-    fn handle_ha_role_activation(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
-        let msg = incoming.get(key)?;
-        // forward the ha role activation to all the main dpus
-        for dpu_id in &self.vdpu.as_ref().unwrap().main_dpu_ids {
-            outgoing.send(outgoing.from_my_sp(DpuActor::name(), dpu_id), msg.clone());
-        }
-
-        Ok(())
-    }
 }
 
 impl Actor for VDpuActor {
@@ -140,10 +129,8 @@ impl Actor for VDpuActor {
             return self.handle_dpu_state_update(incoming, outgoing).await;
         } else if ActorRegistration::is_my_msg(key, RegistrationType::VDPUState) {
             return self.handle_vdpu_state_registration(key, incoming, outgoing).await;
-        } else if HaRoleActivated::is_my_msg(key) {
-            // When HA role is activated, reconfigure BFD sessions
-            return self.handle_ha_role_activation(state, key);
         }
+
         Ok(())
     }
 }
@@ -200,12 +187,6 @@ mod test {
             send! { key: DpuActorState::msg_key("switch1_dpu0"), data: dpu_actor_down_state, addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
             recv! { key: VDpuActorState::msg_key("test-vdpu"), data: { "up": false, "dpu": dpu_actor_down_state },
                     addr: runtime.sp(HaSetActor::name(), "test-ha-set") },
-
-            // receive ha-role-activation
-            send! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"},
-                    addr: runtime.sp("ha-scope", "test-vdpu|scope1") },
-            recv! { key: format!("{}test-vdpu|scope1", HaRoleActivated::msg_key_prefix()), data: { "role": "active"},
-                    addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
 
             send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "switch1_dpu0"}},
                     addr: crate::common_bridge_sp::<VDpu>(&runtime.get_swbus_edge()) },

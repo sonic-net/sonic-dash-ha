@@ -58,7 +58,7 @@ fn field_values_union() {
     let fvs_d = to_field_values(&d).unwrap();
     let mut fvs = fvs_s.clone();
     fvs.extend(fvs_d);
-    print!("{:?}", fvs);
+
     let s2: S = from_field_values(&fvs).unwrap();
     let d2: D = from_field_values(&fvs).unwrap();
     assert_eq!(s, s2);

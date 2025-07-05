@@ -1,13 +1,11 @@
-// temporarily disable unused warning until vdpu/ha-set actors are implemented
-#![allow(unused)]
 use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
 use sonicdb_derive::SonicDb;
-use std::fmt;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
+
 /// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
 const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
 
@@ -421,7 +419,7 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
     let keys = table.get_keys().context("Failed to get keys from DPU table")?;
 
     for key in keys {
-        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {}", key))?;
+        let dpu: Dpu = from_table(&table, &key).context(format!("reading DPU entry {key}"))?;
 
         // find the DPU entry for the slot
         if dpu.dpu_id == dpu_id {

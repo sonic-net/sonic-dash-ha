@@ -1,4 +1,4 @@
-select 1
+select 4
 hset DEVICE_METADATA|localhost region region-a cluster cluster-a
 HSET "LOOPBACK_INTERFACE|Loopback0|127.0.0.1/32" "NULL" "NULL"
 hset LOOPBACK_INTERFACE|Loopback0 NULL NULL
@@ -104,10 +104,10 @@ HSET "REMOTE_DPU|switch3_dpu0" "npu_ipv4" "10.1.0.3"
 HSET "REMOTE_DPU|switch3_dpu0" "swbus_port" "23606"
 
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dpu_bfd_probe_interval_in_ms" "1000"
-HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dpu_bfd_probe_multiplier" "3" 
+HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dpu_bfd_probe_multiplier" "3"
 
 
-select 3
+select 13
 HSET DPU_STATE|dpu0 dpu_midplane_link_state up
 HSET DPU_STATE|dpu0 dpu_control_plane_state up
 HSET DPU_STATE|dpu0 dpu_data_plane_state up
@@ -133,5 +133,5 @@ HSET DPU_STATE|dpu7 dpu_midplane_link_state up
 HSET DPU_STATE|dpu7 dpu_control_plane_state up
 HSET DPU_STATE|dpu7 dpu_data_plane_state up
 
-select 4
+select 17
 HSET DASH_BFD_PROBE_STATE|dpu0 v4_bfd_up_sessions "10.1.0.32"

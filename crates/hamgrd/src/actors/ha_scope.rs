@@ -1,6 +1,6 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
-use crate::ha_actor_messages::{ActorRegistration, HaRoleActivated, HaSetActorState, RegistrationType, VDpuActorState};
+use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
 use std::collections::HashMap;
@@ -388,21 +388,6 @@ impl HaScopeActor {
 
         Ok(())
     }
-
-    fn notify_vdpu_role_activated(&self, incoming: &Incoming, outgoing: &mut Outgoing, ha_role: &str) -> Result<()> {
-        if self.get_vdpu(incoming).is_none() {
-            debug!(
-                "vDPU {} has not been received. Skip role activated notification",
-                &self.vdpu_id
-            );
-            return Ok(());
-        };
-        info!("DPU enters {} state. Notify vDPU role activated", ha_role);
-        let msg = HaRoleActivated::new_actor_msg(&self.id, ha_role)?;
-        outgoing.send(outgoing.from_my_sp(VDpuActor::name(), &self.vdpu_id), msg);
-
-        Ok(())
-    }
 }
 
 // Implements messages handlers for HaScopeActor
@@ -432,13 +417,6 @@ impl HaScopeActor {
         let first_time = self.dash_ha_scope_config.is_none();
         let dash_ha_scope_config: DashHaScopeConfigTable = swss_serde::from_field_values(&kfv.field_values)?;
 
-        if !first_time
-            && dash_ha_scope_config.desired_ha_state == "dead"
-            && dash_ha_scope_config.desired_ha_state != self.dash_ha_scope_config.as_ref().unwrap().desired_ha_state
-        {
-            // ha_scope is being deleted. Notify vDPU to stop bfd session
-            self.notify_vdpu_role_activated(incoming, outgoing, "dead")?;
-        }
         // Update internal config
         self.dash_ha_scope_config = Some(dash_ha_scope_config);
 
@@ -560,16 +538,6 @@ impl HaScopeActor {
             operations.push((Uuid::new_v4().to_string(), "flow_reconcile".to_string()));
         }
 
-        if new_dpu_ha_scope_state.ha_role != old_dpu_ha_scope_state.ha_role {
-            match new_dpu_ha_scope_state.ha_role.as_str() {
-                "active" | "standby" | "standalone" => {
-                    self.notify_vdpu_role_activated(incoming, outgoing, &new_dpu_ha_scope_state.ha_role)?;
-                }
-                _ => {
-                    // do nothing
-                }
-            }
-        }
         self.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
         self.update_npu_ha_scope_state_ha_state(state)?;
@@ -586,8 +554,7 @@ impl Actor for HaScopeActor {
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_scope_config_table_message(state, key, context) {
-                let err = format!("handle_dash_ha_scope_config_table_message failed: {e}");
-                println!("{}", err);
+                error!("handle_dash_ha_scope_config_table_message failed: {e}");
             }
             return Ok(());
         }
@@ -786,8 +753,6 @@ mod test {
             chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs5,
                     exclude: "pending_operation_list_last_updated_time_in_ms" },
 
-            // Recv role activated notification to vdpu
-            recv! { key: HaRoleActivated::msg_key(&scope_id), data: { "role": "active" }, addr: runtime.sp("vdpu", &vdpu0_id) },
             // Send vdpu state update after bfd session up
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
 
@@ -809,8 +774,6 @@ mod test {
                     "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": "" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
-            // Recv role activated notification to vdpu
-            recv! { key: HaRoleActivated::msg_key(&scope_id), data: { "role": "dead" }, addr: runtime.sp("vdpu", &vdpu0_id) },
 
             // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
             chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,

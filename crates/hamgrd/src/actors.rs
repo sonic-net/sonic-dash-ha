@@ -1,6 +1,8 @@
 //! Actors
 //!
 //! <https://github.com/r12f/SONiC/blob/user/r12f/hamgrd/doc/smart-switch/high-availability/smart-switch-ha-hamgrd.md#2-key-actors>
+// temporarily disable unused warning until vdpu/ha-set actors are implemented
+#![allow(unused)]
 
 pub mod dpu;
 pub mod ha_scope;
@@ -10,6 +12,7 @@ pub mod vdpu;
 #[cfg(test)]
 pub mod test;
 use anyhow::Result as AnyhowResult;
+use std::any;
 use std::sync::Arc;
 use swbus_actor::{spawn, Actor, ActorMessage};
 use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;
