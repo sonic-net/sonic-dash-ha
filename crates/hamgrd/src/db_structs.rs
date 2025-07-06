@@ -470,12 +470,12 @@ mod test {
         }"#;
         let kfv: KeyOpFieldValues = serde_json::from_str(json).unwrap();
         let vnet: VnetRouteTunnelTable = swss_serde::from_field_values(&kfv.field_values).unwrap();
-        println!("{:?}", vnet);
+        println!("{vnet:?}");
         assert!(vnet.endpoint == vec!["1.2.3.4", "2.2.3.4"]);
         assert!(vnet.endpoint_monitor == Some(vec!["1.2.3.5".into(), "2.2.3.5".into()]));
         assert!(vnet.monitoring.is_none());
         let fvs = swss_serde::to_field_values(&vnet).unwrap();
-        println!("{:?}", fvs);
+        println!("{fvs:?}");
         assert!(fvs["endpoint"] == "1.2.3.4,2.2.3.4");
         assert!(fvs["endpoint_monitor"] == "1.2.3.5,2.2.3.5");
         assert!(!fvs.contains_key("monitoring"));
@@ -519,7 +519,7 @@ mod test {
                 ("orchagent_zmq_port".to_string(), "8100".to_string()),
                 ("swbus_port".to_string(), (23606 + d as u16).to_string()),
                 ("midplane_ipv4".to_string(), Ipv4Addr::new(169, 254, 1, d).to_string()),
-                ("vdpu_id".to_string(), format!("vpdu{}", d)),
+                ("vdpu_id".to_string(), format!("vpdu{d}")),
             ];
             table.set(&d.to_string(), dpu_fvs).unwrap();
         }

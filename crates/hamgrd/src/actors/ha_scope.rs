@@ -11,7 +11,7 @@ use swbus_actor::{
 use swss_common::Table;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
 use swss_common_bridge::consumer::ConsumerBridge;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
 
 pub struct HaScopeActor {
@@ -551,6 +551,7 @@ impl HaScopeActor {
 }
 
 impl Actor for HaScopeActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-scope/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_scope_config_table_message(state, key, context) {
@@ -634,8 +635,8 @@ mod test {
         );
         let npu_ha_scope_state_fvs3 = to_field_values(&npu_ha_scope_state3).unwrap();
 
-        let scope_id = format!("{}:{}", vdpu0_id, ha_set_id);
-        let scope_id_in_state = format!("{}|{}", vdpu0_id, ha_set_id);
+        let scope_id = format!("{vdpu0_id}:{ha_set_id}");
+        let scope_id_in_state = format!("{vdpu0_id}|{ha_set_id}");
         let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
 
         let handle = runtime.spawn(ha_scope_actor, HaScopeActor::name(), &scope_id);

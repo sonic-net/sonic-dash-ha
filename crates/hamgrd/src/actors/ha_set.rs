@@ -10,7 +10,7 @@ use swbus_actor::{
 use swss_common::Table;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
 use swss_common_bridge::consumer::ConsumerBridge;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 pub struct HaSetActor {
     id: String,
@@ -332,6 +332,7 @@ impl HaSetActor {
 }
 
 impl Actor for HaSetActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-set/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_set_config_table_message(state, key, context).await {

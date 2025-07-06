@@ -26,7 +26,7 @@ use swss_common::{
 use swss_common_bridge::{consumer::spawn_consumer_bridge, consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::{error, info};
 
 pub trait DbBasedActor: Actor {
     fn name() -> &'static str;
@@ -273,6 +273,11 @@ where
         let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, false).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);
+        info!(
+            "spawned ZMQ producer bridge for {} at {}",
+            T::table_name(),
+            sp.to_longest_path()
+        );
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, zpst))
     } else {
         if std::env::var("SIM").is_err() {
@@ -282,6 +287,11 @@ where
         let pst = ProducerStateTable::new(dpu_appl_db, T::table_name()).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);
+        info!(
+            "spawned producer bridge for {} at {}",
+            T::table_name(),
+            sp.to_longest_path()
+        );
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, pst))
     }
 }

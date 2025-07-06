@@ -213,7 +213,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
                 let mut actual_data = table.get_async(key).await.unwrap();
                 let Some(actual_data) = actual_data.as_mut() else {
-                    panic!("Key {} not found in {}/{}", key, table_name, db_name);
+                    panic!("Key {key} not found in {table_name}/{db_name}");
                 };
                 let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
 

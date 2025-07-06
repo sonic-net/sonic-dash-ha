@@ -6,7 +6,7 @@ use anyhow::Result;
 use swbus_actor::Context;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, State};
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
-use tracing::error;
+use tracing::{error, instrument};
 
 pub struct VDpuActor {
     /// The id of this vdpu
@@ -114,6 +114,7 @@ impl VDpuActor {
 }
 
 impl Actor for VDpuActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("vdpu/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         if key == Self::table_name() {
             return self.handle_vdpu_message(state, key, context).await;

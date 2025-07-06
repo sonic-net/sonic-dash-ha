@@ -11,7 +11,7 @@ use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, A
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
 use swss_common_bridge::consumer::{spawn_consumer_bridge, ConsumerBridge};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 use super::spawn_consumer_bridge_for_actor_with_selector;
 
@@ -433,6 +433,7 @@ impl DpuActor {
 }
 
 impl Actor for DpuActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("dpu/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
         if key == Self::dpu_table_name() {
