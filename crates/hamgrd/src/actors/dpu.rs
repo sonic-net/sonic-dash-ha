@@ -10,7 +10,7 @@ use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
-use swss_common_bridge::consumer::{spawn_consumer_bridge, ConsumerBridge};
+use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info, instrument};
 
 use super::spawn_consumer_bridge_for_actor_with_selector;
@@ -418,8 +418,7 @@ impl DpuActor {
         }
     }
 
-    fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let incoming = state.incoming();
+    fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
         self.update_bfd_sessions(state)?;
         Ok(())
     }
@@ -454,7 +453,7 @@ impl Actor for DpuActor {
         if !self.is_local_managed() {
             return Ok(());
         } else if key == DashHaGlobalConfig::table_name() {
-            return self.handle_dash_ha_global_config(state, key);
+            return self.handle_dash_ha_global_config(state);
         } else if key == DpuState::table_name() || key == DashBfdProbeState::table_name() {
             return self.update_dpu_state(incoming, outgoing, None);
         } else {

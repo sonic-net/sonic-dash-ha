@@ -513,7 +513,7 @@ impl HaScopeActor {
     /// Update NPU DASH_HA_SCOPE_STATE ha_state related fields
     /// Update NPU DASH_HA_SCOPE_STATE pending operation list if there are new operations requested by DPU
     fn handle_dpu_ha_scope_state_update(&mut self, state: &mut State) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
+        let (_internal, incoming, _) = state.get_all();
         // calculate operation requested by dpu
         let Some(new_dpu_ha_scope_state) = self.get_dpu_ha_scope_state(incoming) else {
             // no valid state received from dpu, skip
