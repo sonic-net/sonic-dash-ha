@@ -131,6 +131,16 @@ const CONFIG_DB_REDIS_CONFIG_JSON: &str = r#"
                 "id": 1,
                 "separator": "|",
                 "instance": "redis"
+            },
+            "STATE_DB": {
+                "id": 2,
+                "separator": "|",
+                "instance": "redis"
+            },
+            "DPU_STATE_DB": {
+                "id": 3,
+                "separator": "|",
+                "instance": "redis"
             }
         }
     }

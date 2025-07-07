@@ -7,18 +7,19 @@ use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
 use swss_common::DbConnector;
+use swss_common_bridge::consumer::ConsumerBridge;
 use tokio::{signal, task::JoinHandle, time::timeout};
 use tracing::error;
 mod actors;
 mod db_structs;
 mod ha_actor_messages;
 use actors::spawn_zmq_producer_bridge;
-use actors::{dpu::DpuActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
+use actors::{dpu::DpuActor, ha_scope::HaScopeActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::{DashHaSetConfigTable, Dpu, VDpu};
+use db_structs::{
+    BfdSessionTable, DashHaScopeConfigTable, DashHaScopeTable, DashHaSetConfigTable, DashHaSetTable, Dpu, VDpu,
+};
 use std::any::Any;
-
-use crate::db_structs::BfdSessionTable;
 
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
@@ -71,7 +72,7 @@ async fn main() {
         }
     });
 
-    start_actor_creators(&swbus_edge).await.unwrap();
+    let _bridges = start_actor_creators(&swbus_edge).await.unwrap();
 
     // Wait for Ctrl+C to exit
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
@@ -97,16 +98,28 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
     let handle = spawn_zmq_producer_bridge::<BfdSessionTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
+    // Spawn DASH_HA_SET_TABLE zmq producer bridge for ha-set actor
+    // Has service path swss-common-bridge/DASH_HA_SET_TABLE.
+    let handle = spawn_zmq_producer_bridge::<DashHaSetTable>(edge_runtime.clone(), &zmq_endpoint).await?;
+    handles.push(handle);
+
+    // Spawn DASH_HA_SCOPE_TABLE zmq producer bridge for ha-set actor
+    // Has service path swss-common-bridge/DASH_HA_SCOPE_TABLE.
+    let handle = spawn_zmq_producer_bridge::<DashHaScopeTable>(edge_runtime.clone(), &zmq_endpoint).await?;
+    handles.push(handle);
+
     Ok(handles)
 }
 
 // actor-creator creates are private swbus message handler to handle messages to actor but actor do not exist.
 // The creator will create the actor when it receives the first message to the actor.
-async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<()> {
-    DpuActor::start_actor_creator(edge_runtime.clone()).await?;
-    VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?;
-    HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?;
-    Ok(())
+async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<Vec<ConsumerBridge>> {
+    let mut bridges: Vec<ConsumerBridge> = Vec::new();
+    bridges.append(&mut DpuActor::start_actor_creator(edge_runtime.clone()).await?);
+    bridges.append(&mut VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaScopeActor::start_actor_creator::<DashHaScopeConfigTable>(edge_runtime.clone()).await?);
+    Ok(bridges)
 }
 
 pub fn get_slot_id(swbus_edge: &Arc<SwbusEdgeRuntime>) -> u32 {
@@ -176,6 +189,6 @@ where
 {
     let mut new_sp = runtime.get_base_sp();
     new_sp.resource_type = "swss-common-bridge".into();
-    new_sp.resource_id = format!("{}/{}", T::db_name(), T::table_name());
+    new_sp.resource_id = format!("{}|{}", T::db_name(), T::table_name());
     new_sp
 }

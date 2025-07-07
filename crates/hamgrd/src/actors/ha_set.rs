@@ -1,22 +1,16 @@
 use crate::actors::vdpu::VDpuActor;
-use crate::actors::{ha_set, spawn_consumer_bridge_for_actor, ActorCreator, DbBasedActor};
+use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::SystemTime;
-use swbus_actor::state::incoming;
-use swbus_actor::state::internal::{self, Internal};
-use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
-use swbus_edge::SwbusEdgeRuntime;
-use swss_common::Table;
-use swss_common::{
-    KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable, ZmqClient, ZmqProducerStateTable,
+use swbus_actor::{
+    state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
+    Actor, ActorMessage, Context, State,
 };
-use swss_common_bridge::{consumer::spawn_consumer_bridge, consumer::ConsumerBridge, producer::spawn_producer_bridge};
-use tokio::time::error::Elapsed;
-use tracing::{debug, error, info};
+use swss_common::Table;
+use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use swss_common_bridge::consumer::ConsumerBridge;
+use tracing::{debug, error, info, instrument};
 
 pub struct HaSetActor {
     id: String,
@@ -198,7 +192,7 @@ impl HaSetActor {
 
     /// Get vdpu data received via vdpu update and return them in a list with primary DPUs first.
     /// All preferred_vdpu_ids are considered primary, followed by backups.
-    fn get_vdpus(&self, incoming: &Incoming) -> Vec<(Option<VDpuStateExt>)> {
+    fn get_vdpus(&self, incoming: &Incoming) -> Vec<Option<VDpuStateExt>> {
         let Some(ref ha_set_cfg) = self.dash_ha_set_config else {
             return Vec::new();
         };
@@ -265,7 +259,7 @@ impl HaSetActor {
 
         self.dash_ha_set_config = Some(swss_serde::from_field_values(&dpu_kfv.field_values)?);
         let swss_key = format!("default:{}", self.dash_ha_set_config.as_ref().unwrap().vip_v4);
-        if !internal.has_entry(key, &swss_key) {
+        if !internal.has_entry(VnetRouteTunnelTable::table_name(), &swss_key) {
             let db = crate::db_named(VnetRouteTunnelTable::db_name()).await?;
             let table = Table::new_async(db, VnetRouteTunnelTable::table_name()).await?;
             internal.add(VnetRouteTunnelTable::table_name(), table, swss_key).await;
@@ -294,7 +288,7 @@ impl HaSetActor {
         Ok(())
     }
 
-    fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+    fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
         let (internal, incoming, outgoing) = state.get_all();
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
@@ -305,7 +299,7 @@ impl HaSetActor {
         Ok(())
     }
 
-    fn handle_vdpu_state_update(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+    fn handle_vdpu_state_update(&mut self, state: &mut State) -> Result<()> {
         let (internal, incoming, outgoing) = state.get_all();
         // vdpu update affects dash-ha-set in DPU and vxlan tunnel
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
@@ -330,7 +324,6 @@ impl HaSetActor {
             };
 
             let msg = HaSetActorState::new_actor_msg(true, &self.id, dash_ha_set).unwrap();
-            let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
 
             outgoing.send(entry.source.clone(), msg);
         }
@@ -339,6 +332,7 @@ impl HaSetActor {
 }
 
 impl Actor for HaSetActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-set/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         if key == Self::table_name() {
             if let Err(e) = self.handle_dash_ha_set_config_table_message(state, key, context).await {
@@ -352,9 +346,9 @@ impl Actor for HaSetActor {
         }
 
         if VDpuActorState::is_my_msg(key) {
-            return self.handle_vdpu_state_update(state, key, context);
+            return self.handle_vdpu_state_update(state);
         } else if key == DashHaGlobalConfig::table_name() {
-            return self.handle_dash_ha_global_config(state, key, context);
+            return self.handle_dash_ha_global_config(state);
         } else if ActorRegistration::is_my_msg(key, RegistrationType::HaSetState) {
             return self.handle_haset_state_registration(state, key).await;
         }
@@ -366,16 +360,16 @@ impl Actor for HaSetActor {
 mod test {
     use crate::{
         actors::{
-            ha_set::{self, HaSetActor},
+            ha_set::HaSetActor,
             test::{self, *},
-            vdpu::{self, VDpuActor},
+            vdpu::VDpuActor,
             DbBasedActor,
         },
         db_structs::{DashHaGlobalConfig, DashHaSetConfigTable, DashHaSetTable, VnetRouteTunnelTable},
         ha_actor_messages::*,
     };
     use std::time::Duration;
-    use swss_common::{DbConnector, SonicDbTable, Table};
+    use swss_common::SonicDbTable;
     use swss_common_testing::*;
 
     #[tokio::test]
@@ -383,7 +377,7 @@ mod test {
         // To enable trace, set ENABLE_TRACE=1 to run test
         sonic_common::log::init_logger_for_test();
 
-        let redis = Redis::start_config_db();
+        let _redis = Redis::start_config_db();
         let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
 
         //prepare test data
@@ -468,7 +462,7 @@ mod test {
         // To enable trace, set ENABLE_TRACE=1 to run test
         sonic_common::log::init_logger_for_test();
 
-        let redis = Redis::start_config_db();
+        let _redis = Redis::start_config_db();
         let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
 
         //prepare test data
