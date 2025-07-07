@@ -3,11 +3,13 @@ use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
+use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
 };
+use swss_common::CxxString;
 use swss_common::Table;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
 use swss_common_bridge::consumer::ConsumerBridge;
@@ -157,6 +159,15 @@ impl HaScopeActor {
 
 // Implements internal action functions for HaScopeActor
 impl HaScopeActor {
+    fn desired_ha_state_to_ha_role(desired_ha_state: i32) -> String {
+        match DesiredHaState::try_from(desired_ha_state) {
+            Ok(DesiredHaState::HaStateActive) => "active".to_string(),
+            Ok(DesiredHaState::HaStateDead) => "dead".to_string(),
+            Ok(DesiredHaState::HaStateStandalone) => "standalone".to_string(),
+            Ok(DesiredHaState::HaStateUnspecified) | Err(_) => "unknown".to_string(),
+        }
+    }
+
     fn register_to_vdpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         if self.dash_ha_scope_config.is_none() {
             return Ok(());
@@ -185,39 +196,41 @@ impl HaScopeActor {
 
         let mut activate_role_requested = false;
         let mut flow_reconcile_requested = false;
-        if let Some(approved_ops) = dash_ha_scope_config.approved_pending_operation_ids.as_ref() {
-            if !approved_ops.is_empty() {
-                let pending_operations = self.get_pending_operations(internal, None)?;
-                for op_id in approved_ops {
-                    let Some(op) = pending_operations.get(op_id) else {
-                        // has been removed from pending list
-                        continue;
-                    };
-                    match op.as_str() {
-                        "switchover" => {
-                            // todo: this is for switch driven ha
-                        }
-                        "activate_role" => {
-                            activate_role_requested = true;
-                        }
-                        "flow_reconcile" => {
-                            flow_reconcile_requested = true;
-                        }
-                        "brainsplit_recover" => {
-                            // todo: what's the action here?
-                        }
-                        _ => {
-                            error!("Unknown operation type {}", op);
-                        }
+        let approved_ops = dash_ha_scope_config
+            .ha_scope_config
+            .approved_pending_operation_ids
+            .clone();
+        if !approved_ops.is_empty() {
+            let pending_operations = self.get_pending_operations(internal, None)?;
+            for op_id in approved_ops {
+                let Some(op) = pending_operations.get(&op_id) else {
+                    // has been removed from pending list
+                    continue;
+                };
+                match op.as_str() {
+                    "switchover" => {
+                        // todo: this is for switch driven ha
+                    }
+                    "activate_role" => {
+                        activate_role_requested = true;
+                    }
+                    "flow_reconcile" => {
+                        flow_reconcile_requested = true;
+                    }
+                    "brainsplit_recover" => {
+                        // todo: what's the action here?
+                    }
+                    _ => {
+                        error!("Unknown operation type {}", op);
                     }
                 }
             }
         }
 
         let dash_ha_scope = DashHaScopeTable {
-            version: dash_ha_scope_config.version,
-            disable: dash_ha_scope_config.disable,
-            ha_role: dash_ha_scope_config.desired_ha_state.clone(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
+            version: dash_ha_scope_config.ha_scope_config.version.parse().unwrap(),
+            disable: dash_ha_scope_config.ha_scope_config.disabled,
+            ha_role: Self::desired_ha_state_to_ha_role(dash_ha_scope_config.ha_scope_config.desired_ha_state), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
             flow_reconcile_requested,
             activate_role_requested,
         };
@@ -375,7 +388,9 @@ impl HaScopeActor {
         npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
 
         // The target HA state in ASIC. This is the state that hamgrd generates and asking DPU to move to.
-        npu_ha_scope_state.local_target_asic_ha_state = Some(dash_ha_scope_config.desired_ha_state.clone());
+        npu_ha_scope_state.local_target_asic_ha_state = Some(Self::desired_ha_state_to_ha_role(
+            dash_ha_scope_config.ha_scope_config.desired_ha_state,
+        ));
         // The HA state that ASIC acked.
         npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
 
@@ -388,6 +403,24 @@ impl HaScopeActor {
 
         Ok(())
     }
+}
+
+fn decode_field_values_to_hascopeconfig(
+    field_values: &HashMap<String, CxxString>,
+) -> Result<HaScopeConfig, serde_json::Error> {
+    use serde_json::Value;
+
+    let mut json_map = serde_json::Map::new();
+    for (k, v) in field_values {
+        let s = v.to_string_lossy();
+        let value = match serde_json::from_str::<Value>(&s) {
+            Ok(val) => val,
+            Err(_) => Value::String(s.into_owned()),
+        };
+        json_map.insert(k.clone(), value);
+    }
+    let json_value = Value::Object(json_map);
+    serde_json::from_value(json_value)
 }
 
 // Implements messages handlers for HaScopeActor
@@ -415,10 +448,12 @@ impl HaScopeActor {
             return Ok(());
         }
         let first_time = self.dash_ha_scope_config.is_none();
-        let dash_ha_scope_config: DashHaScopeConfigTable = swss_serde::from_field_values(&kfv.field_values)?;
+        let dash_ha_scope_config: HaScopeConfig = decode_field_values_to_hascopeconfig(&kfv.field_values)?;
 
         // Update internal config
-        self.dash_ha_scope_config = Some(dash_ha_scope_config);
+        self.dash_ha_scope_config = Some(DashHaScopeConfigTable {
+            ha_scope_config: dash_ha_scope_config,
+        });
 
         if first_time {
             // Subscribe to the vDPU Actor for state updates.
@@ -439,15 +474,14 @@ impl HaScopeActor {
         self.update_npu_ha_scope_state_ha_state(state)?;
 
         // need to update operation list if approved_pending_operation_ids is not empty
-        let approved_pending_operation_ids = match self
+        let approved_pending_operation_ids = self
             .dash_ha_scope_config
             .as_ref()
             .unwrap()
+            .ha_scope_config
             .approved_pending_operation_ids
-        {
-            Some(ref ids) => ids.clone(),
-            None => Vec::new(),
-        };
+            .clone();
+
         if !approved_pending_operation_ids.is_empty() {
             self.update_npu_ha_scope_state_pending_operations(state, Vec::new(), approved_pending_operation_ids)?;
         }
@@ -645,7 +679,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state disabled
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "1", "disable": "true", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
+                    "field_values": {"version": "\"1\"", "disabled": "true", "desired_ha_state": "2", "approved_pending_operation_ids": "[]" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
@@ -678,7 +712,7 @@ mod test {
 
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
+                    "field_values": {"version": "\"2\"", "disabled": "false", "desired_ha_state": "2", "approved_pending_operation_ids": "[]" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
@@ -707,7 +741,10 @@ mod test {
         let db = crate::db_named(NpuDashHaScopeState::db_name()).await.unwrap();
         let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
         let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
-        let op_id = npu_ha_scope_state.pending_operation_ids.unwrap().pop().unwrap();
+        let op_id = format!(
+            "[\"{}\"]",
+            npu_ha_scope_state.pending_operation_ids.unwrap().pop().unwrap()
+        );
 
         // continue the test to activate the role
         let mut npu_ha_scope_state4 = npu_ha_scope_state3.clone();
@@ -715,7 +752,7 @@ mod test {
         let npu_ha_scope_state_fvs4 = to_field_values(&npu_ha_scope_state4).unwrap();
 
         let mut dpu_ha_state_state5 = make_dpu_ha_scope_state("active");
-        dpu_ha_state_state5.ha_term = "2".to_string();
+        dpu_ha_state_state5.ha_term = "active".to_string();
         let mut npu_ha_scope_state5: NpuDashHaScopeState = npu_ha_scope_state4.clone();
         update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state5, &dpu_ha_state_state5, "active");
         let npu_ha_scope_state_fvs5 = to_field_values(&npu_ha_scope_state5).unwrap();
@@ -731,7 +768,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with activation approved
             send! { key: HaScopeActor::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "3", "disable": "false", "desired_ha_state": "active", "approved_pending_operation_ids": &op_id },
+                    "field_values": {"version": "\"3\"", "disabled": "false", "desired_ha_state": "2", "approved_pending_operation_ids": &op_id },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
@@ -772,7 +809,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with desired_ha_state = dead
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": "" },
+                    "field_values": {"version": "\"2\"", "disabled": "false", "desired_ha_state": "1", "approved_pending_operation_ids": "[]" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
@@ -782,7 +819,8 @@ mod test {
 
             // simulate delete of ha-scope entry
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Del",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }},
+                    "field_values": {"version": "\"2\"", "disabled": "false", "desired_ha_state": "1", "approved_pending_operation_ids": "[]"  }
+                    },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
         ];
 

@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
+use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig, types::*};
 use sonicdb_derive::SonicDb;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
@@ -207,19 +208,7 @@ pub fn now_in_millis() -> i64 {
 #[derive(Serialize, Deserialize, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SET_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct DashHaSetConfigTable {
-    pub version: String,
-    pub vip_v4: String,
-    pub vip_v6: Option<String>,
-    // dpu or switch
-    pub owner: Option<String>,
-    // dpu or eni
-    pub scope: Option<String>,
-    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
-    pub vdpu_ids: Vec<String>,
-    pub pinned_vdpu_bfd_probe_states: Option<String>,
-    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
-    pub preferred_vdpu_ids: Option<Vec<String>>,
-    pub preferred_standalone_vdpu_index: Option<u32>,
+    pub ha_set_config: HaSetConfig,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
@@ -281,11 +270,7 @@ pub struct VnetRouteTunnelTable {
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SCOPE_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct DashHaScopeConfigTable {
-    pub version: u32,
-    pub disable: bool,
-    pub desired_ha_state: String,
-    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
-    pub approved_pending_operation_ids: Option<Vec<String>>,
+    pub ha_scope_config: HaScopeConfig,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations>
@@ -429,6 +414,18 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
         }
     }
     Err(anyhow::anyhow!("DPU entry not found for slot {}", dpu_id))
+}
+
+pub fn ip_to_string(ip: &IpAddress) -> String {
+    match &ip.ip {
+        Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv4(addr)) => std::net::Ipv4Addr::from(*addr).to_string(),
+        Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv6(addr)) => {
+            use std::net::Ipv6Addr;
+            let bytes: [u8; 16] = addr.clone().try_into().unwrap_or([0; 16]);
+            Ipv6Addr::from(bytes).to_string()
+        }
+        _ => "".to_string(),
+    }
 }
 
 #[cfg(test)]
