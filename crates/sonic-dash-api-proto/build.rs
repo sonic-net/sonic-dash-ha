@@ -1,0 +1,41 @@
+fn main() {
+    let proto_path = "sonic-dash-api/proto".to_string();
+
+    let mut proto_config = prost_build::Config::new();
+
+    proto_config.type_attribute(
+        "dash.ha_scope_config.HaScopeConfig",
+        "#[derive(serde::Serialize, serde::Deserialize)]",
+    );
+
+    proto_config.type_attribute(
+        "dash.ha_set_config.HaSetConfig",
+        "#[derive(serde::Serialize, serde::Deserialize)]",
+    );
+
+    proto_config.type_attribute(
+        "dash.types.IpAddress",
+        "#[derive(serde::Serialize, serde::Deserialize)]",
+    );
+
+    proto_config
+        .compile_protos(
+            &[
+                format!("{proto_path}/ha_set_config.proto"),
+                format!("{proto_path}/ha_scope_config.proto"),
+                format!("{proto_path}/types.proto"),
+            ],
+            &[proto_path],
+        )
+        .unwrap();
+
+    // --- PATCH GENERATED CODE FOR SERDE ON ONEOF ENUMS ---
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let types_rs = std::path::Path::new(&out_dir).join("dash.types.rs");
+    let content = std::fs::read_to_string(&types_rs).unwrap();
+    let patched = content.replace(
+        "#[derive(Clone, PartialEq, ::prost::Oneof)]\n    pub enum Ip {",
+        "#[derive(Clone, PartialEq, ::prost::Oneof)]\n    #[derive(serde::Serialize, serde::Deserialize)]\n    pub enum Ip {"
+    );
+    std::fs::write(&types_rs, patched).unwrap();
+}

@@ -1,0 +1,16 @@
+[package]
+name = "sonic-dash-api-proto"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[dependencies]
+prost.workspace = true
+serde.workspace = true
+
+[build-dependencies]
+prost-build = "0.13"
