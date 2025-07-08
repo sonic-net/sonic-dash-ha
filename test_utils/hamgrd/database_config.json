@@ -34,7 +34,7 @@
             "instance": "redis"
         },
         "DPU_STATE_DB": {
-            "id": 17,
+            "id": 14,
             "separator": "|",
             "instance": "redis"
         }

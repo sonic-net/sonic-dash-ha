@@ -1,19 +1,17 @@
-use crate::actors::{spawn_consumer_bridge_for_actor, spawn_zmq_producer_bridge, ActorCreator};
+use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
     BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuState, RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use crate::ServicePath;
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
-use serde_with::{formats::CommaSeparator, serde_as, StringWithSeparator};
 use std::collections::HashSet;
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
-use swss_common_bridge::consumer::{spawn_consumer_bridge, ConsumerBridge};
-use tracing::{debug, error, info};
+use swss_common_bridge::consumer::ConsumerBridge;
+use tracing::{debug, error, info, instrument};
 
 use super::spawn_consumer_bridge_for_actor_with_selector;
 
@@ -78,7 +76,8 @@ impl DpuActor {
     }
 
     // DpuActor is spawned in response to swss-common-bridge message for DPU and REMOTE_DPU table
-    pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<()> {
+    pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<Vec<ConsumerBridge>> {
+        let mut bridges = Vec::new();
         let dpu_ac = ActorCreator::new(
             edge_runtime.new_sp(Self::name(), ""),
             edge_runtime.clone(),
@@ -93,7 +92,7 @@ impl DpuActor {
         let sst = SubscriberStateTable::new_async(config_db, Self::dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<Dpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        spawn_consumer_bridge(
+        bridges.push(ConsumerBridge::spawn(
             edge_runtime.clone(),
             addr,
             sst,
@@ -104,13 +103,13 @@ impl DpuActor {
                 (addr, Self::dpu_table_name().to_owned())
             },
             |_| true,
-        );
+        ));
 
         let config_db = crate::db_named(RemoteDpu::db_name()).await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::remote_dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<RemoteDpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        spawn_consumer_bridge(
+        bridges.push(ConsumerBridge::spawn(
             edge_runtime.clone(),
             addr,
             sst,
@@ -121,8 +120,8 @@ impl DpuActor {
                 (addr, Self::remote_dpu_table_name().to_owned())
             },
             |_| true,
-        );
-        Ok(())
+        ));
+        Ok(bridges)
     }
 
     async fn handle_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
@@ -140,7 +139,6 @@ impl DpuActor {
         let npu_ipv6: Option<String> = crate::get_npu_ipv6(context.get_edge_runtime()).map(|ip| ip.to_string());
         let dpu_id = dpu.dpu_id;
         let is_managed = dpu.dpu_id == crate::get_slot_id(context.get_edge_runtime());
-        let zmq_endpoint = format!("{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
 
         let first_time = self.dpu.is_none();
         self.dpu = Some(DpuData::LocalDpu {
@@ -263,7 +261,6 @@ impl DpuActor {
         outgoing: &mut Outgoing,
         target_actor: Option<ServicePath>,
     ) -> Result<()> {
-        let mut up = false;
         let Some(ref dpu_data) = self.dpu else {
             return Ok(());
         };
@@ -421,8 +418,7 @@ impl DpuActor {
         }
     }
 
-    fn handle_dash_ha_global_config(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let incoming = state.incoming();
+    fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
         self.update_bfd_sessions(state)?;
         Ok(())
     }
@@ -436,6 +432,7 @@ impl DpuActor {
 }
 
 impl Actor for DpuActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("dpu/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
         if key == Self::dpu_table_name() {
@@ -456,7 +453,7 @@ impl Actor for DpuActor {
         if !self.is_local_managed() {
             return Ok(());
         } else if key == DashHaGlobalConfig::table_name() {
-            return self.handle_dash_ha_global_config(state, key);
+            return self.handle_dash_ha_global_config(state);
         } else if key == DpuState::table_name() || key == DashBfdProbeState::table_name() {
             return self.update_dpu_state(incoming, outgoing, None);
         } else {

@@ -1,17 +1,12 @@
 use crate::actors::dpu::DpuActor;
-use crate::actors::{ActorCreator, DbBasedActor};
+use crate::actors::DbBasedActor;
 use crate::db_structs::VDpu;
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
-use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Arc;
 use swbus_actor::Context;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, State};
-use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
-use swss_common_bridge::consumer::spawn_consumer_bridge;
-use tracing::error;
+use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use tracing::{error, instrument};
 
 pub struct VDpuActor {
     /// The id of this vdpu
@@ -91,13 +86,11 @@ impl VDpuActor {
 
         if let Ok(dpu) = msg.deserialize_data::<DpuActorState>() {
             let vdpu = VDpuActorState { up: dpu.up, dpu };
-            return Some(vdpu);
+            Some(vdpu)
         } else {
             error!("Failed to deserialize DpuActorState from the message");
-            return None;
+            None
         }
-
-        None
     }
 
     async fn handle_vdpu_state_registration(
@@ -121,6 +114,7 @@ impl VDpuActor {
 }
 
 impl Actor for VDpuActor {
+    #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("vdpu/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         if key == Self::table_name() {
             return self.handle_vdpu_message(state, key, context).await;

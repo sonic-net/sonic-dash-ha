@@ -29,6 +29,7 @@ serde_with.workspace = true
 clap.workspace = true
 tracing.workspace = true
 chrono.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

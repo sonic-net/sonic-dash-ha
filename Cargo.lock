@@ -805,6 +805,7 @@ dependencies = [
  "swss-serde",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

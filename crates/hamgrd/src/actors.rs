@@ -1,9 +1,6 @@
 //! Actors
 //!
 //! <https://github.com/r12f/SONiC/blob/user/r12f/hamgrd/doc/smart-switch/high-availability/smart-switch-ha-hamgrd.md#2-key-actors>
-// temporarily disable unused warning until vdpu/ha-set actors are implemented
-#![allow(unused)]
-
 pub mod dpu;
 pub mod ha_scope;
 pub mod ha_set;
@@ -12,7 +9,6 @@ pub mod vdpu;
 #[cfg(test)]
 pub mod test;
 use anyhow::Result as AnyhowResult;
-use std::any;
 use std::sync::Arc;
 use swbus_actor::{spawn, Actor, ActorMessage};
 use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;
@@ -23,10 +19,10 @@ use swss_common::{
     KeyOpFieldValues, KeyOperation, ProducerStateTable, SonicDbTable, SubscriberStateTable, ZmqClient,
     ZmqProducerStateTable,
 };
-use swss_common_bridge::{consumer::spawn_consumer_bridge, consumer::ConsumerBridge, producer::spawn_producer_bridge};
+use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::{error, info};
 
 pub trait DbBasedActor: Actor {
     fn name() -> &'static str;
@@ -35,7 +31,7 @@ pub trait DbBasedActor: Actor {
     where
         Self: Sized;
 
-    async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<()>
+    async fn start_actor_creator<T>(edge_runtime: Arc<SwbusEdgeRuntime>) -> AnyhowResult<Vec<ConsumerBridge>>
     where
         Self: Sized,
         T: SonicDbTable + 'static,
@@ -53,7 +49,7 @@ pub trait DbBasedActor: Actor {
         let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<T>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        spawn_consumer_bridge(
+        Ok(vec![ConsumerBridge::spawn(
             edge_runtime.clone(),
             addr,
             sst,
@@ -64,8 +60,7 @@ pub trait DbBasedActor: Actor {
                 (addr, T::table_name().to_owned())
             },
             |_| true,
-        );
-        Ok(())
+        )])
     }
 }
 
@@ -274,6 +269,11 @@ where
         let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, false).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);
+        info!(
+            "spawned ZMQ producer bridge for {} at {}",
+            T::table_name(),
+            sp.to_longest_path()
+        );
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, zpst))
     } else {
         if std::env::var("SIM").is_err() {
@@ -283,6 +283,11 @@ where
         let pst = ProducerStateTable::new(dpu_appl_db, T::table_name()).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);
+        info!(
+            "spawned producer bridge for {} at {}",
+            T::table_name(),
+            sp.to_longest_path()
+        );
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, pst))
     }
 }

@@ -132,6 +132,3 @@ HSET DPU_STATE|dpu6 dpu_data_plane_state up
 HSET DPU_STATE|dpu7 dpu_midplane_link_state up
 HSET DPU_STATE|dpu7 dpu_control_plane_state up
 HSET DPU_STATE|dpu7 dpu_data_plane_state up
-
-select 17
-HSET DASH_BFD_PROBE_STATE|dpu0 v4_bfd_up_sessions "10.1.0.32"
