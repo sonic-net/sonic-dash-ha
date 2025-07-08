@@ -1,3 +1,5 @@
+use prost::Message;
+use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use std::{collections::HashMap, future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
@@ -40,6 +42,32 @@ impl ConsumerBridge {
     }
 }
 
+pub fn parse_from_protobuf<T: Message + Default>(kfv: &KeyOpFieldValues) -> anyhow::Result<Option<T>> {
+    let value_hex = match kfv.field_values.get("pb") {
+        Some(v) => v.to_str().ok(),
+        None => None,
+    };
+    let value_hex = match value_hex {
+        Some(s) if !s.is_empty() => s,
+        _ => return Ok(None),
+    };
+    let value_bytes = hex::decode(value_hex)?;
+    let config = T::decode(&*value_bytes)?;
+    Ok(Some(config))
+}
+
+pub fn convert_pb_to_json_fields<T: prost::Message + Default + serde::Serialize>(kfv: &mut KeyOpFieldValues) {
+    if let Some(cfg) = parse_from_protobuf::<T>(kfv).unwrap_or(None) {
+        let json = serde_json::to_value(&cfg).unwrap();
+        kfv.field_values.clear();
+        if let serde_json::Value::Object(map) = json {
+            for (k, v) in map {
+                kfv.field_values.insert(k, v.to_string().into());
+            }
+        }
+    }
+}
+
 pub fn spawn_consumer_bridge<T, F, S>(
     rt: Arc<SwbusEdgeRuntime>,
     addr: ServicePath,
@@ -52,10 +80,22 @@ where
     F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
     S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
 {
+    let table_name = table.get_table_name().to_owned();
     let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
         let mut table_cache = TableCache::default();
-        let mut send_kfv = async |kfv: KeyOpFieldValues| {
+        let mut send_kfv = async |mut kfv: KeyOpFieldValues| {
+            // Decode protobuf and re-encode as JSON for tables that use protobuf
+            match table_name.as_str() {
+                "DASH_HA_SET_CONFIG_TABLE" => {
+                    convert_pb_to_json_fields::<HaSetConfig>(&mut kfv);
+                }
+                "DASH_HA_SCOPE_CONFIG_TABLE" => {
+                    convert_pb_to_json_fields::<HaScopeConfig>(&mut kfv);
+                }
+                _ => {}
+            }
+
             // Merge the kfv to get the whole table as an update
             let kfv = table_cache.merge_kfv(kfv);
             if !selector(&kfv) {
@@ -142,6 +182,9 @@ pub trait ConsumerTable: Send + 'static {
 
     /// Dump the table, as if `pops()` returned everything again, for rehydration after a restart
     fn rehydrate(&mut self) -> impl Future<Output = Vec<KeyOpFieldValues>> + Send;
+
+    /// Return the table name for this instance
+    fn get_table_name(&self) -> &str;
 }
 
 macro_rules! rehydrate_body {
@@ -170,29 +213,51 @@ macro_rules! rehydrate_body {
     };
 }
 
-macro_rules! impl_consumertable {
-    ($($t:ty [$can_rehydrate:tt])*) => {
-        $(impl ConsumerTable for $t {
-            async fn read_data(&mut self) {
-                <$t>::read_data_async(self)
-                    .await
-                    .expect(concat!(stringify!($t::read_data_async), " io error"));
-            }
-
-            async fn pops(&mut self) -> Vec<KeyOpFieldValues> {
-                <$t>::pops_async(self)
-                    .await
-                    .expect(concat!(stringify!($t::pops_async), " threw an exception"))
-            }
-
-            async fn rehydrate(&mut self) -> Vec<KeyOpFieldValues> {
-                rehydrate_body!($can_rehydrate, self)
-            }
-        })*
+macro_rules! impl_consumertable_methods {
+    ($t:ty, $can_rehydrate:tt) => {
+        async fn read_data(&mut self) {
+            <$t>::read_data_async(self)
+                .await
+                .expect(concat!(stringify!($t::read_data_async), " io error"));
+        }
+        async fn pops(&mut self) -> Vec<KeyOpFieldValues> {
+            <$t>::pops_async(self)
+                .await
+                .expect(concat!(stringify!($t::pops_async), " threw an exception"))
+        }
+        async fn rehydrate(&mut self) -> Vec<KeyOpFieldValues> {
+            rehydrate_body!($can_rehydrate, self)
+        }
     };
 }
 
-impl_consumertable! { ConsumerStateTable[true] SubscriberStateTable[true] ZmqConsumerStateTable[false] }
+macro_rules! impl_consumertable {
+    // $table_name_method: ident or _ (underscore) if not present
+    ($($t:ty [$can_rehydrate:tt $table_name_method:tt]),* $(,)?) => {
+        $(
+            impl ConsumerTable for $t {
+                fn get_table_name(&self) -> &str {
+                    impl_consumertable!(@call_table_name self $table_name_method)
+                }
+                impl_consumertable_methods!($t, $can_rehydrate);
+            }
+        )*
+    };
+
+    // Call the method if not _, else return ""
+    (@call_table_name $self:ident _) => {
+        ""
+    };
+    (@call_table_name $self:ident $method:ident) => {
+        $self.$method()
+    };
+}
+
+impl_consumertable! {
+    ConsumerStateTable[true table_name],
+    SubscriberStateTable[true table_name],
+    ZmqConsumerStateTable[false _],
+}
 
 #[cfg(test)]
 mod test {

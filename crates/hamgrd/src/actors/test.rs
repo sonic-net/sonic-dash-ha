@@ -3,6 +3,7 @@ use crate::ha_actor_messages::*;
 use crate::RuntimeData;
 use anyhow::Result;
 use serde_json::Value;
+use sonic_dash_api_proto::{ha_set_config::HaSetConfig, types::ip_address::Ip, types::*};
 use std::{collections::HashMap, future::Future, time::Duration};
 use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
@@ -386,26 +387,43 @@ pub fn make_vdpu_actor_state(up: bool, dpu_state: &DpuActorState) -> (String, VD
     )
 }
 
+pub fn string_to_ip(s: String) -> Option<IpAddress> {
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(v4) = s.parse::<std::net::Ipv4Addr>() {
+        Some(IpAddress {
+            ip: Some(Ip::Ipv4(u32::from(v4))),
+        })
+    } else if let Ok(v6) = s.parse::<std::net::Ipv6Addr>() {
+        Some(IpAddress {
+            ip: Some(Ip::Ipv6(v6.octets().to_vec())),
+        })
+    } else {
+        None
+    }
+}
+
 /// Create a DashHaSetConfigTable for a given DPU
 /// The allocation scheme is as follows:
 /// switch_n/dpu_x and switch_n+1/dpu_x are in the same HA set, where n is even
 /// vdpu id is vdpu{switch id * 8}-{dpu}
-pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, DashHaSetConfigTable) {
+pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, HaSetConfig) {
     let switch_pair_id = switch / 2;
     let vdpu0_id = format!("vdpu{}-{dpu}", switch_pair_id * 2);
     let vdpu1_id = format!("vdpu{}-{dpu}", switch_pair_id * 2 + 1);
-    let ha_set = DashHaSetConfigTable {
+    let ha_set = HaSetConfig {
         version: "1".to_string(),
-        vip_v4: format!("3.2.{switch_pair_id}.{dpu}"),
-        vip_v6: Some(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
+        vip_v4: string_to_ip(format!("3.2.{switch_pair_id}.{dpu}")),
+        vip_v6: string_to_ip(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
         // dpu or switch
-        owner: Some("dpu".to_string()),
+        owner: HaOwner::OwnerController as i32,
         // dpu or eni
-        scope: Some("dpu".to_string()),
+        scope: HaScope::ScopeDpu as i32,
         vdpu_ids: vec![vdpu0_id.clone(), vdpu1_id.clone()],
-        pinned_vdpu_bfd_probe_states: None,
-        preferred_vdpu_ids: Some(vec![vdpu0_id]),
-        preferred_standalone_vdpu_index: Some(0),
+        pinned_vdpu_bfd_probe_states: vec!["".to_string()],
+        preferred_vdpu_id: vdpu0_id,
+        preferred_standalone_vdpu_index: 0,
     };
     (format!("haset{switch_pair_id}-{dpu}"), ha_set)
 }
@@ -416,10 +434,10 @@ pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTab
     let global_cfg = make_dash_ha_global_config();
     let ha_set = DashHaSetTable {
         version: "1".to_string(),
-        vip_v4: haset_cfg.vip_v4,
-        vip_v6: haset_cfg.vip_v6,
-        owner: haset_cfg.owner,
-        scope: haset_cfg.scope,
+        vip_v4: ip_to_string(&haset_cfg.vip_v4.unwrap()),
+        vip_v6: Some(ip_to_string(&haset_cfg.vip_v6.unwrap())),
+        owner: format!("{:?}", haset_cfg.owner).into(),
+        scope: format!("{:?}", haset_cfg.scope).into(),
         local_npu_ip: format!("10.0.{switch}.{dpu}"),
         local_ip: format!("18.0.{switch}.{dpu}"),
         peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),

@@ -30,6 +30,7 @@ clap.workspace = true
 tracing.workspace = true
 chrono.workspace = true
 uuid.workspace = true
-
-[dev-dependencies]
+sonic-dash-api-proto = { path = "../sonic-dash-api-proto" }
+prost.workspace = true
+hex = "0.4"
 serde_json.workspace = true

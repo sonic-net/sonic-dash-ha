@@ -791,10 +791,13 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "hex",
+ "prost",
  "serde",
  "serde_json",
  "serde_with",
  "sonic-common",
+ "sonic-dash-api-proto",
  "sonicdb-derive",
  "swbus-actor",
  "swbus-config",
@@ -1943,6 +1946,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sonic-dash-api-proto"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+ "serde",
+]
+
+[[package]]
 name = "sonicdb-derive"
 version = "0.1.0"
 dependencies = [
@@ -2144,6 +2156,12 @@ dependencies = [
 name = "swss-common-bridge"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "hex",
+ "prost",
+ "serde",
+ "serde_json",
+ "sonic-dash-api-proto",
  "swbus-actor",
  "swbus-edge",
  "swss-common",
