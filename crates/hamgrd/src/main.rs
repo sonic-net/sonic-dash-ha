@@ -91,7 +91,7 @@ async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
 // all actors in the process.
 async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) -> Result<Vec<JoinHandle<()>>> {
     let mut handles = Vec::new();
-    let zmq_endpoint = format!("{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
+    let zmq_endpoint = format!("tcp://{}:{}", dpu.midplane_ipv4, dpu.orchagent_zmq_port);
 
     // Spawn BFD_SESSION_TABLE zmq producer bridge for DPU actor
     // has service path swss-common-bridge/BFD_SESSION_TABLE.
