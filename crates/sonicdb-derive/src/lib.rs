@@ -15,6 +15,7 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
     let mut table_name: String = "".to_string();
     let mut key_separator: char = 'a';
     let mut db_name: String = "".to_string();
+    let mut is_dpu: bool = false;
     for attr in &input.attrs {
         if attr.path().is_ident("sonicdb") {
             attr.parse_nested_meta(|meta| {
@@ -39,6 +40,16 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
                     let s: LitStr = value.parse()?;
                     db_name = s.value();
                     Ok(())
+                } else if meta.path.is_ident("is_dpu") {
+                    let value = meta.value()?;
+                    let s: LitStr = value.parse()?;
+                    let value_str = s.value();
+                    is_dpu = match value_str.as_str() {
+                        "true" | "True" | "1" => true,
+                        "false" | "False" | "0" => false,
+                        _ => return Err(meta.error("is_dpu must be a boolean (true/false)")),
+                    };
+                    Ok(())
                 } else {
                     Err(meta.error("unknown attribute"))
                 }
@@ -56,6 +67,8 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
         panic!("Missing key_separator attribute");
     }
 
+    let is_dpu_value = is_dpu;
+
     let expanded = quote! {
         impl swss_common::SonicDbTable for #struct_name {
             fn key_separator() -> char {
@@ -68,6 +81,10 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
 
             fn db_name() -> &'static str {
                 #db_name
+            }
+
+            fn is_dpu() -> bool {
+                #is_dpu_value
             }
         }
     };

@@ -260,7 +260,7 @@ impl HaSetActor {
         self.dash_ha_set_config = Some(swss_serde::from_field_values(&dpu_kfv.field_values)?);
         let swss_key = format!("default:{}", self.dash_ha_set_config.as_ref().unwrap().vip_v4);
         if !internal.has_entry(VnetRouteTunnelTable::table_name(), &swss_key) {
-            let db = crate::db_named(VnetRouteTunnelTable::db_name()).await?;
+            let db = crate::db_for_table::<VnetRouteTunnelTable>().await?;
             let table = Table::new_async(db, VnetRouteTunnelTable::table_name()).await?;
             internal.add(VnetRouteTunnelTable::table_name(), table, swss_key).await;
         }
@@ -444,7 +444,7 @@ mod test {
             // Verify that haset actor state is sent to ha-scope actor
             recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj },
                     addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
-            chkdb! { db: "APPL_DB", table: "VNET_ROUTE_TUNNEL_TABLE", key: &format!("default:{}", ha_set_cfg.vip_v4), data: expected_vnet_route },
+            chkdb! { type: VnetRouteTunnelTable, key: &format!("default:{}", ha_set_cfg.vip_v4), data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<DashHaSetConfigTable>(&runtime.get_swbus_edge()) },
@@ -517,7 +517,7 @@ mod test {
             // Simulate VDPU state update for vdpu1 (backup)
             send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
             // Verify that the DASH_HA_SET_TABLE was updated
-            chkdb! { db: "APPL_DB", table: VnetRouteTunnelTable::table_name(), key: &format!("default:{}", ha_set_cfg.vip_v4),
+            chkdb! { type: VnetRouteTunnelTable, key: &format!("default:{}", ha_set_cfg.vip_v4),
                     data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },

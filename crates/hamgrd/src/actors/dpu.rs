@@ -88,7 +88,7 @@ impl DpuActor {
         tokio::task::spawn(dpu_ac.run());
 
         // dpu actor is spawned for both local dpu and remote dpu
-        let config_db = crate::db_named(Dpu::db_name()).await?;
+        let config_db = crate::db_for_table::<Dpu>().await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<Dpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
@@ -105,7 +105,7 @@ impl DpuActor {
             |_| true,
         ));
 
-        let config_db = crate::db_named(RemoteDpu::db_name()).await?;
+        let config_db = crate::db_for_table::<RemoteDpu>().await?;
         let sst = SubscriberStateTable::new_async(config_db, Self::remote_dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<RemoteDpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();

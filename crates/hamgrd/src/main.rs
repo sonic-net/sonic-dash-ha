@@ -2,11 +2,14 @@ use anyhow::{anyhow, Ok};
 use clap::Parser;
 use sonic_common::log;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
-use swss_common::DbConnector;
+use swss_common::{sonic_db_config_initialize_global, DbConnector, SonicDbTable};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tokio::{signal, task::JoinHandle, time::timeout};
 use tracing::error;
@@ -19,7 +22,12 @@ use anyhow::Result;
 use db_structs::{
     BfdSessionTable, DashHaScopeConfigTable, DashHaScopeTable, DashHaSetConfigTable, DashHaSetTable, Dpu, VDpu,
 };
+use lazy_static::lazy_static;
 use std::any::Any;
+
+lazy_static! {
+    static ref DPU_SLOT_ID: Mutex<u8> = Mutex::new(0);
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "hamgrd")]
@@ -35,6 +43,9 @@ async fn main() {
     if let Err(e) = log::init("hamgrd", true) {
         eprintln!("Failed to initialize logging: {e}");
     }
+
+    set_dpu_slot_id(args.slot_id as u8);
+    sonic_db_config_initialize_global("/var/run/redis/sonic-db/database_global.json").unwrap();
 
     // Read swbusd config from redis or yaml file
     let swbus_config = swbus_config_from_db(args.slot_id).unwrap();
@@ -78,12 +89,37 @@ async fn main() {
     signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
 }
 
-async fn db_named(name: &str) -> anyhow::Result<DbConnector> {
-    let db = timeout(Duration::from_secs(5), DbConnector::new_named_async(name, false, 11000))
-        .await
-        .map_err(|_| anyhow!("Connecting to db `{name}` timed out"))?
-        .map_err(|e| anyhow!("Connecting to db `{name}`: {e}"))?;
+fn set_dpu_slot_id(slot_id: u8) {
+    let mut data = DPU_SLOT_ID.lock().unwrap();
+    *data = slot_id;
+}
+
+fn get_dpu_slot_id() -> u8 {
+    let data = DPU_SLOT_ID.lock().unwrap();
+    *data
+}
+
+async fn db_named(name: &str, is_dpu: bool) -> anyhow::Result<DbConnector> {
+    let container_name = match is_dpu {
+        true => format!("dpu{}", get_dpu_slot_id()),
+        false => "".into(),
+    };
+    let db = timeout(
+        Duration::from_secs(5),
+        DbConnector::new_keyed_async(name, false, 11000, &container_name, ""),
+    )
+    .await
+    .map_err(|_| anyhow!("Connecting to db `{name}` timed out"))?
+    .map_err(|e| anyhow!("Connecting to db `{name}`: {e}"))?;
     Ok(db)
+}
+
+async fn db_for_table<T>() -> anyhow::Result<DbConnector>
+where
+    T: SonicDbTable + 'static,
+{
+    let name = T::db_name();
+    db_named(name, T::is_dpu()).await
 }
 
 // producer bridges are responsible for updating sonic-db optionally sending the update out via zmq
@@ -191,4 +227,19 @@ where
     new_sp.resource_type = "swss-common-bridge".into();
     new_sp.resource_id = format!("{}|{}", T::db_name(), T::table_name());
     new_sp
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use db_structs::*;
+    use swss_common_testing::Redis;
+
+    #[tokio::test]
+    async fn test_db_for_table() {
+        let _ = Redis::start_config_db();
+        set_dpu_slot_id(0);
+        crate::db_for_table::<Dpu>().await.unwrap();
+        crate::db_for_table::<DashHaScopeTable>().await.unwrap();
+    }
 }
