@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
-use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig, types::*};
+use sonic_dash_api_proto::types::*;
 use sonicdb_derive::SonicDb;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
@@ -202,15 +202,6 @@ pub fn now_in_millis() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2121-ha-set-configurations>
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Serialize, Deserialize, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SET_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
-pub struct DashHaSetConfigTable {
-    pub ha_set_config: HaSetConfig,
-}
-
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
@@ -262,15 +253,6 @@ pub struct VnetRouteTunnelTable {
     pub rx_monitor_timer: Option<u32>,
     pub tx_monitor_timer: Option<u32>,
     pub check_directly_connected: Option<bool>,
-}
-
-/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-dpu-scope-dpu-driven-setup.md#2122-ha-scope-configurations>
-#[skip_serializing_none]
-#[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SCOPE_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
-pub struct DashHaScopeConfigTable {
-    pub ha_scope_config: HaScopeConfig,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations>

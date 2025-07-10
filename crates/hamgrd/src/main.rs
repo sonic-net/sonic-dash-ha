@@ -16,9 +16,8 @@ mod ha_actor_messages;
 use actors::spawn_zmq_producer_bridge;
 use actors::{dpu::DpuActor, ha_scope::HaScopeActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::{
-    BfdSessionTable, DashHaScopeConfigTable, DashHaScopeTable, DashHaSetConfigTable, DashHaSetTable, Dpu, VDpu,
-};
+use db_structs::{BfdSessionTable, DashHaScopeTable, DashHaSetTable, Dpu, VDpu};
+use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use std::any::Any;
 
 #[derive(Parser, Debug)]
@@ -117,8 +116,8 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<Ve
     let mut bridges: Vec<ConsumerBridge> = Vec::new();
     bridges.append(&mut DpuActor::start_actor_creator(edge_runtime.clone()).await?);
     bridges.append(&mut VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?);
-    bridges.append(&mut HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?);
-    bridges.append(&mut HaScopeActor::start_actor_creator::<DashHaScopeConfigTable>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaSetActor::start_actor_creator::<HaSetConfig>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaScopeActor::start_actor_creator::<HaScopeConfig>(edge_runtime.clone()).await?);
     Ok(bridges)
 }
 

@@ -1952,6 +1952,9 @@ dependencies = [
  "prost",
  "prost-build",
  "serde",
+ "sonic-common",
+ "sonicdb-derive",
+ "swss-common",
 ]
 
 [[package]]

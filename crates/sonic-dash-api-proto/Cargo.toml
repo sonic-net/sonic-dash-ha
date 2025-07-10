@@ -11,6 +11,9 @@ edition.workspace = true
 [dependencies]
 prost.workspace = true
 serde.workspace = true
+sonicdb-derive.workspace = true
+swss-common = { path = "../swss-common" }
+sonic-common.workspace = true
 
 [build-dependencies]
 prost-build = "0.13"

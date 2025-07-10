@@ -17,7 +17,7 @@ use tracing::{debug, error, info, instrument};
 
 pub struct HaSetActor {
     id: String,
-    dash_ha_set_config: Option<DashHaSetConfigTable>,
+    dash_ha_set_config: Option<HaSetConfig>,
     bridges: Vec<ConsumerBridge>,
 }
 
@@ -32,7 +32,7 @@ impl DbBasedActor for HaSetActor {
     }
 
     fn table_name() -> &'static str {
-        DashHaSetConfigTable::table_name()
+        HaSetConfig::table_name()
     }
 
     fn name() -> &'static str {
@@ -97,16 +97,11 @@ impl HaSetActor {
         let global_cfg = Self::get_dash_global_config(incoming)?;
 
         let dash_ha_set = DashHaSetTable {
-            version: dash_ha_set_config.ha_set_config.version.clone(),
-            vip_v4: dash_ha_set_config
-                .ha_set_config
-                .vip_v4
-                .as_ref()
-                .map(ip_to_string)
-                .unwrap_or_default(),
-            vip_v6: dash_ha_set_config.ha_set_config.vip_v6.as_ref().map(ip_to_string),
-            owner: format!("{:?}", dash_ha_set_config.ha_set_config.owner).into(),
-            scope: format!("{:?}", dash_ha_set_config.ha_set_config.scope).into(),
+            version: dash_ha_set_config.version.clone(),
+            vip_v4: dash_ha_set_config.vip_v4.as_ref().map(ip_to_string).unwrap_or_default(),
+            vip_v6: dash_ha_set_config.vip_v6.as_ref().map(ip_to_string),
+            owner: format!("{:?}", dash_ha_set_config.owner).into(),
+            scope: format!("{:?}", dash_ha_set_config.scope).into(),
             local_npu_ip: local_vdpu.dpu.npu_ipv4.clone(),
             local_ip: local_vdpu.dpu.pa_ipv4.clone(),
             peer_ip: remote_vdpu.dpu.pa_ipv4.clone(),
@@ -197,7 +192,6 @@ impl HaSetActor {
 
         let msg = ActorRegistration::new_actor_msg(active, RegistrationType::VDPUState, &self.id)?;
         dash_ha_set_config
-            .ha_set_config
             .vdpu_ids
             .iter()
             .map(|id: &String| id.trim())
@@ -225,7 +219,6 @@ impl HaSetActor {
             return Vec::new();
         };
 
-        let ref ha_set_cfg = ha_set_cfg.ha_set_config;
         let mut result = Vec::new();
 
         // Collect all preferred (primary) vdpus first
@@ -291,24 +284,15 @@ impl HaSetActor {
         }
         let first_time = self.dash_ha_set_config.is_none();
 
-        self.dash_ha_set_config = Some(DashHaSetConfigTable {
-            ha_set_config: decode_field_values_to_hasetconfig(&dpu_kfv.field_values).unwrap(),
-        });
+        self.dash_ha_set_config = Some(decode_field_values_to_hasetconfig(&dpu_kfv.field_values).unwrap());
 
-        let vip_v4_str = self
-            .dash_ha_set_config
-            .as_ref()
-            .unwrap()
-            .ha_set_config
-            .vip_v4
-            .as_ref()
-            .map(|ip| {
-                if let Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv4(addr)) = &ip.ip {
-                    std::net::Ipv4Addr::from(*addr).to_string()
-                } else {
-                    "".to_string()
-                }
-            });
+        let vip_v4_str = self.dash_ha_set_config.as_ref().unwrap().vip_v4.as_ref().map(|ip| {
+            if let Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv4(addr)) = &ip.ip {
+                std::net::Ipv4Addr::from(*addr).to_string()
+            } else {
+                "".to_string()
+            }
+        });
 
         let swss_key = format!("default:{}", vip_v4_str.unwrap());
         if !internal.has_entry(VnetRouteTunnelTable::table_name(), &swss_key) {
@@ -421,6 +405,7 @@ mod test {
         db_structs::*,
         ha_actor_messages::*,
     };
+    use sonic_dash_api_proto::ha_set_config::HaSetConfig;
     use std::collections::HashMap;
     use std::time::Duration;
     use swss_common::CxxString;
@@ -497,7 +482,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SET_CONFIG_TABLE config
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs },
-                    addr: crate::common_bridge_sp::<DashHaSetConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
@@ -519,7 +504,7 @@ mod test {
             chkdb! { db: "APPL_DB", table: "VNET_ROUTE_TUNNEL_TABLE", key: &format!("default:{}", ip_to_string(&ha_set_cfg.vip_v4.unwrap())), data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
-                    addr: crate::common_bridge_sp::<DashHaSetConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
@@ -578,7 +563,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SET_CONFIG_TABLE config
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs },
-                    addr: crate::common_bridge_sp::<DashHaSetConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
@@ -593,7 +578,7 @@ mod test {
                     data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
-                    addr: crate::common_bridge_sp::<DashHaSetConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
