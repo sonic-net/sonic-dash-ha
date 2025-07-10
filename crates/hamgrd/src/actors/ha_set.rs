@@ -4,12 +4,10 @@ use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
-use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
 };
-use swss_common::CxxString;
 use swss_common::Table;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
 use swss_common_bridge::consumer::ConsumerBridge;
@@ -43,24 +41,6 @@ impl DbBasedActor for HaSetActor {
 struct VDpuStateExt {
     vdpu: VDpuActorState,
     is_primary: bool,
-}
-
-fn decode_field_values_to_hasetconfig(
-    field_values: &HashMap<String, CxxString>,
-) -> Result<HaSetConfig, serde_json::Error> {
-    use serde_json::Value;
-
-    let mut json_map = serde_json::Map::new();
-    for (k, v) in field_values {
-        let s = v.to_string_lossy();
-        let value = match serde_json::from_str::<Value>(&s) {
-            Ok(val) => val,
-            Err(_) => Value::String(s.into_owned()),
-        };
-        json_map.insert(k.clone(), value);
-    }
-    let json_value = Value::Object(json_map);
-    serde_json::from_value(json_value)
 }
 
 impl HaSetActor {
@@ -284,7 +264,7 @@ impl HaSetActor {
         }
         let first_time = self.dash_ha_set_config.is_none();
 
-        self.dash_ha_set_config = Some(decode_field_values_to_hasetconfig(&dpu_kfv.field_values).unwrap());
+        self.dash_ha_set_config = Some(decode_from_json_string(&dpu_kfv.field_values).unwrap());
 
         let vip_v4_str = self.dash_ha_set_config.as_ref().unwrap().vip_v4.as_ref().map(|ip| {
             if let Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv4(addr)) = &ip.ip {
@@ -414,18 +394,14 @@ mod test {
     use swss_common_testing::*;
 
     fn protobuf_struct_to_json<T: prost::Message + Default + serde::Serialize>(cfg: &T) -> HashMap<String, CxxString> {
-        let json = serde_json::to_value(cfg).unwrap();
+        let json = serde_json::to_string(&cfg).unwrap();
         let mut kfv = KeyOpFieldValues {
             key: HaSetActor::table_name().to_string(),
             operation: KeyOperation::Set,
             field_values: HashMap::new(),
         };
         kfv.field_values.clear();
-        if let serde_json::Value::Object(map) = json {
-            for (k, v) in map {
-                kfv.field_values.insert(k, v.to_string().into());
-            }
-        }
+        kfv.field_values.insert("json".to_string(), json.into());
         kfv.field_values.clone()
     }
 

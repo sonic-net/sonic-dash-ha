@@ -9,7 +9,6 @@ use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
 };
-use swss_common::CxxString;
 use swss_common::Table;
 use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
 use swss_common_bridge::consumer::ConsumerBridge;
@@ -401,24 +400,6 @@ impl HaScopeActor {
     }
 }
 
-fn decode_field_values_to_hascopeconfig(
-    field_values: &HashMap<String, CxxString>,
-) -> Result<HaScopeConfig, serde_json::Error> {
-    use serde_json::Value;
-
-    let mut json_map = serde_json::Map::new();
-    for (k, v) in field_values {
-        let s = v.to_string_lossy();
-        let value = match serde_json::from_str::<Value>(&s) {
-            Ok(val) => val,
-            Err(_) => Value::String(s.into_owned()),
-        };
-        json_map.insert(k.clone(), value);
-    }
-    let json_value = Value::Object(json_map);
-    serde_json::from_value(json_value)
-}
-
 // Implements messages handlers for HaScopeActor
 impl HaScopeActor {
     /// Handles updates to the DASH_HA_SCOPE_CONFIG_TABLE.
@@ -444,7 +425,7 @@ impl HaScopeActor {
             return Ok(());
         }
         let first_time = self.dash_ha_scope_config.is_none();
-        let dash_ha_scope_config: HaScopeConfig = decode_field_values_to_hascopeconfig(&kfv.field_values)?;
+        let dash_ha_scope_config: HaScopeConfig = decode_from_json_string(&kfv.field_values)?;
 
         // Update internal config
         self.dash_ha_scope_config = Some(dash_ha_scope_config);
@@ -671,7 +652,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state disabled
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "\"1\"", "disabled": "true", "desired_ha_state": "2", "approved_pending_operation_ids": "[]" },
+                    "field_values": {"json": "{\"version\":\"1\",\"disabled\":true,\"desired_ha_state\":2,\"approved_pending_operation_ids\":[]}"},
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
@@ -704,7 +685,7 @@ mod test {
 
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "\"2\"", "disabled": "false", "desired_ha_state": "2", "approved_pending_operation_ids": "[]" },
+                    "field_values": {"json": "{\"version\":\"2\",\"disabled\":false,\"desired_ha_state\":2,\"approved_pending_operation_ids\":[]}"},
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
@@ -760,7 +741,8 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with activation approved
             send! { key: HaScopeActor::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "\"3\"", "disabled": "false", "desired_ha_state": "2", "approved_pending_operation_ids": &op_id },
+                    "field_values": {"json": format!("{{\"version\":\"3\",\"disabled\":false,\"desired_ha_state\":2,\"approved_pending_operation_ids\":{}}}", &op_id)},
+                    // "field_values": {"version": "\"3\"", "disabled": "false", "desired_ha_state": "2", "approved_pending_operation_ids": &op_id },
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
@@ -801,7 +783,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with desired_ha_state = dead
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "\"2\"", "disabled": "false", "desired_ha_state": "1", "approved_pending_operation_ids": "[]" },
+                    "field_values": {"json": "{\"version\":\"2\",\"disabled\":false,\"desired_ha_state\":1,\"approved_pending_operation_ids\":[]}"},
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
@@ -811,7 +793,7 @@ mod test {
 
             // simulate delete of ha-scope entry
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
-                    "field_values": {"version": "\"2\"", "disabled": "false", "desired_ha_state": "1", "approved_pending_operation_ids": "[]"  }
+                    "field_values": {"json": "{\"version\":\"2\",\"disabled\":false,\"desired_ha_state\":1,\"approved_pending_operation_ids\":[]}"},
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
         ];

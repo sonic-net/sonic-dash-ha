@@ -4,7 +4,8 @@ use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
 use sonic_dash_api_proto::types::*;
 use sonicdb_derive::SonicDb;
-use swss_common::{DbConnector, Table};
+use std::collections::HashMap;
+use swss_common::{CxxString, DbConnector, Table};
 use swss_serde::from_table;
 
 /// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
@@ -408,6 +409,14 @@ pub fn ip_to_string(ip: &IpAddress) -> String {
         }
         _ => "".to_string(),
     }
+}
+
+pub fn decode_from_json_string<T: for<'de> serde::Deserialize<'de>>(
+    field_values: &HashMap<String, CxxString>,
+) -> Result<T, serde_json::Error> {
+    let json_str = field_values.get("json").unwrap();
+    let s = json_str.to_string_lossy().into_owned();
+    serde_json::from_str(&s)
 }
 
 #[cfg(test)]

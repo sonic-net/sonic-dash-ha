@@ -56,15 +56,11 @@ pub fn parse_from_protobuf<T: Message + Default>(kfv: &KeyOpFieldValues) -> anyh
     Ok(Some(config))
 }
 
-pub fn convert_pb_to_json_fields<T: prost::Message + Default + serde::Serialize>(kfv: &mut KeyOpFieldValues) {
+pub fn convert_pb_to_json<T: prost::Message + Default + serde::Serialize>(kfv: &mut KeyOpFieldValues) {
     if let Some(cfg) = parse_from_protobuf::<T>(kfv).unwrap_or(None) {
-        let json = serde_json::to_value(&cfg).unwrap();
+        let json = serde_json::to_string(&cfg).unwrap();
         kfv.field_values.clear();
-        if let serde_json::Value::Object(map) = json {
-            for (k, v) in map {
-                kfv.field_values.insert(k, v.to_string().into());
-            }
-        }
+        kfv.field_values.insert("json".to_string(), json.into());
     }
 }
 
@@ -88,10 +84,10 @@ where
             // Decode protobuf and re-encode as JSON for tables that use protobuf
             match table_name.as_str() {
                 "DASH_HA_SET_CONFIG_TABLE" => {
-                    convert_pb_to_json_fields::<HaSetConfig>(&mut kfv);
+                    convert_pb_to_json::<HaSetConfig>(&mut kfv);
                 }
                 "DASH_HA_SCOPE_CONFIG_TABLE" => {
-                    convert_pb_to_json_fields::<HaScopeConfig>(&mut kfv);
+                    convert_pb_to_json::<HaScopeConfig>(&mut kfv);
                 }
                 _ => {}
             }
