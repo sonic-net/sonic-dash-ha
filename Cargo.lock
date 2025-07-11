@@ -1949,9 +1949,11 @@ dependencies = [
 name = "sonic-dash-api-proto"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "prost",
  "prost-build",
  "serde",
+ "serde_json",
  "sonic-common",
  "sonicdb-derive",
  "swss-common",
@@ -2165,6 +2167,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sonic-dash-api-proto",
+ "sonicdb-derive",
  "swbus-actor",
  "swbus-edge",
  "swss-common",

@@ -92,7 +92,7 @@ impl DpuActor {
         let sst = SubscriberStateTable::new_async(config_db, Self::dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<Dpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        bridges.push(ConsumerBridge::spawn(
+        bridges.push(ConsumerBridge::spawn::<Dpu, _, _, _>(
             edge_runtime.clone(),
             addr,
             sst,
@@ -109,7 +109,7 @@ impl DpuActor {
         let sst = SubscriberStateTable::new_async(config_db, Self::remote_dpu_table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<RemoteDpu>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        bridges.push(ConsumerBridge::spawn(
+        bridges.push(ConsumerBridge::spawn::<RemoteDpu, _, _, _>(
             edge_runtime.clone(),
             addr,
             sst,

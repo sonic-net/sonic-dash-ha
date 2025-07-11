@@ -10,14 +10,14 @@ fn main() {
 
     proto_config.type_attribute(
         "dash.ha_scope_config.HaScopeConfig",
-        "#[allow(unused_imports)] use swss_common::{DbConnector, Table};",
+        "#[allow(unused_imports)] use swss_common::{DbConnector, Table, KeyOpFieldValues}; use prost::Message;",
     );
 
     proto_config.type_attribute("dash.ha_scope_config.HaScopeConfig", "#[derive(SonicDb)]");
 
     proto_config.type_attribute(
         "dash.ha_scope_config.HaScopeConfig",
-        "#[sonicdb(table_name = \"DASH_HA_SCOPE_CONFIG_TABLE\", key_separator = \":\", db_name = \"APPL_DB\")]",
+        "#[sonicdb(table_name = \"DASH_HA_SCOPE_CONFIG_TABLE\", key_separator = \":\", db_name = \"APPL_DB\", is_proto = \"true\",)]",
     );
 
     proto_config.type_attribute(
@@ -32,14 +32,14 @@ fn main() {
 
     proto_config.type_attribute(
         "dash.ha_set_config.HaSetConfig",
-        "#[allow(unused_imports)] use swss_common::{DbConnector, Table};",
+        "#[allow(unused_imports)] use swss_common::{DbConnector, Table, KeyOpFieldValues}; use prost::Message;",
     );
 
     proto_config.type_attribute("dash.ha_set_config.HaSetConfig", "#[derive(SonicDb)]");
 
     proto_config.type_attribute(
         "dash.ha_set_config.HaSetConfig",
-        "#[sonicdb(table_name = \"DASH_HA_SET_CONFIG_TABLE\", key_separator = \":\", db_name = \"APPL_DB\")]",
+        "#[sonicdb(table_name = \"DASH_HA_SET_CONFIG_TABLE\", key_separator = \":\", db_name = \"APPL_DB\", is_proto = \"true\",)]",
     );
 
     proto_config.type_attribute(
