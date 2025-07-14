@@ -725,7 +725,7 @@ mod test {
         let npu_ha_scope_state_fvs4 = to_field_values(&npu_ha_scope_state4).unwrap();
 
         let mut dpu_ha_state_state5 = make_dpu_ha_scope_state("active");
-        dpu_ha_state_state5.ha_term = "active".to_string();
+        dpu_ha_state_state5.ha_term = "2".to_string();
         let mut npu_ha_scope_state5: NpuDashHaScopeState = npu_ha_scope_state4.clone();
         update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state5, &dpu_ha_state_state5, "active");
         let npu_ha_scope_state_fvs5 = to_field_values(&npu_ha_scope_state5).unwrap();
@@ -742,7 +742,6 @@ mod test {
             // Send DASH_HA_SCOPE_CONFIG_TABLE with activation approved
             send! { key: HaScopeActor::table_name(), data: { "key": &scope_id, "operation": "Set",
                     "field_values": {"json": format!("{{\"version\":\"3\",\"disabled\":false,\"desired_ha_state\":2,\"approved_pending_operation_ids\":{}}}", &op_id)},
-                    // "field_values": {"version": "\"3\"", "disabled": "false", "desired_ha_state": "2", "approved_pending_operation_ids": &op_id },
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
