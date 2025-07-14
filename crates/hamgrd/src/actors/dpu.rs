@@ -332,8 +332,9 @@ impl DpuActor {
         };
 
         let fv = swss_serde::to_field_values(&bfd_session)?;
+        let sep = BfdSessionTable::key_separator();
         let kfv = KeyOpFieldValues {
-            key: format!("default|default|{peer_ip}"),
+            key: format!("default{sep}default{sep}{peer_ip}"),
             operation: KeyOperation::Set,
             field_values: fv,
         };
@@ -534,18 +535,18 @@ mod test {
                     addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
             send! { key: "REMOTE_DPU|switch1_dpu0", data: { "key": "REMOTE_DPU|switch1_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu1_fvs).unwrap() }},
             send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_state_wo_bfd, addr: runtime.sp("vdpu", "test-vdpu") },
             send! { key: "REMOTE_DPU|switch2_dpu0", data: { "key": "REMOTE_DPU|switch2_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu2_fvs).unwrap()}},
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             send! { key: "REMOTE_DPU|switch3_dpu0", data: { "key": "REMOTE_DPU|switch3_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu3_fvs).unwrap()}},
-            recv! { key: "switch0_dpu0", data: {"key": "default|default|10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             send! { key: DashBfdProbeState::table_name(), data: { "key": "", "operation": "Set", "field_values":serde_json::to_value(to_field_values(&dpu_bfd_up_state).unwrap()).unwrap()} },

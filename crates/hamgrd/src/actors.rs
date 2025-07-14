@@ -266,7 +266,7 @@ where
 {
     if let Ok(zmqc) = ZmqClient::new(zmq_endpoint) {
         let dpu_appl_db = crate::db_for_table::<T>().await?;
-        let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, false).unwrap();
+        let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, true).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);
         info!(
