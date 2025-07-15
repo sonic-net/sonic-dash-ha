@@ -24,6 +24,11 @@ stages:
     steps:
     - script: |
         set -exuo pipefail
+        git submodule update --init
+      displayName: 'Update submodules'
+
+    - script: |
+        set -exuo pipefail
         # dash-ha build deps
         sudo apt-get update
         sudo apt-get install -y curl protobuf-compiler redis
