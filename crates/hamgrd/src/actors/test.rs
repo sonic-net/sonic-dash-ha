@@ -3,6 +3,7 @@ use crate::ha_actor_messages::*;
 use crate::RuntimeData;
 use anyhow::Result;
 use serde_json::Value;
+use sonic_dash_api_proto::ip_to_string;
 use sonic_dash_api_proto::{ha_set_config::HaSetConfig, types::ip_address::Ip, types::*};
 use std::{collections::HashMap, future::Future, time::Duration};
 use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
@@ -451,8 +452,8 @@ pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTab
         version: "1".to_string(),
         vip_v4: ip_to_string(&haset_cfg.vip_v4.unwrap()),
         vip_v6: Some(ip_to_string(&haset_cfg.vip_v6.unwrap())),
-        owner: format!("{:?}", haset_cfg.owner).into(),
-        scope: format!("{:?}", haset_cfg.scope).into(),
+        owner: Some("controller".to_string()),
+        scope: Some("dpu".to_string()),
         local_npu_ip: format!("10.0.{switch}.{dpu}"),
         local_ip: format!("18.0.{switch}.{dpu}"),
         peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),

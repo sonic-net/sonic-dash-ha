@@ -76,51 +76,12 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
         panic!("Missing key_separator attribute");
     }
 
-    let is_dpu_value = is_dpu;
-
-    let expanded = quote! {
-        impl swss_common::SonicDbTable for #struct_name {
-            fn key_separator() -> char {
-                #key_separator
-            }
-
-            fn table_name() -> &'static str {
-                #table_name
-            }
-
-            fn db_name() -> &'static str {
-                #db_name
-            }
-
-            fn is_dpu() -> bool {
-                #is_dpu_value
-            }
-        }
-    };
-
-    let expanded_proto = quote! {
-        impl swss_common::SonicDbTable for #struct_name {
-            fn key_separator() -> char {
-                #key_separator
-            }
-
-            fn table_name() -> &'static str {
-                #table_name
-            }
-
-            fn db_name() -> &'static str {
-                #db_name
-            }
-
-            fn is_dpu() -> bool {
-                #is_dpu_value
-            }
-
+    let convert_pb_to_json_impl = if protobuf_encoded {
+        quote! {
             fn is_proto() -> bool {
                 true
             }
-
-            fn convert_pb_to_json(kfv: &mut KeyOpFieldValues) {
+            fn convert_pb_to_json(kfv: &mut swss_common::KeyOpFieldValues) {
                 let value_hex = match kfv.field_values.get("pb") {
                     Some(v) => v.to_str().ok(),
                     None => None,
@@ -146,12 +107,37 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
                 kfv.field_values.insert("json".to_string(), json.into());
             }
         }
+    } else {
+        quote! {
+            fn is_proto() -> bool {
+                false
+            }
+        }
     };
 
-    if protobuf_encoded {
-        // If the struct is protobuf encoded, include the proto implementation
-        TokenStream::from(expanded_proto)
-    } else {
-        TokenStream::from(expanded)
-    }
+    let is_dpu_value = is_dpu;
+
+    let expanded = quote! {
+        impl swss_common::SonicDbTable for #struct_name {
+            fn key_separator() -> char {
+                #key_separator
+            }
+
+            fn table_name() -> &'static str {
+                #table_name
+            }
+
+            fn db_name() -> &'static str {
+                #db_name
+            }
+
+            fn is_dpu() -> bool {
+                #is_dpu_value
+            }
+
+            #convert_pb_to_json_impl
+        }
+    };
+
+    TokenStream::from(expanded)
 }

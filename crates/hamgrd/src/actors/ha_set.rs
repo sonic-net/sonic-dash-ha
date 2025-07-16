@@ -3,7 +3,9 @@ use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
+use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
+use sonic_dash_api_proto::ip_to_string;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
@@ -80,8 +82,18 @@ impl HaSetActor {
             version: dash_ha_set_config.version.clone(),
             vip_v4: dash_ha_set_config.vip_v4.as_ref().map(ip_to_string).unwrap_or_default(),
             vip_v6: dash_ha_set_config.vip_v6.as_ref().map(ip_to_string),
-            owner: format!("{:?}", dash_ha_set_config.owner).into(),
-            scope: format!("{:?}", dash_ha_set_config.scope).into(),
+            owner: sonic_dash_api_proto::types::HaOwner::try_from(dash_ha_set_config.owner)
+                .map(|s| {
+                    let name = s.as_str_name();
+                    name.strip_prefix("OWNER_").unwrap_or(name).to_lowercase()
+                })
+                .ok(),
+            scope: sonic_dash_api_proto::types::HaScope::try_from(dash_ha_set_config.scope)
+                .map(|s| {
+                    let name = s.as_str_name();
+                    name.strip_prefix("SCOPE_").unwrap_or(name).to_lowercase()
+                })
+                .ok(),
             local_npu_ip: local_vdpu.dpu.npu_ipv4.clone(),
             local_ip: local_vdpu.dpu.pa_ipv4.clone(),
             peer_ip: remote_vdpu.dpu.pa_ipv4.clone(),
@@ -264,7 +276,7 @@ impl HaSetActor {
         }
         let first_time = self.dash_ha_set_config.is_none();
 
-        self.dash_ha_set_config = Some(decode_from_json_string(&dpu_kfv.field_values).unwrap());
+        self.dash_ha_set_config = Some(decode_from_field_values(&dpu_kfv.field_values).unwrap());
 
         let vip_v4_str = self.dash_ha_set_config.as_ref().unwrap().vip_v4.as_ref().map(|ip| {
             if let Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv4(addr)) = &ip.ip {
@@ -386,6 +398,7 @@ mod test {
         ha_actor_messages::*,
     };
     use sonic_dash_api_proto::ha_set_config::HaSetConfig;
+    use sonic_dash_api_proto::ip_to_string;
     use std::collections::HashMap;
     use std::time::Duration;
     use swss_common::CxxString;
@@ -393,7 +406,7 @@ mod test {
     use swss_common::SonicDbTable;
     use swss_common_testing::*;
 
-    fn protobuf_struct_to_json<T: prost::Message + Default + serde::Serialize>(cfg: &T) -> HashMap<String, CxxString> {
+    fn protobuf_struct_to_kfv<T: prost::Message + Default + serde::Serialize>(cfg: &T) -> HashMap<String, CxxString> {
         let json = serde_json::to_string(&cfg).unwrap();
         let mut kfv = KeyOpFieldValues {
             key: HaSetActor::table_name().to_string(),
@@ -418,7 +431,7 @@ mod test {
         let global_cfg_fvs = serde_json::to_value(swss_serde::to_field_values(&global_cfg).unwrap()).unwrap();
 
         let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
-        let ha_set_cfg_fvs = protobuf_struct_to_json(&ha_set_cfg);
+        let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
         let dpu0 = make_local_dpu_actor_state(0, 0, true, None, None);
         let dpu1 = make_remote_dpu_actor_state(1, 0);
         let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
@@ -503,7 +516,7 @@ mod test {
         let global_cfg_fvs = serde_json::to_value(swss_serde::to_field_values(&global_cfg).unwrap()).unwrap();
 
         let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(2, 0);
-        let ha_set_cfg_fvs = protobuf_struct_to_json(&ha_set_cfg);
+        let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
         let dpu0 = make_remote_dpu_actor_state(2, 0);
         let dpu1 = make_remote_dpu_actor_state(3, 0);
         let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);

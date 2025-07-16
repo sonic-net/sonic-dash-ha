@@ -3,15 +3,9 @@ fn main() {
 
     let mut proto_config = prost_build::Config::new();
 
-    proto_config.type_attribute(
-        "dash.ha_scope_config.HaScopeConfig",
-        "#[allow(unused_imports)] use sonicdb_derive::SonicDb;",
-    );
+    proto_config.type_attribute("dash.ha_scope_config.HaScopeConfig", "use sonicdb_derive::SonicDb;");
 
-    proto_config.type_attribute(
-        "dash.ha_scope_config.HaScopeConfig",
-        "#[allow(unused_imports)] use swss_common::{DbConnector, Table, KeyOpFieldValues}; use prost::Message;",
-    );
+    proto_config.type_attribute("dash.ha_scope_config.HaScopeConfig", "use prost::Message;");
 
     proto_config.type_attribute("dash.ha_scope_config.HaScopeConfig", "#[derive(SonicDb)]");
 
@@ -25,15 +19,9 @@ fn main() {
         "#[derive(serde::Serialize, serde::Deserialize)]",
     );
 
-    proto_config.type_attribute(
-        "dash.ha_set_config.HaSetConfig",
-        "#[allow(unused_imports)] use sonicdb_derive::SonicDb;",
-    );
+    proto_config.type_attribute("dash.ha_set_config.HaSetConfig", "use sonicdb_derive::SonicDb;");
 
-    proto_config.type_attribute(
-        "dash.ha_set_config.HaSetConfig",
-        "#[allow(unused_imports)] use swss_common::{DbConnector, Table, KeyOpFieldValues}; use prost::Message;",
-    );
+    proto_config.type_attribute("dash.ha_set_config.HaSetConfig", "use prost::Message;");
 
     proto_config.type_attribute("dash.ha_set_config.HaSetConfig", "#[derive(SonicDb)]");
 

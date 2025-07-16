@@ -2149,10 +2149,13 @@ version = "0.1.0"
 dependencies = [
  "bindgen",
  "getset",
+ "hex",
  "lazy_static",
  "libc",
  "paste",
+ "prost",
  "serde",
+ "serde_json",
  "swss-common-testing",
  "tokio",
  "tracing-subscriber",

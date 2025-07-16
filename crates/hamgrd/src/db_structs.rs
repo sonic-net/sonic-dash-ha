@@ -2,10 +2,8 @@ use anyhow::{Context, Result};
 use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
-use sonic_dash_api_proto::types::*;
 use sonicdb_derive::SonicDb;
-use std::collections::HashMap;
-use swss_common::{CxxString, DbConnector, Table};
+use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
 
 /// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
@@ -422,26 +420,6 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
         }
     }
     Err(anyhow::anyhow!("DPU entry not found for slot {}", dpu_id))
-}
-
-pub fn ip_to_string(ip: &IpAddress) -> String {
-    match &ip.ip {
-        Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv4(addr)) => std::net::Ipv4Addr::from(*addr).to_string(),
-        Some(sonic_dash_api_proto::types::ip_address::Ip::Ipv6(addr)) => {
-            use std::net::Ipv6Addr;
-            let bytes: [u8; 16] = addr.clone().try_into().unwrap_or([0; 16]);
-            Ipv6Addr::from(bytes).to_string()
-        }
-        _ => "".to_string(),
-    }
-}
-
-pub fn decode_from_json_string<T: for<'de> serde::Deserialize<'de>>(
-    field_values: &HashMap<String, CxxString>,
-) -> Result<T, serde_json::Error> {
-    let json_str = field_values.get("json").unwrap();
-    let s = json_str.to_string_lossy().into_owned();
-    serde_json::from_str(&s)
 }
 
 #[cfg(test)]
