@@ -198,7 +198,6 @@ struct InternalStateDisplay {
     key: String,
     table_meta: String,
     fvs: String,
-    backup_fvs: String,
 }
 
 impl InternalStateDisplay {
@@ -228,17 +227,7 @@ impl InternalStateDisplay {
         ];
         let table_meta = Table::new(table_meta).with(Style::ascii().remove_frame()).to_string();
 
-        let fvs = state
-            .fvs
-            .iter()
-            .map(|(key, value)| KeyValue {
-                attribute: key.clone(),
-                value: value.to_string_lossy().into_owned(),
-            })
-            .collect::<Vec<KeyValue>>();
-        let fvs = Table::new(fvs).with(Style::ascii().remove_frame()).to_string();
-
-        let backup_fvs = state
+        let committed_fvs = state
             .backup_fvs
             .iter()
             .map(|(key, value)| KeyValue {
@@ -247,12 +236,13 @@ impl InternalStateDisplay {
             })
             .collect::<Vec<KeyValue>>();
 
-        let backup_fvs = Table::new(backup_fvs).with(Style::ascii().remove_frame()).to_string();
+        let committed_fvs = Table::new(committed_fvs)
+            .with(Style::ascii().remove_frame())
+            .to_string();
         InternalStateDisplay {
             key: key.clone(),
             table_meta,
-            fvs,
-            backup_fvs,
+            fvs: committed_fvs,
         }
     }
 }

@@ -1,16 +1,16 @@
 # Introduction
-swbus-cli is a diagnostic tool to check connectivities between swbusd and to dump runtime information. 
+swbus-cli is a diagnostic tool to check connectivities between swbusd and to dump runtime information.
 
 swbus-cli is running in dash-ha container and connects to the local swbusd. It reads DPU table from config-db. With DEV environment, which provides its DPU slot id, it can find the local swbusd's endpoint (npu_ipv4/npu_ipv6) from the entry in DPU table.
 
-In development environment, swbus-cli can run without config-db by providing a configuration file of the local swbusd. 
+In development environment, swbus-cli can run without config-db by providing a configuration file of the local swbusd.
 Here is the usage of the command.
 ```
 Usage: swbus-cli [OPTIONS] <COMMAND>
 
 Commands:
-  ping  
-  show  
+  ping
+  show
   help  Print this message or the help of the given subcommand(s)
 
 Options:
@@ -168,21 +168,21 @@ Connected to the server
 │     │ -------------------+-------------------------------------- │
 │     │  acked             | true                                  │
 └─────┴────────────────────────────────────────────────────────────┘
-┌──────┬───────────────────────────────────────────┬─────────────────────┬─────────────────────┐
-│                                        Internal State                                        │
-├──────┼───────────────────────────────────────────┼─────────────────────┼─────────────────────┤
-│ key  │ table_meta                                │ fvs                 │ backup_fvs          │
-├──────┼───────────────────────────────────────────┼─────────────────────┼─────────────────────┤
-│ data │  attribute         | value                │  attribute | value  │  attribute | value  │
-│      │ -------------------+--------------------- │ -----------+------- │ -----------+------- │
-│      │  table             | kv-actor-data        │  count     | 1000   │  count     | 999    │
-│      │ -------------------+--------------------- │                     │                     │
-│      │  key               | kv-actor-data        │                     │                     │
-│      │ -------------------+--------------------- │                     │                     │
-│      │  mutated           | false                │                     │                     │
-│      │ -------------------+--------------------- │                     │                     │
-│      │  last-updated-time | 2025:04:15 12:30:29  │                     │                     │
-└──────┴───────────────────────────────────────────┴─────────────────────┴─────────────────────┘
+┌──────┬───────────────────────────────────────────┬─────────────────────┐
+│                              Internal State                            │
+├──────┼───────────────────────────────────────────┼─────────────────────┤
+│ key  │ table_meta                                │ fvs                 │
+├──────┼───────────────────────────────────────────┼─────────────────────┤
+│ data │  attribute         | value                │  attribute | value  │
+│      │ -------------------+--------------------- │ -----------+------- │
+│      │  table             | kv-actor-data        │  count     | 1000   │
+│      │ -------------------+--------------------- │                     │
+│      │  key               | kv-actor-data        │                     │
+│      │ -------------------+--------------------- │                     │
+│      │  mutated           | false                │                     │
+│      │ -------------------+--------------------- │                     │
+│      │  last-updated-time | 2025:04:15 12:30:29  │                     │
+└──────┴───────────────────────────────────────────┴─────────────────────┘
 ┌─────────────────────────────┬─────────────────────────────────────────────────────────────────────────────┐
 │                                        Outgoing Sent Message State                                        │
 ├─────────────────────────────┼─────────────────────────────────────────────────────────────────────────────┤
