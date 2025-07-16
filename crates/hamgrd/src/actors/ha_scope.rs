@@ -487,7 +487,7 @@ impl HaScopeActor {
             self.ha_scope_id
         );
         if !internal.has_entry(NpuDashHaScopeState::table_name(), &swss_key) {
-            let db = crate::db_named(NpuDashHaScopeState::db_name()).await?;
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await?;
             let table = Table::new_async(db, NpuDashHaScopeState::table_name()).await?;
             internal.add(NpuDashHaScopeState::table_name(), table, swss_key).await;
         }
@@ -673,7 +673,7 @@ mod test {
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs1 },
+            chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs1 },
 
             // Send DPU DASH_HA_SCOPE_STATE to actor to simulate response from DPU
             send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
@@ -681,7 +681,7 @@ mod test {
                     }},
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
+            chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
 
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
@@ -696,7 +696,7 @@ mod test {
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
+            chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
 
             // Send DPU DASH_HA_SCOPE_STATE with role activation request to the actor
             send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
@@ -704,14 +704,15 @@ mod test {
                     }},
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with pending activation
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs3,
+            chkdb! { type: NpuDashHaScopeState,
+                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs3,
                     exclude: "pending_operation_ids,pending_operation_list_last_updated_time_in_ms" },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
 
         // get GUID from DASH_HA_SCOPE_STATE pending_operation_ids
-        let db = crate::db_named(NpuDashHaScopeState::db_name()).await.unwrap();
+        let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
         let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
         let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
         let op_id = format!(
@@ -752,7 +753,8 @@ mod test {
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with no pending activation
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs4,
+            chkdb! { type: NpuDashHaScopeState,
+                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs4,
                     exclude: "pending_operation_list_last_updated_time_in_ms" },
 
             // Send DPU DASH_HA_SCOPE_STATE with ha_role = active and activate_role_requested = false
@@ -761,14 +763,16 @@ mod test {
                     }},
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with ha_role = active
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs5,
+            chkdb! { type: NpuDashHaScopeState,
+                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs5,
                     exclude: "pending_operation_list_last_updated_time_in_ms" },
 
             // Send vdpu state update after bfd session up
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with bfd session up
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs6,
+            chkdb! { type: NpuDashHaScopeState,
+                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs6,
                     exclude: "pending_operation_list_last_updated_time_in_ms" },
         ];
 
@@ -787,7 +791,8 @@ mod test {
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
-            chkdb! { db: NpuDashHaScopeState::db_name(), table: NpuDashHaScopeState::table_name(), key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,
+            chkdb! { type: NpuDashHaScopeState,
+                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,
                     exclude: "pending_operation_list_last_updated_time_in_ms" },
 
             // simulate delete of ha-scope entry
@@ -802,7 +807,4 @@ mod test {
             panic!("timeout waiting for actor to terminate");
         }
     }
-
-    #[tokio::test]
-    async fn ha_scope_planned_down() {}
 }

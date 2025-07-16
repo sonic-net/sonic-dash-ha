@@ -30,4 +30,5 @@ pub trait SonicDbTable {
         // Default implementation does nothing.
         // This can be overridden by the macro to convert protobuf to JSON.
     }
+    fn is_dpu() -> bool;
 }

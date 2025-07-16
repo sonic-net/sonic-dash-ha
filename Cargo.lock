@@ -792,6 +792,7 @@ dependencies = [
  "chrono",
  "clap",
  "hex",
+ "lazy_static",
  "prost",
  "serde",
  "serde_json",
