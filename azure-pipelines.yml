@@ -22,10 +22,9 @@ stages:
       vmImage: 'ubuntu-22.04'
 
     steps:
-    - script: |
-        set -exuo pipefail
-        git submodule update --init
-      displayName: 'Update submodules'
+    - checkout: self
+      clean: true
+      submodules: true
 
     - script: |
         set -exuo pipefail
