@@ -72,7 +72,12 @@ pub struct VDpu {
 
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, SonicDb)]
-#[sonicdb(table_name = "BFD_SESSION_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
+#[sonicdb(
+    table_name = "BFD_SESSION_TABLE",
+    key_separator = ":",
+    db_name = "DPU_APPL_DB",
+    is_dpu = "true"
+)]
 pub struct BfdSessionTable {
     pub tx_interval: Option<u32>,
     pub rx_interval: Option<u32>,
@@ -139,7 +144,12 @@ impl Default for DpuState {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/BFD/SmartSwitchDpuLivenessUsingBfd.md#27-dpu-bfd-session-state-updates>
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, SonicDb)]
-#[sonicdb(table_name = "DASH_BFD_PROBE_STATE", key_separator = "|", db_name = "DPU_STATE_DB")]
+#[sonicdb(
+    table_name = "DASH_BFD_PROBE_STATE",
+    key_separator = "|",
+    db_name = "DPU_STATE_DB",
+    is_dpu = "true"
+)]
 pub struct DashBfdProbeState {
     #[serde(default)]
     #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
@@ -225,7 +235,12 @@ pub struct DashHaSetConfigTable {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SET_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
+#[sonicdb(
+    table_name = "DASH_HA_SET_TABLE",
+    key_separator = ":",
+    db_name = "DPU_APPL_DB",
+    is_dpu = "true"
+)]
 pub struct DashHaSetTable {
     // Config version.
     pub version: String,
@@ -292,7 +307,12 @@ pub struct DashHaScopeConfigTable {
 #[skip_serializing_none]
 #[serde_as]
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SCOPE_TABLE", key_separator = ":", db_name = "DPU_APPL_DB")]
+#[sonicdb(
+    table_name = "DASH_HA_SCOPE_TABLE",
+    key_separator = ":",
+    db_name = "DPU_APPL_DB",
+    is_dpu = "true"
+)]
 pub struct DashHaScopeTable {
     pub version: u32,
     pub disable: bool,
@@ -303,7 +323,12 @@ pub struct DashHaScopeTable {
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "DPU_STATE_DB")]
+#[sonicdb(
+    table_name = "DASH_HA_SCOPE_STATE",
+    key_separator = "|",
+    db_name = "DPU_STATE_DB",
+    is_dpu = "true"
+)]
 pub struct DpuDashHaScopeState {
     // The last update time of this state in milliseconds.
     pub last_updated_time: i64,

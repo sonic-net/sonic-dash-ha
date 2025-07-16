@@ -45,7 +45,7 @@ pub trait DbBasedActor: Actor {
 
         tokio::task::spawn(ac.run());
 
-        let config_db = crate::db_named(T::db_name()).await?;
+        let config_db = crate::db_for_table::<T>().await?;
         let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<T>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
@@ -213,7 +213,7 @@ where
     T: SonicDbTable + 'static,
     F: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
 {
-    let db = crate::db_named(T::db_name()).await?;
+    let db = crate::db_for_table::<T>().await?;
 
     let sst = SubscriberStateTable::new_async(db, T::table_name(), None, None).await?;
 
@@ -265,8 +265,8 @@ where
     T: SonicDbTable + 'static,
 {
     if let Ok(zmqc) = ZmqClient::new(zmq_endpoint) {
-        let dpu_appl_db = crate::db_named(T::db_name()).await?;
-        let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, false).unwrap();
+        let dpu_appl_db = crate::db_for_table::<T>().await?;
+        let zpst = ZmqProducerStateTable::new(dpu_appl_db, T::table_name(), zmqc, true).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);
         info!(
@@ -279,7 +279,7 @@ where
         if std::env::var("SIM").is_err() {
             anyhow::bail!("Failed to connect to ZMQ server at {}", zmq_endpoint);
         }
-        let dpu_appl_db = crate::db_named(T::db_name()).await?;
+        let dpu_appl_db = crate::db_for_table::<T>().await?;
         let pst = ProducerStateTable::new(dpu_appl_db, T::table_name()).unwrap();
 
         let sp = crate::common_bridge_sp::<T>(&edge_runtime);

@@ -1,0 +1,11 @@
+{
+    "INCLUDES" : [
+        {
+            "include" : "../../redis/sonic-db/database_config.json"
+        },
+        {
+            "container_name" : "dpu0",
+            "include" : "../../redis/sonic-db/database_config.json"
+        }
+    ]
+}

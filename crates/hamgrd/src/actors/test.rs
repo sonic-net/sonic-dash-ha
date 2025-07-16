@@ -58,19 +58,32 @@ pub use recv;
 
 #[macro_export]
 macro_rules! chkdb {
-    (db: $db:expr, table: $table:expr, key: $key:expr, data: $data:tt) => {
+    (type: $type:ty, key: $key:expr, data: $data:tt) => {
         $crate::actors::test::Command::ChkDb {
-            db: String::from($db),
-            table: String::from($table),
+            db: String::from(<$type>::db_name()),
+            is_dpu: <$type>::is_dpu(),
+            table: String::from(<$type>::table_name()),
             key: String::from($key),
             data: serde_json::json!($data),
             exclude: "".to_string(),
         }
     };
 
-    (db: $db:expr, table: $table:expr, key: $key:expr, data: $data:tt, exclude: $exclude:expr) => {
+    (type: $type:ty, key: $key:expr, data: $data:tt, exclude: $exclude:expr) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from(<$type>::db_name()),
+            is_dpu: <$type>::is_dpu(),
+            table: String::from(<$type>::table_name()),
+            key: String::from($key),
+            data: serde_json::json!($data),
+            exclude: String::from($exclude),
+        }
+    };
+
+    (db: $db:expr, is_dpu: $is_dpu:expr, table: $table:expr, key: $key:expr, data: $data:tt, exclude: $exclude:expr) => {
         $crate::actors::test::Command::ChkDb {
             db: String::from($db),
+            is_dpu: $is_dpu,
             table: String::from($table),
             key: String::from($key),
             data: serde_json::json!($data),
@@ -94,6 +107,7 @@ pub enum Command {
     },
     ChkDb {
         db: String,
+        is_dpu: bool,
         table: String,
         key: String,
         data: Value,
@@ -203,12 +217,13 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
             ChkDb {
                 db: db_name,
+                is_dpu,
                 table: table_name,
                 key,
                 data,
                 exclude,
             } => {
-                let db = crate::db_named(db_name).await.unwrap();
+                let db = crate::db_named(db_name, *is_dpu).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
 
                 let mut actual_data = table.get_async(key).await.unwrap();
