@@ -20,8 +20,8 @@ use actors::spawn_zmq_producer_bridge;
 use actors::{dpu::DpuActor, ha_scope::HaScopeActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
 use db_structs::{BfdSessionTable, DashHaScopeTable, DashHaSetTable, Dpu, VDpu};
-use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use lazy_static::lazy_static;
+use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use std::any::Any;
 
 lazy_static! {
