@@ -24,7 +24,7 @@ signal-hook.workspace = true
 color-eyre.workspace = true
 
 # internal dependencies
-swss-common.workspace = true
+swss-common = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
 
 # Utils
 lazy_static.workspace = true

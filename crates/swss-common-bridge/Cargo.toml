@@ -9,7 +9,7 @@ keywords.workspace = true
 edition.workspace = true
 
 [dependencies]
-swss-common = { path = "../swss-common", features = ["async"] }
+swss-common = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
 swbus-edge = { path = "../swbus-edge" }
 tokio.workspace = true
 tokio-util.workspace = true
@@ -19,4 +19,4 @@ swbus-actor = { path = "../swbus-actor" }
 workspace = true
 
 [dev-dependencies]
-swss-common-testing = { path = "../swss-common-testing" }
+swss-common-testing = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }

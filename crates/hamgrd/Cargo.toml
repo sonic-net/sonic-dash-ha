@@ -15,10 +15,10 @@ edition.workspace = true
 [dependencies]
 swbus-edge = { path = "../swbus-edge" }
 swbus-actor = { path = "../swbus-actor" }
-swss-common = { path = "../swss-common" }
+swss-common = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
 swss-common-bridge = { path = "../swss-common-bridge" }
 swss-serde = { path = "../swss-serde" }
-swss-common-testing.workspace = true
+swss-common-testing = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
 swbus-config.workspace = true
 sonic-common.workspace = true
 sonicdb-derive.workspace = true
