@@ -197,7 +197,7 @@ impl OutgoingSentStateDisplay {
 struct InternalStateDisplay {
     key: String,
     table_meta: String,
-    fvs: String,
+    fields: String,
 }
 
 impl InternalStateDisplay {
@@ -242,7 +242,7 @@ impl InternalStateDisplay {
         InternalStateDisplay {
             key: key.clone(),
             table_meta,
-            fvs: committed_fvs,
+            fields: committed_fvs,
         }
     }
 }
