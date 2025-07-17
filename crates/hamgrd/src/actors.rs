@@ -144,29 +144,22 @@ where
         if let Some(Body::DataRequest(DataRequest { payload })) = &msg.body {
             match ActorMessage::deserialize(payload) {
                 Ok(actor_msg) => {
-                    let key: String = serde_json::from_value(actor_msg.data["key"].clone()).map_err(|_| {
+                    let kfv: KeyOpFieldValues = actor_msg.deserialize_data().map_err(|_| {
                         SwbusError::input(
                             SwbusErrorCode::InvalidPayload,
-                            "cannot decode ActorMessage key".to_string(),
+                            "cannot decode as ActorMessage".to_string(),
                         )
                     })?;
-                    let operation: KeyOperation =
-                        serde_json::from_value(actor_msg.data["operation"].clone()).map_err(|_| {
-                            SwbusError::input(
-                                SwbusErrorCode::InvalidPayload,
-                                "cannot decode ActorMessage operation".to_string(),
-                            )
-                        })?;
 
-                    if operation == KeyOperation::Del {
+                    if kfv.operation == KeyOperation::Del {
                         return Err(SwbusError::input(
                             SwbusErrorCode::NoRoute,
                             "actor doesn't exist: won't create actor for DEL kfv".to_string(),
                         ));
                     }
-                    let actor = (self.create_fn)(key.clone()).map_err(|e| {
+                    let actor = (self.create_fn)(kfv.key.clone()).map_err(|e| {
                         let mut sp = self.sp.clone();
-                        sp.resource_id = key.clone();
+                        sp.resource_id = kfv.key.clone();
                         SwbusError::input(
                             SwbusErrorCode::Fail,
                             format!("Failed to create actor {}. Error: {}", sp.to_swbusd_service_path(), e),
