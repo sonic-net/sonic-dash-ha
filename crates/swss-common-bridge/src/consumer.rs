@@ -205,7 +205,9 @@ impl_consumertable! { ConsumerStateTable[true] SubscriberStateTable[true] ZmqCon
 mod test {
     use super::{spawn_consumer_bridge, ConsumerTable};
     use crate::producer::ProducerTable;
+    use sonic_dash_api_proto::ha_set_config::HaSetConfig;
     use sonicdb_derive::SonicDb;
+    use std::collections::HashMap;
     use std::{sync::Arc, time::Duration};
     use swbus_actor::ActorMessage;
     use swbus_edge::{
@@ -236,6 +238,14 @@ mod test {
         timeout(Duration::from_secs(5), run_test(cst, Some(cst2), pst))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn consumer_state_proto_table_bridge() {
+        let redis = Redis::start();
+        let pst = ProducerStateTable::new(redis.db_connector(), "mytable").unwrap();
+        let cst = ConsumerStateTable::new(redis.db_connector(), "mytable", None, None).unwrap();
+        timeout(Duration::from_secs(5), run_proto_test(cst, pst)).await.unwrap();
     }
 
     #[tokio::test]
@@ -329,5 +339,59 @@ mod test {
 
     fn sp(s: &str) -> ServicePath {
         ServicePath::from_string(&format!("test.test.test/test/test/test/{s}")).unwrap()
+    }
+
+    async fn run_proto_test<C: ConsumerTable, P: ProducerTable>(consumer_table: C, mut producer_table: P) {
+        // Setup swbus
+        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"));
+        swbus_edge.start().await.unwrap();
+        let rt = Arc::new(swbus_edge);
+
+        // Create edge client to receive updates from the bridge
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
+
+        // Spawn the bridge
+        let bridge = spawn_consumer_bridge::<HaSetConfig, _, _, _>(
+            rt.clone(),
+            sp("mytable-bridge"),
+            consumer_table,
+            |_| (sp("receiver"), "".into()),
+            |_| true,
+        );
+
+        // Send some updates we should receive
+        let kfvs = KeyOpFieldValues {
+            key: "haset0_0".to_string(),
+            operation: swss_common::KeyOperation::Set,
+            field_values: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "pb".to_string(),
+                    "0a013112050d0001020320012801320576647075303205766470753142057664707530"
+                        .to_string()
+                        .into(),
+                );
+                map
+            },
+        };
+
+        producer_table.apply_kfv(kfvs.clone()).await;
+
+        let kfvs_expected = KeyOpFieldValues {
+            key: "haset0_0".to_string(),
+            operation: swss_common::KeyOperation::Set,
+            field_values: {
+                let mut map = HashMap::new();
+                map.insert("json".to_string(), "{\"version\":\"1\",\"vip_v4\":{\"ip\":{\"Ipv4\":50462976}},\"vip_v6\":null,\"owner\":1,\"scope\":1,\"vdpu_ids\":[\"vdpu0\",\"vdpu1\"],\"pinned_vdpu_bfd_probe_states\":[],\"preferred_vdpu_id\":\"vdpu0\",\"preferred_standalone_vdpu_index\":0}".to_string().into());
+                map
+            },
+        };
+
+        // Receive the updates
+        let kfvs_received = receive_n_messages(1, &swbus).await;
+
+        // Assert we received the decoded protobuf
+        assert_eq!(kfvs_expected, kfvs_received[0]);
+        bridge.abort();
     }
 }
