@@ -234,7 +234,7 @@ impl DpuActor {
         let bfd_probe_state = match Self::get_bfd_probe_state(incoming) {
             Ok(bfd_probe_state) => Some(bfd_probe_state),
             Err(e) => {
-                info!("Not able to get BFD probe state. Error: {}", e);
+                debug!("Not able to get BFD probe state. Error: {}", e);
                 None
             }
         };

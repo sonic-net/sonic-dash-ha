@@ -2145,6 +2145,7 @@ dependencies = [
 name = "swss-common-bridge"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "swbus-actor",
  "swbus-edge",
  "swss-common",
