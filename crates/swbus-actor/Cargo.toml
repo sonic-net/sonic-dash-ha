@@ -10,7 +10,7 @@ edition.workspace = true
 
 [dependencies]
 swbus-edge = { path = "../swbus-edge" }
-swss-common = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
+swss-common = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate", features = ["async"]  }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
