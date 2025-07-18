@@ -10,11 +10,11 @@ edition.workspace = true
 
 [dependencies]
 serde.workspace = true
-swss-common = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
+swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
 serde_serializer_quick_unsupported = "0.1"
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-swss-common-testing = { git = "https://github.com/qiluo-msft/sonic-swss-common.git", branch = "qiluo/rustcrate" }
+swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
