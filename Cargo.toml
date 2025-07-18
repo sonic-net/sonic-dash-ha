@@ -16,6 +16,7 @@ members = [
     "crates/swss-common-bridge",
     "crates/container",
     "crates/sonicdb-derive",
+    "crates/sonic-dash-api-proto"
 ]
 exclude = []
 
@@ -96,6 +97,7 @@ swss-common = { version = "0.1.0", path = "crates/swss-common" }
 swss-common-testing = { version = "0.1.0", path = "crates/swss-common-testing" }
 swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
 sonicdb-derive = { version = "0.1.0", path = "crates/sonicdb-derive" }
+sonic-dash-api-proto = { version = "0.1.0", path = "crates/sonic-dash-api-proto" }
 
 # Dev dependencies
 criterion = "0.5"
