@@ -15,11 +15,11 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 swss-serde.workspace = true
-swss-common.workspace = true
+swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
 swbus-proto.workspace = true
 
 [dev-dependencies]
-swss-common-testing.workspace = true
+swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
 tempfile.workspace = true
 
 [lints]
