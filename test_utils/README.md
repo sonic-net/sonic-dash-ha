@@ -5,7 +5,7 @@ This folder contains some utilities, configurations, instructions on running man
 
     cd test_utils
     
-    ./run_redis.sh hamgrd/database_config.json hamgrd/redis_data_set.cmd 
+    ./run_redis.sh hamgrd/database_config.json hamgrd/database_global.json hamgrd/redis_data_set.cmd 
 
 - Start swbusd
 
@@ -18,3 +18,4 @@ This folder contains some utilities, configurations, instructions on running man
 - Run swbus-cli
 
     DEV=dpu0 target/debug/swbus-cli show hamgrd actor /hamgrd/0/dpu/switch1_dpu0
+
