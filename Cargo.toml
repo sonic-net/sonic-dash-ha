@@ -5,8 +5,6 @@ members = [
     "crates/swbus-core",
     "crates/swbusd",
     "crates/hamgrd",
-    "crates/swss-common",
-    "crates/swss-common-testing",
     "crates/swss-serde",
     "crates/swbus-edge",
     "crates/swbus-proto",
@@ -93,8 +91,6 @@ swbus-core = { version = "0.1.0", path = "crates/swbus-core" }
 swbus-edge = { version = "0.1.0", path = "crates/swbus-edge" }
 swbus-config = { version = "0.1.0", path = "crates/swbus-config" }
 swss-serde = { version = "0.1.0", path = "crates/swss-serde" }
-swss-common = { version = "0.1.0", path = "crates/swss-common" }
-swss-common-testing = { version = "0.1.0", path = "crates/swss-common-testing" }
 swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
 sonicdb-derive = { version = "0.1.0", path = "crates/sonicdb-derive" }
 sonic-dash-api-proto = { version = "0.1.0", path = "crates/sonic-dash-api-proto" }
