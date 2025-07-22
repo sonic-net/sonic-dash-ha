@@ -1,4 +1,3 @@
-use crate::ha_scope_config::DesiredHaState;
 use crate::types::ip_address::Ip;
 use crate::types::IpAddress;
 use std::collections::HashMap;
@@ -14,15 +13,6 @@ pub mod ha_set_config {
 
 pub mod types {
     include!(concat!(env!("OUT_DIR"), "/dash.types.rs"));
-}
-
-pub fn desired_ha_state_to_ha_role(desired_ha_state: i32) -> String {
-    match DesiredHaState::try_from(desired_ha_state) {
-        Ok(DesiredHaState::HaStateActive) => "active".to_string(),
-        Ok(DesiredHaState::HaStateDead) => "dead".to_string(),
-        Ok(DesiredHaState::HaStateStandalone) => "standalone".to_string(),
-        Ok(DesiredHaState::HaStateUnspecified) | Err(_) => "unknown".to_string(),
-    }
 }
 
 pub fn ip_to_string(ip: &IpAddress) -> String {

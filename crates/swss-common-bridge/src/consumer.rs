@@ -367,7 +367,7 @@ mod test {
                 let mut map = HashMap::new();
                 map.insert(
                     "pb".to_string(),
-                    "0a013112050d0001020320012801320576647075303205766470753142057664707530"
+                    "0a013112050d00010203220576647075302205766470753128013a057664707530"
                         .to_string()
                         .into(),
                 );
@@ -382,7 +382,7 @@ mod test {
             operation: swss_common::KeyOperation::Set,
             field_values: {
                 let mut map = HashMap::new();
-                map.insert("json".to_string(), "{\"version\":\"1\",\"vip_v4\":{\"ip\":{\"Ipv4\":50462976}},\"vip_v6\":null,\"owner\":1,\"scope\":1,\"vdpu_ids\":[\"vdpu0\",\"vdpu1\"],\"pinned_vdpu_bfd_probe_states\":[],\"preferred_vdpu_id\":\"vdpu0\",\"preferred_standalone_vdpu_index\":0}".to_string().into());
+                map.insert("json".to_string(), "{\"version\":\"1\",\"vip_v4\":{\"ip\":{\"Ipv4\":50462976}},\"vip_v6\":null,\"vdpu_ids\":[\"vdpu0\",\"vdpu1\"],\"scope\":1,\"pinned_vdpu_bfd_probe_states\":[],\"preferred_vdpu_id\":\"vdpu0\",\"preferred_standalone_vdpu_index\":0}".to_string().into());
                 map
             },
         };

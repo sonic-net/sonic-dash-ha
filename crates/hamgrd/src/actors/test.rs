@@ -432,10 +432,8 @@ pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, HaSetConf
         version: "1".to_string(),
         vip_v4: string_to_ip(format!("3.2.{switch_pair_id}.{dpu}")),
         vip_v6: string_to_ip(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
-        // dpu or switch
-        owner: HaOwner::OwnerController as i32,
         // dpu or eni
-        scope: HaScope::ScopeDpu as i32,
+        scope: HaScope::Dpu as i32,
         vdpu_ids: vec![vdpu0_id.clone(), vdpu1_id.clone()],
         pinned_vdpu_bfd_probe_states: vec!["".to_string()],
         preferred_vdpu_id: vdpu0_id,
@@ -452,8 +450,7 @@ pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTab
         version: "1".to_string(),
         vip_v4: ip_to_string(&haset_cfg.vip_v4.unwrap()),
         vip_v6: Some(ip_to_string(&haset_cfg.vip_v6.unwrap())),
-        owner: Some("controller".to_string()),
-        scope: Some("dpu".to_string()),
+        scope: Some("ha_scope_dpu".to_string()),
         local_npu_ip: format!("10.0.{switch}.{dpu}"),
         local_ip: format!("18.0.{switch}.{dpu}"),
         peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),

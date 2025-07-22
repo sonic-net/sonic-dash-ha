@@ -19,6 +19,11 @@ fn main() {
         "#[derive(serde::Serialize, serde::Deserialize)]",
     );
 
+    proto_config.type_attribute(
+        "dash.ha_scope_config.DesiredHaState",
+        "#[derive(strum_macros::Display)]",
+    );
+
     proto_config.type_attribute("dash.ha_set_config.HaSetConfig", "use sonicdb_derive::SonicDb;");
 
     proto_config.type_attribute("dash.ha_set_config.HaSetConfig", "use prost::Message;");

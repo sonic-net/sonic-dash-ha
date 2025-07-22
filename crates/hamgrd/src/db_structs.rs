@@ -227,8 +227,6 @@ pub struct DashHaSetTable {
     pub vip_v4: String,
     // IPv4 Data path VIP.
     pub vip_v6: Option<String>,
-    // Owner of HA state machine. It can be controller, switch.
-    pub owner: Option<String>,
     // Scope of HA set. It can be dpu, eni.
     pub scope: Option<String>,
     // The IP address of local NPU. It can be IPv4 or IPv6. Used for setting up the BFD session.
