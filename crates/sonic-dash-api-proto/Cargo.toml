@@ -16,6 +16,8 @@ swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", bran
 sonic-common.workspace = true
 hex = "0.4"
 serde_json.workspace = true
+strum = "0.26"
+strum_macros = "0.26"
 
 [build-dependencies]
 prost-build = "0.13"
