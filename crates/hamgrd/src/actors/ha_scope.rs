@@ -222,7 +222,8 @@ impl HaScopeActor {
                 "{}",
                 DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
             )
-            .to_lowercase(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */            flow_reconcile_requested,
+            .to_lowercase(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
+            flow_reconcile_requested,
             activate_role_requested,
         };
 

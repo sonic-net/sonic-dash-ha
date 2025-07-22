@@ -12,12 +12,12 @@ edition.workspace = true
 prost.workspace = true
 serde.workspace = true
 sonicdb-derive.workspace = true
-swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common.workspace = true
 sonic-common.workspace = true
-hex = "0.4"
+hex.workspace = true
 serde_json.workspace = true
-strum = "0.26"
-strum_macros = "0.26"
+strum.workspace = true
+strum_macros.workspace = true
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build.workspace = true

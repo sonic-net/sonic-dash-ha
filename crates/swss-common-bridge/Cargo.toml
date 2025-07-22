@@ -15,9 +15,9 @@ tokio.workspace = true
 tokio-util.workspace = true
 swbus-actor = { path = "../swbus-actor" }
 anyhow.workspace = true
-sonic-dash-api-proto = { path = "../sonic-dash-api-proto" }
+sonic-dash-api-proto.workspace = true
 prost.workspace = true
-hex = "0.4"
+hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sonicdb-derive.workspace = true
