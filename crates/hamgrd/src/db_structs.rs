@@ -297,7 +297,7 @@ pub struct VnetRouteTunnelTable {
 #[sonicdb(table_name = "DASH_HA_SCOPE_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct DashHaScopeConfigTable {
     pub version: u32,
-    pub disable: bool,
+    pub disabled: bool,
     pub desired_ha_state: String,
     #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
     pub approved_pending_operation_ids: Option<Vec<String>>,
@@ -315,7 +315,7 @@ pub struct DashHaScopeConfigTable {
 )]
 pub struct DashHaScopeTable {
     pub version: u32,
-    pub disable: bool,
+    pub disabled: bool,
     pub ha_role: String,
     pub flow_reconcile_requested: bool,
     pub activate_role_requested: bool,
