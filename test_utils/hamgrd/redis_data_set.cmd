@@ -40,6 +40,7 @@ HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_src_port_min" "7001"
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_src_port_max" "7010"
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_probe_interval_ms" "500"
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dp_channel_probe_fail_threshold" "5"
+HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "vnet_name" "Vnet55"
 
 select 13
 HSET DPU_STATE|dpu0 dpu_midplane_link_state up

@@ -5,7 +5,7 @@ use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, MessageResponseBody, OutgoingMessage, SimpleSwbusEdgeClient},
     swbus_proto::swbus::{ManagementRequestType, ServicePath, SwbusErrorCode},
 };
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 /// An actor and the support structures needed to run it.
 pub(crate) struct ActorDriver<A> {
@@ -116,12 +116,13 @@ impl<A: Actor> ActorDriver<A> {
                 (SwbusErrorCode::Ok, String::new())
             }
             Err(e) => {
+                error!("Actor failed to handle message: {e:#}");
                 self.state.internal.drop_changes();
                 self.state.outgoing.drop_queued_messages();
                 (SwbusErrorCode::Fail, format!("{e:#}"))
             }
         };
-        debug!("message handled by actor: {error_code:?} {error_message}");
+        info!("message handled by actor: {error_code:?} {error_message}");
         self.state.incoming.request_handled(key, error_code, &error_message);
     }
 
