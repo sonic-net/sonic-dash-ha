@@ -80,6 +80,6 @@ HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 preferred_vdpu_ids "vdpu0"
 HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 preferred_standalone_vdpu_index "0"
 
 HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 version "1"
-HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 disable "true"
+HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 disabled "true"
 HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 desired_ha_state "active"
 HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 approved_pending_operation_ids ""
