@@ -90,8 +90,7 @@ pub fn init(program_name: &'static str, link_swsscommon_logger: bool) -> Result<
             let file_subscriber = file_subscriber
                 .with_line_number(true)
                 .with_target(false)
-                .with_ansi(false)
-                .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE);
+                .with_ansi(false);
 
             tracing_subscriber::registry()
                 .with(level_layer.and_then(file_subscriber))

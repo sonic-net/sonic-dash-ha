@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use std::{collections::HashMap, future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
@@ -57,7 +58,10 @@ where
         let mut table_cache = TableCache::default();
         let mut send_kfv = async |kfv: KeyOpFieldValues| {
             // Merge the kfv to get the whole table as an update
-            let kfv = table_cache.merge_kfv(kfv);
+            let kfv = match table_cache.merge_kfv(kfv) {
+                Ok(kfv) => kfv,
+                Err(_) => return, // No change, skip sending
+            };
             if !selector(&kfv) {
                 return;
             }
@@ -114,20 +118,30 @@ struct TableCache(HashMap<String, FieldValues>);
 
 impl TableCache {
     /// Merge the update and return a `KeyOpFieldValues` that contains the state of the entire table.
-    fn merge_kfv(&mut self, kfv: KeyOpFieldValues) -> KeyOpFieldValues {
+    /// Returns an error if the update doesn't change the existing data.
+    fn merge_kfv(&mut self, kfv: KeyOpFieldValues) -> Result<KeyOpFieldValues> {
         match kfv.operation {
             KeyOperation::Set => {
                 let field_values = self.0.entry(kfv.key.clone()).or_default();
-                field_values.extend(kfv.field_values);
-                KeyOpFieldValues {
+
+                // Check if the new field_values would be the same as the existing ones
+                let mut new_field_values = field_values.clone();
+                new_field_values.extend(kfv.field_values);
+
+                if new_field_values == *field_values {
+                    return Err(anyhow!("No change"));
+                }
+
+                *field_values = new_field_values;
+                Ok(KeyOpFieldValues {
                     key: kfv.key,
                     operation: KeyOperation::Set,
                     field_values: field_values.clone(),
-                }
+                })
             }
             KeyOperation::Del => {
                 self.0.remove(&kfv.key);
-                kfv
+                Ok(kfv)
             }
         }
     }
