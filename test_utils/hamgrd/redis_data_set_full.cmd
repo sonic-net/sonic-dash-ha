@@ -105,6 +105,7 @@ HSET "REMOTE_DPU|switch3_dpu0" "swbus_port" "23606"
 
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dpu_bfd_probe_interval_in_ms" "1000"
 HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "dpu_bfd_probe_multiplier" "3"
+HSET "DASH_HA_GLOBAL_CONFIG|GLOBAL" "vnet_name" "Vnet55"
 
 
 select 13

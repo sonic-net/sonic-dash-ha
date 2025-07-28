@@ -12,7 +12,7 @@ use swbus_edge::{
     SwbusEdgeRuntime,
 };
 use swss_common::{FieldValues, Table};
-
+use tokio::time::sleep;
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
     const TIMEOUT: Duration = Duration::from_millis(5000);
     tokio::time::timeout(TIMEOUT, fut).await
@@ -226,21 +226,52 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 let db = crate::db_named(db_name, *is_dpu).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
 
-                let mut actual_data = table.get_async(key).await.unwrap();
-                let Some(actual_data) = actual_data.as_mut() else {
-                    panic!("Key {key} not found in {table_name}/{db_name}");
-                };
-                let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+                let mut last_error = None;
 
-                exclude
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .for_each(|id| {
-                        fvs.remove(id);
-                        actual_data.remove(id);
-                    });
-                assert_eq!(actual_data, &fvs);
+                // Retry loop: 5 attempts with 100ms sleep between retries. This is needed because the previous send operation
+                // may not have been fully committed yet. send is asynchronous and may not complete immediately.
+                for attempt in 1..=5 {
+                    last_error = None;
+                    match table.get_async(key).await {
+                        Ok(Some(mut actual_data)) => {
+                            let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+
+                            exclude
+                                .split(',')
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .for_each(|id| {
+                                    fvs.remove(id);
+                                    actual_data.remove(id);
+                                });
+
+                            if actual_data == fvs {
+                                // Success, break out of retry loop
+                                break;
+                            } else {
+                                last_error = Some(format!(
+                                    "Data mismatch on attempt {attempt}: expected {fvs:?}, got {actual_data:?}"
+                                ));
+                            }
+                        }
+                        Ok(None) => {
+                            last_error = Some(format!(
+                                "Key {key} not found in {table_name}/{db_name} on attempt {attempt}"
+                            ));
+                        }
+                        Err(e) => {
+                            last_error = Some(format!("Database error on attempt {attempt}: {e}"));
+                        }
+                    }
+                    // If this is not the last attempt, sleep before retrying
+                    if attempt < 5 {
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                }
+                // If we got here and there's still an error, panic on the last attempt
+                if let Some(error) = last_error {
+                    panic!("{error}");
+                }
             }
         }
     }
@@ -283,6 +314,7 @@ pub fn make_dash_ha_global_config() -> DashHaGlobalConfig {
         dp_channel_src_port_max: Some(45678),
         dp_channel_probe_fail_threshold: Some(3),
         dp_channel_probe_interval_ms: Some(1000),
+        vnet_name: Some("vnet0".to_string()),
     }
 }
 

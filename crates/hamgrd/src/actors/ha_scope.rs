@@ -216,7 +216,7 @@ impl HaScopeActor {
 
         let dash_ha_scope = DashHaScopeTable {
             version: dash_ha_scope_config.version,
-            disable: dash_ha_scope_config.disable,
+            disabled: dash_ha_scope_config.disabled,
             ha_role: dash_ha_scope_config.desired_ha_state.clone(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
             flow_reconcile_requested,
             activate_role_requested,
@@ -645,7 +645,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state disabled
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "1", "disable": "true", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
+                    "field_values": {"version": "1", "disabled": "true", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
@@ -661,7 +661,7 @@ mod test {
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role = active
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "1", "ha_role": "active", "disable": "true",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
+                    "field_values": {"version": "1", "ha_role": "active", "disabled": "true",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
@@ -678,13 +678,13 @@ mod test {
 
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
+                    "field_values": {"version": "2", "disabled": "false", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with disabled = false
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "2", "ha_role": "active", "disable": "false",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
+                    "field_values": {"version": "2", "ha_role": "active", "disabled": "false",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
 
@@ -732,13 +732,13 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with activation approved
             send! { key: HaScopeActor::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "3", "disable": "false", "desired_ha_state": "active", "approved_pending_operation_ids": &op_id },
+                    "field_values": {"version": "3", "disabled": "false", "desired_ha_state": "active", "approved_pending_operation_ids": &op_id },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with activate_role_requested=true
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "3", "ha_role": "active", "disable": "false",  "activate_role_requested": "true", "flow_reconcile_requested": "false" },
+                    "field_values": {"version": "3", "ha_role": "active", "disabled": "false",  "activate_role_requested": "true", "flow_reconcile_requested": "false" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
@@ -776,7 +776,7 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with desired_ha_state = dead
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": "" },
+                    "field_values": {"version": "2", "disabled": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": "" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
 
@@ -787,7 +787,7 @@ mod test {
 
             // simulate delete of ha-scope entry
             send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Del",
-                    "field_values": {"version": "2", "disable": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }},
+                    "field_values": {"version": "2", "disabled": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }},
                     addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
         ];
 

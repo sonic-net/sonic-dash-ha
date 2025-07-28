@@ -16,8 +16,7 @@ use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{
-    KeyOpFieldValues, KeyOperation, ProducerStateTable, SonicDbTable, SubscriberStateTable, ZmqClient,
-    ZmqProducerStateTable,
+    KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable, ZmqClient, ZmqProducerStateTable,
 };
 use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
@@ -276,18 +275,6 @@ where
         );
         Ok(spawn_producer_bridge(edge_runtime.clone(), sp, zpst))
     } else {
-        if std::env::var("SIM").is_err() {
-            anyhow::bail!("Failed to connect to ZMQ server at {}", zmq_endpoint);
-        }
-        let dpu_appl_db = crate::db_for_table::<T>().await?;
-        let pst = ProducerStateTable::new(dpu_appl_db, T::table_name()).unwrap();
-
-        let sp = crate::common_bridge_sp::<T>(&edge_runtime);
-        info!(
-            "spawned producer bridge for {} at {}",
-            T::table_name(),
-            sp.to_longest_path()
-        );
-        Ok(spawn_producer_bridge(edge_runtime.clone(), sp, pst))
+        anyhow::bail!("Failed to connect to ZMQ server at {}", zmq_endpoint);
     }
 }
