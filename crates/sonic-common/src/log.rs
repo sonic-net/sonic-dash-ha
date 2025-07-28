@@ -1,7 +1,6 @@
 use color_eyre::eyre::{Context, Result};
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
-use sha1::{Sha1};
 
 #[cfg(not(target_os = "windows"))]
 use swss_common::{link_to_swsscommon_logger, LoggerConfigChangeHandler};
@@ -65,7 +64,6 @@ pub fn init(program_name: &'static str, link_swsscommon_logger: bool) -> Result<
     let log_level_env_var = format!("{}_LOG_LEVEL", program_name.to_uppercase());
 
     let mut log_env_set = true;
-    let mut hasher = Sha1::new();
     // RUST_LOG env has the highest priority. If it is not set, get logger setting from config_db
     std::env::set_var(
         "RUST_LOG",
