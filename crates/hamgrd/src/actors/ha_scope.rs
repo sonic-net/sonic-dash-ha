@@ -670,7 +670,7 @@ mod test {
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role = active
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "1", "ha_role": "active", "disable": "true",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
+                    "field_values": {"version": "1", "ha_role": "active", "disabled": "true",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
@@ -693,7 +693,7 @@ mod test {
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with disabled = false
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "2", "ha_role": "active", "disable": "false",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
+                    "field_values": {"version": "2", "ha_role": "active", "disabled": "false",  "activate_role_requested": "false", "flow_reconcile_requested": "false" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
 
@@ -750,7 +750,7 @@ mod test {
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with activate_role_requested=true
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "3", "ha_role": "active", "disable": "false",  "activate_role_requested": "true", "flow_reconcile_requested": "false" },
+                    "field_values": {"version": "3", "ha_role": "active", "disabled": "false",  "activate_role_requested": "true", "flow_reconcile_requested": "false" },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 

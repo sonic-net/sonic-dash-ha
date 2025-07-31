@@ -29,6 +29,8 @@ pub struct DashHaGlobalConfig {
     pub dpu_bfd_probe_interval_in_ms: Option<u32>,
     // The number of DPU BFD probe failure before probe down.
     pub dpu_bfd_probe_multiplier: Option<u32>,
+    // The name of the vnet used for VNET tunnel route
+    pub vnet_name: Option<String>,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2111-dpu--vdpu-definitions>
@@ -279,7 +281,7 @@ pub struct VnetRouteTunnelTable {
 )]
 pub struct DashHaScopeTable {
     pub version: u32,
-    pub disable: bool,
+    pub disabled: bool,
     pub ha_role: String,
     pub flow_reconcile_requested: bool,
     pub activate_role_requested: bool,
