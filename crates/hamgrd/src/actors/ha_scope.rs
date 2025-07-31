@@ -217,7 +217,7 @@ impl HaScopeActor {
 
         let dash_ha_scope = DashHaScopeTable {
             version: dash_ha_scope_config.version.parse().unwrap(),
-            disable: dash_ha_scope_config.disabled,
+            disabled: dash_ha_scope_config.disabled,
             ha_role: format!(
                 "{}",
                 DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()

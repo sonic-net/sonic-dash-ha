@@ -163,6 +163,9 @@ impl HaSetActor {
                 .vnet_name
                 .ok_or(anyhow!("Missing vnet_name in global config"))?,
             self.dash_ha_set_config.as_ref().unwrap().vip_v4
+                .as_ref()
+                .map(ip_to_string)
+                .unwrap_or_default()
         );
 
         if !internal.has_entry(VnetRouteTunnelTable::table_name(), &swss_key) {
