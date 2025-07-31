@@ -3,13 +3,16 @@ use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
+use sonic_common::SonicDbTable;
+use sonic_dash_api_proto::decode_from_field_values;
+use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
 };
 use swss_common::Table;
-use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use swss_common::{KeyOpFieldValues, KeyOperation};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
@@ -18,7 +21,7 @@ pub struct HaScopeActor {
     id: String,
     ha_scope_id: String,
     vdpu_id: String,
-    dash_ha_scope_config: Option<DashHaScopeConfigTable>,
+    dash_ha_scope_config: Option<HaScopeConfig>,
     bridges: Vec<ConsumerBridge>,
     // we need to keep track the previous dpu_ha_scope_state to detect state change
     dpu_ha_scope_state: Option<DpuDashHaScopeState>,
@@ -26,7 +29,7 @@ pub struct HaScopeActor {
 
 impl DbBasedActor for HaScopeActor {
     fn new(key: String) -> Result<Self> {
-        if let Some((vdpu_id, ha_scope_id)) = key.split_once(DashHaScopeConfigTable::key_separator()) {
+        if let Some((vdpu_id, ha_scope_id)) = key.split_once(HaScopeConfig::key_separator()) {
             Ok(HaScopeActor {
                 id: key.to_string(),
                 vdpu_id: vdpu_id.to_string(),
@@ -41,7 +44,7 @@ impl DbBasedActor for HaScopeActor {
     }
 
     fn table_name() -> &'static str {
-        DashHaScopeConfigTable::table_name()
+        HaScopeConfig::table_name()
     }
 
     fn name() -> &'static str {
@@ -185,39 +188,42 @@ impl HaScopeActor {
 
         let mut activate_role_requested = false;
         let mut flow_reconcile_requested = false;
-        if let Some(approved_ops) = dash_ha_scope_config.approved_pending_operation_ids.as_ref() {
-            if !approved_ops.is_empty() {
-                let pending_operations = self.get_pending_operations(internal, None)?;
-                for op_id in approved_ops {
-                    let Some(op) = pending_operations.get(op_id) else {
-                        // has been removed from pending list
-                        continue;
-                    };
-                    match op.as_str() {
-                        "switchover" => {
-                            // todo: this is for switch driven ha
-                        }
-                        "activate_role" => {
-                            activate_role_requested = true;
-                        }
-                        "flow_reconcile" => {
-                            flow_reconcile_requested = true;
-                        }
-                        "brainsplit_recover" => {
-                            // todo: what's the action here?
-                        }
-                        _ => {
-                            error!("Unknown operation type {}", op);
-                        }
+        let approved_ops = dash_ha_scope_config.approved_pending_operation_ids.clone();
+        if !approved_ops.is_empty() {
+            let pending_operations = self.get_pending_operations(internal, None)?;
+            for op_id in approved_ops {
+                let Some(op) = pending_operations.get(&op_id) else {
+                    // has been removed from pending list
+                    continue;
+                };
+                match op.as_str() {
+                    "switchover" => {
+                        // todo: this is for switch driven ha
+                    }
+                    "activate_role" => {
+                        activate_role_requested = true;
+                    }
+                    "flow_reconcile" => {
+                        flow_reconcile_requested = true;
+                    }
+                    "brainsplit_recover" => {
+                        // todo: what's the action here?
+                    }
+                    _ => {
+                        error!("Unknown operation type {}", op);
                     }
                 }
             }
         }
 
         let dash_ha_scope = DashHaScopeTable {
-            version: dash_ha_scope_config.version,
+            version: dash_ha_scope_config.version.parse().unwrap(),
             disabled: dash_ha_scope_config.disabled,
-            ha_role: dash_ha_scope_config.desired_ha_state.clone(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
+            ha_role: format!(
+                "{}",
+                DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
+            )
+            .to_lowercase(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
             flow_reconcile_requested,
             activate_role_requested,
         };
@@ -375,7 +381,13 @@ impl HaScopeActor {
         npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
 
         // The target HA state in ASIC. This is the state that hamgrd generates and asking DPU to move to.
-        npu_ha_scope_state.local_target_asic_ha_state = Some(dash_ha_scope_config.desired_ha_state.clone());
+        npu_ha_scope_state.local_target_asic_ha_state = Some(
+            format!(
+                "{}",
+                DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
+            )
+            .to_lowercase(),
+        );
         // The HA state that ASIC acked.
         npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
 
@@ -415,7 +427,7 @@ impl HaScopeActor {
             return Ok(());
         }
         let first_time = self.dash_ha_scope_config.is_none();
-        let dash_ha_scope_config: DashHaScopeConfigTable = swss_serde::from_field_values(&kfv.field_values)?;
+        let dash_ha_scope_config: HaScopeConfig = decode_from_field_values(&kfv.field_values)?;
 
         // Update internal config
         self.dash_ha_scope_config = Some(dash_ha_scope_config);
@@ -439,15 +451,13 @@ impl HaScopeActor {
         self.update_npu_ha_scope_state_ha_state(state)?;
 
         // need to update operation list if approved_pending_operation_ids is not empty
-        let approved_pending_operation_ids = match self
+        let approved_pending_operation_ids = self
             .dash_ha_scope_config
             .as_ref()
             .unwrap()
             .approved_pending_operation_ids
-        {
-            Some(ref ids) => ids.clone(),
-            None => Vec::new(),
-        };
+            .clone();
+
         if !approved_pending_operation_ids.is_empty() {
             self.update_npu_ha_scope_state_pending_operations(state, Vec::new(), approved_pending_operation_ids)?;
         }
@@ -589,13 +599,14 @@ mod test {
             vdpu::VDpuActor,
             DbBasedActor,
         },
-        db_structs::{
-            now_in_millis, DashHaScopeConfigTable, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState,
-        },
+        db_structs::{now_in_millis, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState},
         ha_actor_messages::*,
     };
+    use sonic_common::SonicDbTable;
+    use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
+    use sonic_dash_api_proto::types::HaOwner;
     use std::time::Duration;
-    use swss_common::{SonicDbTable, Table};
+    use swss_common::Table;
     use swss_common_testing::*;
     use swss_serde::to_field_values;
 
@@ -644,10 +655,10 @@ mod test {
         #[rustfmt::skip]
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state disabled
-            send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "1", "disabled": "true", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
+            send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                    "field_values": {"json": format!("{{\"version\":\"1\",\"disabled\":true,\"desired_ha_state\":{},\"owner\":{},\"ha_set_id\":\"test_id\",\"approved_pending_operation_ids\":[]}}", DesiredHaState::Active as i32, HaOwner::Dpu as i32)},
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Recv registration to vDPU and ha-set
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
@@ -677,10 +688,10 @@ mod test {
             chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
 
             // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
-            send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "2", "disabled": "false", "desired_ha_state": "active", "approved_pending_operation_ids": "" },
+            send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                    "field_values": {"json": format!("{{\"version\":\"2\",\"disabled\":false,\"desired_ha_state\":{},\"owner\":{},\"ha_set_id\":\"test_id\",\"approved_pending_operation_ids\":[]}}", DesiredHaState::Active as i32, HaOwner::Dpu as i32)},
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with disabled = false
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
@@ -708,7 +719,10 @@ mod test {
         let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
         let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
         let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
-        let op_id = npu_ha_scope_state.pending_operation_ids.unwrap().pop().unwrap();
+        let op_id = format!(
+            "[\"{}\"]",
+            npu_ha_scope_state.pending_operation_ids.unwrap().pop().unwrap()
+        );
 
         // continue the test to activate the role
         let mut npu_ha_scope_state4 = npu_ha_scope_state3.clone();
@@ -732,9 +746,9 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with activation approved
             send! { key: HaScopeActor::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "3", "disabled": "false", "desired_ha_state": "active", "approved_pending_operation_ids": &op_id },
+                    "field_values": {"json": format!("{{\"version\":\"3\",\"disabled\":false,\"desired_ha_state\":{},\"owner\":{},\"ha_set_id\":\"test_id\",\"approved_pending_operation_ids\":{}}}", DesiredHaState::Active as i32, HaOwner::Dpu as i32, &op_id)},
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with activate_role_requested=true
             recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
@@ -775,10 +789,10 @@ mod test {
         #[rustfmt::skip]
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with desired_ha_state = dead
-            send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"version": "2", "disabled": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": "" },
+            send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                    "field_values": {"json": format!("{{\"version\":\"2\",\"disabled\":false,\"desired_ha_state\":{},\"owner\":{},\"ha_set_id\":\"test_id\",\"approved_pending_operation_ids\":[]}}", DesiredHaState::Dead as i32, HaOwner::Dpu as i32)},
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
             chkdb! { type: NpuDashHaScopeState,
@@ -786,9 +800,10 @@ mod test {
                     exclude: "pending_operation_list_last_updated_time_in_ms" },
 
             // simulate delete of ha-scope entry
-            send! { key: DashHaScopeConfigTable::table_name(), data: { "key": &scope_id, "operation": "Del",
-                    "field_values": {"version": "2", "disabled": "false", "desired_ha_state": "dead", "approved_pending_operation_ids": ""  }},
-                    addr: crate::common_bridge_sp::<DashHaScopeConfigTable>(&runtime.get_swbus_edge()) },
+            send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
+                    "field_values": {"json": format!("{{\"version\":\"2\",\"disabled\":false,\"desired_ha_state\":{},\"owner\":{},\"ha_set_id\":\"test_id\",\"approved_pending_operation_ids\":[]}}", DesiredHaState::Dead as i32, HaOwner::Dpu as i32)},
+                    },
+                    addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;

@@ -69,17 +69,5 @@ HSET DPU_STATE|dpu7 dpu_control_plane_state up
 HSET DPU_STATE|dpu7 dpu_data_plane_state up
 
 select 0
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 version "1"
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 vip_v4 "3.2.1.0"
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 vip_v6 ""
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 owner "dpu"
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 scope "dpu"
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 vdpu_ids "vdpu0,vdpu1"
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 pinned_vdpu_bfd_probe_states ""
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 preferred_vdpu_ids "vdpu0"
-HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 preferred_standalone_vdpu_index "0"
-
-HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 version "1"
-HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 disabled "true"
-HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 desired_ha_state "active"
-HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 approved_pending_operation_ids ""
+HSET DASH_HA_SET_CONFIG_TABLE:haset0_0 pb "0a013112050d00010203220576647075302205766470753128013a057664707530"
+HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 pb "0a01311001180122067465737469642802"

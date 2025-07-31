@@ -213,27 +213,6 @@ pub fn now_in_millis() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2121-ha-set-configurations>
-#[serde_as]
-#[skip_serializing_none]
-#[derive(Serialize, Deserialize, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SET_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
-pub struct DashHaSetConfigTable {
-    pub version: String,
-    pub vip_v4: String,
-    pub vip_v6: Option<String>,
-    // dpu or switch
-    pub owner: Option<String>,
-    // dpu or eni
-    pub scope: Option<String>,
-    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
-    pub vdpu_ids: Vec<String>,
-    pub pinned_vdpu_bfd_probe_states: Option<String>,
-    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
-    pub preferred_vdpu_ids: Option<Vec<String>>,
-    pub preferred_standalone_vdpu_index: Option<u32>,
-}
-
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2311-ha-set-configurations>
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
@@ -250,8 +229,6 @@ pub struct DashHaSetTable {
     pub vip_v4: String,
     // IPv4 Data path VIP.
     pub vip_v6: Option<String>,
-    // Owner of HA state machine. It can be controller, switch.
-    pub owner: Option<String>,
     // Scope of HA set. It can be dpu, eni.
     pub scope: Option<String>,
     // The IP address of local NPU. It can be IPv4 or IPv6. Used for setting up the BFD session.
@@ -290,19 +267,6 @@ pub struct VnetRouteTunnelTable {
     pub rx_monitor_timer: Option<u32>,
     pub tx_monitor_timer: Option<u32>,
     pub check_directly_connected: Option<bool>,
-}
-
-/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-dpu-scope-dpu-driven-setup.md#2122-ha-scope-configurations>
-#[skip_serializing_none]
-#[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "DASH_HA_SCOPE_CONFIG_TABLE", key_separator = ":", db_name = "APPL_DB")]
-pub struct DashHaScopeConfigTable {
-    pub version: u32,
-    pub disabled: bool,
-    pub desired_ha_state: String,
-    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
-    pub approved_pending_operation_ids: Option<Vec<String>>,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations>

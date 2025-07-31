@@ -14,6 +14,14 @@ swbus-edge = { path = "../swbus-edge" }
 tokio.workspace = true
 tokio-util.workspace = true
 swbus-actor = { path = "../swbus-actor" }
+anyhow.workspace = true
+sonic-dash-api-proto.workspace = true
+prost.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sonicdb-derive.workspace = true
+sonic-common.workspace = true
 
 [lints]
 workspace = true

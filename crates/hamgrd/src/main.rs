@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Ok};
 use clap::Parser;
 use sonic_common::log;
+use sonic_common::SonicDbTable;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::{
     sync::{Arc, Mutex},
@@ -9,7 +10,7 @@ use std::{
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
-use swss_common::{sonic_db_config_initialize_global, DbConnector, SonicDbTable};
+use swss_common::{sonic_db_config_initialize_global, DbConnector};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tokio::{signal, task::JoinHandle, time::timeout};
 use tracing::error;
@@ -19,10 +20,9 @@ mod ha_actor_messages;
 use actors::spawn_zmq_producer_bridge;
 use actors::{dpu::DpuActor, ha_scope::HaScopeActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
 use anyhow::Result;
-use db_structs::{
-    BfdSessionTable, DashHaScopeConfigTable, DashHaScopeTable, DashHaSetConfigTable, DashHaSetTable, Dpu, VDpu,
-};
+use db_structs::{BfdSessionTable, DashHaScopeTable, DashHaSetTable, Dpu, VDpu};
 use lazy_static::lazy_static;
+use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use std::any::Any;
 
 lazy_static! {
@@ -153,8 +153,8 @@ async fn start_actor_creators(edge_runtime: &Arc<SwbusEdgeRuntime>) -> Result<Ve
     let mut bridges: Vec<ConsumerBridge> = Vec::new();
     bridges.append(&mut DpuActor::start_actor_creator(edge_runtime.clone()).await?);
     bridges.append(&mut VDpuActor::start_actor_creator::<VDpu>(edge_runtime.clone()).await?);
-    bridges.append(&mut HaSetActor::start_actor_creator::<DashHaSetConfigTable>(edge_runtime.clone()).await?);
-    bridges.append(&mut HaScopeActor::start_actor_creator::<DashHaScopeConfigTable>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaSetActor::start_actor_creator::<HaSetConfig>(edge_runtime.clone()).await?);
+    bridges.append(&mut HaScopeActor::start_actor_creator::<HaScopeConfig>(edge_runtime.clone()).await?);
     Ok(bridges)
 }
 
@@ -221,7 +221,7 @@ impl RuntimeData {
 
 pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
 where
-    T: swss_common::SonicDbTable + 'static,
+    T: sonic_common::SonicDbTable + 'static,
 {
     let mut new_sp = runtime.get_base_sp();
     new_sp.resource_type = "swss-common-bridge".into();

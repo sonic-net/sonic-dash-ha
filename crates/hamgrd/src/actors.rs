@@ -9,15 +9,14 @@ pub mod vdpu;
 #[cfg(test)]
 pub mod test;
 use anyhow::Result as AnyhowResult;
+use sonic_common::SonicDbTable;
 use std::sync::Arc;
 use swbus_actor::{spawn, Actor, ActorMessage};
 use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;
 use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{
-    KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable, ZmqClient, ZmqProducerStateTable,
-};
+use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable, ZmqClient, ZmqProducerStateTable};
 use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
@@ -48,7 +47,7 @@ pub trait DbBasedActor: Actor {
         let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
         let addr = crate::common_bridge_sp::<T>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        Ok(vec![ConsumerBridge::spawn(
+        Ok(vec![ConsumerBridge::spawn::<T, _, _, _>(
             edge_runtime.clone(),
             addr,
             sst,
@@ -220,7 +219,7 @@ where
 
     if actor_id.is_some() {
         let sp = edge_runtime.new_sp(actor_name, actor_id.unwrap());
-        Ok(ConsumerBridge::spawn(
+        Ok(ConsumerBridge::spawn::<T, _, _, _>(
             edge_runtime,
             addr,
             sst,
@@ -235,7 +234,7 @@ where
         ))
     } else {
         let base_addr = edge_runtime.get_base_sp();
-        Ok(ConsumerBridge::spawn(
+        Ok(ConsumerBridge::spawn::<T, _, _, _>(
             edge_runtime,
             addr,
             sst,

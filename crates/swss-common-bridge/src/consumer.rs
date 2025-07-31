@@ -1,3 +1,4 @@
+use sonic_common::SonicDbTable;
 use std::{collections::HashMap, future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
@@ -21,7 +22,7 @@ impl ConsumerBridge {
     /// `dest_generator` is a function that takes a `&KeyOpFieldValues` read from `table`
     /// and generates the `ServicePath` address and `String` input table key that
     /// the data will be sent to.
-    pub fn spawn<T, F, S>(
+    pub fn spawn<P, T, F, S>(
         rt: Arc<SwbusEdgeRuntime>,
         addr: ServicePath,
         table: T,
@@ -29,18 +30,19 @@ impl ConsumerBridge {
         selector: S,
     ) -> Self
     where
+        P: SonicDbTable,
         T: ConsumerTable,
         F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
         S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
     {
-        let task = spawn_consumer_bridge(rt, addr, table, dest_generator, selector);
+        let task = spawn_consumer_bridge::<P, _, _, _>(rt, addr, table, dest_generator, selector);
         ConsumerBridge {
             _task: AbortOnDropHandle::new(task),
         }
     }
 }
 
-pub fn spawn_consumer_bridge<T, F, S>(
+pub fn spawn_consumer_bridge<P, T, F, S>(
     rt: Arc<SwbusEdgeRuntime>,
     addr: ServicePath,
     mut table: T,
@@ -48,6 +50,7 @@ pub fn spawn_consumer_bridge<T, F, S>(
     selector: S,
 ) -> JoinHandle<()>
 where
+    P: SonicDbTable,
     T: ConsumerTable,
     F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
     S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
@@ -55,7 +58,11 @@ where
     let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
         let mut table_cache = TableCache::default();
-        let mut send_kfv = async |kfv: KeyOpFieldValues| {
+        let mut send_kfv = async |mut kfv: KeyOpFieldValues| {
+            if P::is_proto() {
+                P::convert_pb_to_json(&mut kfv);
+            }
+
             // Merge the kfv to get the whole table as an update
             let kfv = table_cache.merge_kfv(kfv);
             if !selector(&kfv) {
@@ -198,6 +205,9 @@ impl_consumertable! { ConsumerStateTable[true] SubscriberStateTable[true] ZmqCon
 mod test {
     use super::{spawn_consumer_bridge, ConsumerTable};
     use crate::producer::ProducerTable;
+    use sonic_dash_api_proto::ha_set_config::HaSetConfig;
+    use sonicdb_derive::SonicDb;
+    use std::collections::HashMap;
     use std::{sync::Arc, time::Duration};
     use swbus_actor::ActorMessage;
     use swbus_edge::{
@@ -212,6 +222,13 @@ mod test {
     use swss_common_testing::{random_kfvs, random_zmq_endpoint, Redis};
     use tokio::time::timeout;
 
+    #[derive(SonicDb)]
+    #[sonicdb(table_name = "MY_STRUCT", key_separator = ":", db_name = "db1")]
+    struct MyStruct {
+        _id1: String,
+        _attr1: Option<String>,
+    }
+
     #[tokio::test]
     async fn consumer_state_table_bridge() {
         let redis = Redis::start();
@@ -221,6 +238,14 @@ mod test {
         timeout(Duration::from_secs(5), run_test(cst, Some(cst2), pst))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn consumer_state_proto_table_bridge() {
+        let redis = Redis::start();
+        let pst = ProducerStateTable::new(redis.db_connector(), "mytable").unwrap();
+        let cst = ConsumerStateTable::new(redis.db_connector(), "mytable", None, None).unwrap();
+        timeout(Duration::from_secs(5), run_proto_test(cst, pst)).await.unwrap();
     }
 
     #[tokio::test]
@@ -251,7 +276,7 @@ mod test {
         let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
 
         // Spawn the bridge
-        let bridge = spawn_consumer_bridge(
+        let bridge = spawn_consumer_bridge::<MyStruct, _, _, _>(
             rt.clone(),
             sp("mytable-bridge"),
             consumer_table,
@@ -277,7 +302,7 @@ mod test {
         // Test rehydration
         if let Some(rehydrate_table) = rehydrate_table {
             // Spawn new bridge to rehydrate with
-            let _bridge_rehydrate = spawn_consumer_bridge(
+            let _bridge_rehydrate = spawn_consumer_bridge::<MyStruct, _, _, _>(
                 rt,
                 sp("mytable-bridge"),
                 rehydrate_table,
@@ -314,5 +339,59 @@ mod test {
 
     fn sp(s: &str) -> ServicePath {
         ServicePath::from_string(&format!("test.test.test/test/test/test/{s}")).unwrap()
+    }
+
+    async fn run_proto_test<C: ConsumerTable, P: ProducerTable>(consumer_table: C, mut producer_table: P) {
+        // Setup swbus
+        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"));
+        swbus_edge.start().await.unwrap();
+        let rt = Arc::new(swbus_edge);
+
+        // Create edge client to receive updates from the bridge
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
+
+        // Spawn the bridge
+        let bridge = spawn_consumer_bridge::<HaSetConfig, _, _, _>(
+            rt.clone(),
+            sp("mytable-bridge"),
+            consumer_table,
+            |_| (sp("receiver"), "".into()),
+            |_| true,
+        );
+
+        // Send some updates we should receive
+        let kfvs = KeyOpFieldValues {
+            key: "haset0_0".to_string(),
+            operation: swss_common::KeyOperation::Set,
+            field_values: {
+                let mut map = HashMap::new();
+                map.insert(
+                    "pb".to_string(),
+                    "0a013112050d00010203220576647075302205766470753128013a057664707530"
+                        .to_string()
+                        .into(),
+                );
+                map
+            },
+        };
+
+        producer_table.apply_kfv(kfvs.clone()).await;
+
+        let kfvs_expected = KeyOpFieldValues {
+            key: "haset0_0".to_string(),
+            operation: swss_common::KeyOperation::Set,
+            field_values: {
+                let mut map = HashMap::new();
+                map.insert("json".to_string(), "{\"version\":\"1\",\"vip_v4\":{\"ip\":{\"Ipv4\":50462976}},\"vip_v6\":null,\"vdpu_ids\":[\"vdpu0\",\"vdpu1\"],\"scope\":1,\"pinned_vdpu_bfd_probe_states\":[],\"preferred_vdpu_id\":\"vdpu0\",\"preferred_standalone_vdpu_index\":0}".to_string().into());
+                map
+            },
+        };
+
+        // Receive the updates
+        let kfvs_received = receive_n_messages(1, &swbus).await;
+
+        // Assert we received the decoded protobuf
+        assert_eq!(kfvs_expected, kfvs_received[0]);
+        bridge.abort();
     }
 }
