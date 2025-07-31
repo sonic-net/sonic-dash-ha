@@ -3,6 +3,7 @@ use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
+use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use std::collections::HashMap;
@@ -11,7 +12,7 @@ use swbus_actor::{
     Actor, ActorMessage, Context, State,
 };
 use swss_common::Table;
-use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use swss_common::{KeyOpFieldValues, KeyOperation};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
@@ -601,10 +602,11 @@ mod test {
         db_structs::{now_in_millis, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState},
         ha_actor_messages::*,
     };
+    use sonic_common::SonicDbTable;
     use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
     use sonic_dash_api_proto::types::HaOwner;
     use std::time::Duration;
-    use swss_common::{SonicDbTable, Table};
+    use swss_common::Table;
     use swss_common_testing::*;
     use swss_serde::to_field_values;
 

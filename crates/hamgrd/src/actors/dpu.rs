@@ -5,11 +5,12 @@ use crate::db_structs::{
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use crate::ServicePath;
 use anyhow::{anyhow, Result};
+use sonic_common::SonicDbTable;
 use std::collections::HashSet;
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable};
+use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info, instrument};
 
@@ -474,8 +475,8 @@ mod test {
     use crate::db_structs::{BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuState, RemoteDpu};
 
     use crate::ha_actor_messages::DpuActorState;
+    use sonic_common::SonicDbTable;
     use std::time::Duration;
-    use swss_common::SonicDbTable;
     use swss_common_testing::Redis;
     use swss_serde::to_field_values;
 

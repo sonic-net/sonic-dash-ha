@@ -21,6 +21,7 @@ hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sonicdb-derive.workspace = true
+sonic-common.workspace = true
 
 [lints]
 workspace = true

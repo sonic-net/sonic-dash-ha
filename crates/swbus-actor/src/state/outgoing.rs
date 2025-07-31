@@ -144,7 +144,7 @@ impl Outgoing {
 
     pub fn common_bridge_sp<T>(&self) -> ServicePath
     where
-        T: swss_common::SonicDbTable + 'static,
+        T: sonic_common::SonicDbTable + 'static,
     {
         let resource_id = format!("{}|{}", T::db_name(), T::table_name());
         self.from_my_sp("swss-common-bridge", &resource_id)

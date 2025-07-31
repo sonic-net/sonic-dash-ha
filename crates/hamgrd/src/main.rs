@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Ok};
 use clap::Parser;
 use sonic_common::log;
+use sonic_common::SonicDbTable;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::{
     sync::{Arc, Mutex},
@@ -9,7 +10,7 @@ use std::{
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
 use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
-use swss_common::{sonic_db_config_initialize_global, DbConnector, SonicDbTable};
+use swss_common::{sonic_db_config_initialize_global, DbConnector};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tokio::{signal, task::JoinHandle, time::timeout};
 use tracing::error;
@@ -220,7 +221,7 @@ impl RuntimeData {
 
 pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
 where
-    T: swss_common::SonicDbTable + 'static,
+    T: sonic_common::SonicDbTable + 'static,
 {
     let mut new_sp = runtime.get_base_sp();
     new_sp.resource_type = "swss-common-bridge".into();

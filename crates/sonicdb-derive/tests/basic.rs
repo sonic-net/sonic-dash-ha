@@ -1,6 +1,6 @@
 #![allow(unused)]
+use sonic_common::SonicDbTable;
 use sonicdb_derive::SonicDb;
-use swss_common::SonicDbTable;
 #[test]
 fn test_attributes() {
     #[derive(SonicDb)]

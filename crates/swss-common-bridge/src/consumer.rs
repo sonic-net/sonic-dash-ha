@@ -1,3 +1,4 @@
+use sonic_common::SonicDbTable;
 use std::{collections::HashMap, future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
@@ -6,8 +7,7 @@ use swbus_edge::{
     SwbusEdgeRuntime,
 };
 use swss_common::{
-    ConsumerStateTable, FieldValues, KeyOpFieldValues, KeyOperation, SonicDbTable, SubscriberStateTable, Table,
-    ZmqConsumerStateTable,
+    ConsumerStateTable, FieldValues, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table, ZmqConsumerStateTable,
 };
 use tokio::task::JoinHandle;
 use tokio_util::task::AbortOnDropHandle;

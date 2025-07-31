@@ -1951,6 +1951,8 @@ dependencies = [
  "serde_json",
  "sonic-common",
  "sonicdb-derive",
+ "strum",
+ "strum_macros",
  "swss-common",
 ]
 
@@ -1960,6 +1962,7 @@ version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "sonic-common",
  "swss-common",
  "syn 2.0.58",
 ]
@@ -2006,6 +2009,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "sonic-common",
  "swbus-edge",
  "swss-common",
  "swss-common-testing",
@@ -2144,14 +2148,9 @@ source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#9
 dependencies = [
  "bindgen",
  "getset",
- "hex",
  "lazy_static",
  "libc",
- "paste",
- "prost",
  "serde",
- "serde_json",
- "swss-common-testing",
  "tokio",
  "tracing-subscriber",
 ]
@@ -2165,6 +2164,7 @@ dependencies = [
  "prost",
  "serde",
  "serde_json",
+ "sonic-common",
  "sonic-dash-api-proto",
  "sonicdb-derive",
  "swbus-actor",

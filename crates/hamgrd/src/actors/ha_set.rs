@@ -3,6 +3,7 @@ use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::{anyhow, Result};
+use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
 use sonic_dash_api_proto::ip_to_string;
@@ -11,7 +12,7 @@ use swbus_actor::{
     Actor, ActorMessage, Context, State,
 };
 use swss_common::Table;
-use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use swss_common::{KeyOpFieldValues, KeyOperation};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info, instrument};
 
@@ -162,7 +163,10 @@ impl HaSetActor {
             global_cfg
                 .vnet_name
                 .ok_or(anyhow!("Missing vnet_name in global config"))?,
-            self.dash_ha_set_config.as_ref().unwrap().vip_v4
+            self.dash_ha_set_config
+                .as_ref()
+                .unwrap()
+                .vip_v4
                 .as_ref()
                 .map(ip_to_string)
                 .unwrap_or_default()
@@ -414,13 +418,13 @@ mod test {
         db_structs::*,
         ha_actor_messages::*,
     };
+    use sonic_common::SonicDbTable;
     use sonic_dash_api_proto::ha_set_config::HaSetConfig;
     use sonic_dash_api_proto::ip_to_string;
     use std::collections::HashMap;
     use std::time::Duration;
     use swss_common::CxxString;
     use swss_common::KeyOpFieldValues;
-    use swss_common::SonicDbTable;
     use swss_common_testing::*;
 
     fn protobuf_struct_to_kfv<T: prost::Message + Default + serde::Serialize>(cfg: &T) -> HashMap<String, CxxString> {
