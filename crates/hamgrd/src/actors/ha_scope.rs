@@ -274,10 +274,7 @@ impl HaScopeActor {
         let pmon_state = vdpu.dpu.dpu_pmon_state.unwrap_or_default();
         let bfd_state = vdpu.dpu.dpu_bfd_state.unwrap_or_default();
 
-        let Some(ha_set_id) = self.get_haset_id() else {
-            debug!("HA set ID is not available. Skip DASH_HA_SCOPE_STATE update");
-            return Ok(());
-        };
+        let ha_set_id = self.get_haset_id().unwrap();
 
         let Some(haset) = self.get_haset(incoming) else {
             debug!(
