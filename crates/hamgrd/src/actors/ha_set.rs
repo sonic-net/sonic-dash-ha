@@ -101,6 +101,7 @@ impl HaSetActor {
             version: dash_ha_set_config.version.clone(),
             vip_v4: dash_ha_set_config.vip_v4.as_ref().map(ip_to_string).unwrap_or_default(),
             vip_v6: dash_ha_set_config.vip_v6.as_ref().map(ip_to_string),
+            owner: None,
             scope: sonic_dash_api_proto::types::HaScope::try_from(dash_ha_set_config.scope)
                 .map(|s| {
                     let name = s.as_str_name();
