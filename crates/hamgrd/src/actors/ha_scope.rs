@@ -193,7 +193,17 @@ impl HaScopeActor {
         let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
         };
-        let (internal, _incoming, outgoing) = state.get_all();
+
+        let (internal, incoming, outgoing) = state.get_all();
+
+        let ha_set_id = self.get_haset_id().unwrap();
+        let Some(haset) = self.get_haset(incoming) else {
+            debug!(
+                "HA-SET {} has not been received. Skip DASH_HA_SCOPE_TABLE update",
+                &ha_set_id
+            );
+            return Ok(());
+        };
 
         let mut activate_role_requested = false;
         let mut flow_reconcile_requested = false;
@@ -229,6 +239,8 @@ impl HaScopeActor {
             version: dash_ha_scope_config.version.parse().unwrap(),
             disabled: dash_ha_scope_config.disabled,
             ha_set_id: dash_ha_scope_config.ha_set_id.clone(),
+            vip_v4: haset.ha_set.vip_v4.clone(),
+            vip_v6: haset.ha_set.vip_v6.clone(),
             ha_role: format!(
                 "{}",
                 DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
@@ -528,6 +540,14 @@ impl HaScopeActor {
     /// Handles HaSet state update messages for this HA scope.
     /// Update NPU DASH_HA_SCOPE_STATE
     fn handle_haset_state_update(&mut self, state: &mut State) -> Result<()> {
+        // the ha_scope is not managing the target vDPU. Skip
+        let incoming = state.incoming();
+        if !self.vdpu_is_managed(incoming) {
+            return Ok(());
+        }
+
+        // ha_scope vip_v4 and vip_v6 are derived from ha_set
+        self.update_dpu_ha_scope_table(state)?;
         self.update_npu_ha_scope_state_base(state)?;
         Ok(())
     }
@@ -677,15 +697,26 @@ mod test {
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
-            // Send ha-set state to actor
-            send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
-
             // Send vDPU state to actor
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
 
+            // Send ha-set state to actor
+            send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+
             // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role = active
-            recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "1", "ha_role": "active", "disabled": "true", "ha_set_id": &ha_set_id, "activate_role_requested": "false", "flow_reconcile_requested": "false" },
+            recv! { key: &ha_set_id, data: {
+                    "key": &ha_set_id,
+                    "operation": "Set",
+                    "field_values": {
+                        "version": "1",
+                        "ha_role": "active",
+                        "disabled": "true",
+                        "ha_set_id": &ha_set_id,
+                        "vip_v4": ha_set_obj.vip_v4.clone(),
+                        "vip_v6": ha_set_obj.vip_v6.clone(),
+                        "activate_role_requested": "false",
+                        "flow_reconcile_requested": "false"
+                    },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
@@ -707,8 +738,19 @@ mod test {
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with disabled = false
-            recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "2", "ha_role": "active", "disabled": "false", "ha_set_id": &ha_set_id, "activate_role_requested": "false", "flow_reconcile_requested": "false" },
+            recv! { key: &ha_set_id, data: {
+                    "key": &ha_set_id,
+                    "operation": "Set",
+                    "field_values": {
+                        "version": "2",
+                        "ha_role": "active",
+                        "disabled": "false",
+                        "ha_set_id": &ha_set_id,
+                        "vip_v4": ha_set_obj.vip_v4.clone(),
+                        "vip_v6": ha_set_obj.vip_v6.clone(),
+                        "activate_role_requested": "false",
+                        "flow_reconcile_requested": "false"
+                    },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
 
@@ -761,8 +803,19 @@ mod test {
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with activate_role_requested=true
-            recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Set",
-                    "field_values": {"version": "3", "ha_role": "active", "disabled": "false", "ha_set_id":&ha_set_id, "activate_role_requested": "true", "flow_reconcile_requested": "false" },
+            recv! { key: &ha_set_id, data: {
+                    "key": &ha_set_id,
+                    "operation": "Set",
+                    "field_values": {
+                        "version": "3",
+                        "ha_role": "active",
+                        "disabled": "false",
+                        "ha_set_id": &ha_set_id,
+                        "vip_v4": ha_set_obj.vip_v4.clone(),
+                        "vip_v6": ha_set_obj.vip_v6.clone(),
+                        "activate_role_requested": "true",
+                        "flow_reconcile_requested": "false"
+                    },
                     },
                     addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
 
