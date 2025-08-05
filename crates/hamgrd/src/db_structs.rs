@@ -286,6 +286,8 @@ pub struct DashHaScopeTable {
     pub disabled: bool,
     pub ha_role: String,
     pub ha_set_id: String,
+    pub vip_v4: String,
+    pub vip_v6: Option<String>,
     pub flow_reconcile_requested: bool,
     pub activate_role_requested: bool,
 }
