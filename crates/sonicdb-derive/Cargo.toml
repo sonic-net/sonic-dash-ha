@@ -12,7 +12,8 @@ edition.workspace = true
 syn = "2.0"         # For parsing Rust code
 quote = "1.0"       # For generating Rust code
 proc-macro2 = "1.0" # For working with procedural macros
-swss-common.workspace = true
+swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+sonic-common.workspace = true
 
 [lib]
 proc-macro = true

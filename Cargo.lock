@@ -791,11 +791,14 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "hex",
  "lazy_static",
+ "prost",
  "serde",
  "serde_json",
  "serde_with",
  "sonic-common",
+ "sonic-dash-api-proto",
  "sonicdb-derive",
  "swbus-actor",
  "swbus-config",
@@ -1426,12 +1429,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1944,11 +1941,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "sonic-dash-api-proto"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "prost",
+ "prost-build",
+ "serde",
+ "serde_json",
+ "sonic-common",
+ "sonicdb-derive",
+ "strum",
+ "strum_macros",
+ "swss-common",
+]
+
+[[package]]
 name = "sonicdb-derive"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
+ "sonic-common",
  "swss-common",
  "syn 2.0.58",
 ]
@@ -1995,6 +2009,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
+ "sonic-common",
  "swbus-edge",
  "swss-common",
  "swss-common-testing",
@@ -2129,14 +2144,13 @@ dependencies = [
 [[package]]
 name = "swss-common"
 version = "0.1.0"
+source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#93af9275a3c413b45a47e4fd7967f15e2ea13297"
 dependencies = [
  "bindgen",
  "getset",
  "lazy_static",
  "libc",
- "paste",
  "serde",
- "swss-common-testing",
  "tokio",
  "tracing-subscriber",
 ]
@@ -2146,6 +2160,13 @@ name = "swss-common-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
+ "prost",
+ "serde",
+ "serde_json",
+ "sonic-common",
+ "sonic-dash-api-proto",
+ "sonicdb-derive",
  "swbus-actor",
  "swbus-edge",
  "swss-common",
@@ -2157,6 +2178,7 @@ dependencies = [
 [[package]]
 name = "swss-common-testing"
 version = "0.1.0"
+source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#93af9275a3c413b45a47e4fd7967f15e2ea13297"
 dependencies = [
  "lazy_static",
  "rand",

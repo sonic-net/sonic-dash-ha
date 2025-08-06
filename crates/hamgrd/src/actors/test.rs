@@ -3,6 +3,8 @@ use crate::ha_actor_messages::*;
 use crate::RuntimeData;
 use anyhow::Result;
 use serde_json::Value;
+use sonic_dash_api_proto::ip_to_string;
+use sonic_dash_api_proto::{ha_set_config::HaSetConfig, types::ip_address::Ip, types::*};
 use std::{collections::HashMap, future::Future, time::Duration};
 use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
@@ -12,7 +14,7 @@ use swbus_edge::{
     SwbusEdgeRuntime,
 };
 use swss_common::{FieldValues, Table};
-
+use tokio::time::sleep;
 async fn timeout<T, Fut: Future<Output = T>>(fut: Fut) -> Result<T, tokio::time::error::Elapsed> {
     const TIMEOUT: Duration = Duration::from_millis(5000);
     tokio::time::timeout(TIMEOUT, fut).await
@@ -226,21 +228,52 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 let db = crate::db_named(db_name, *is_dpu).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
 
-                let mut actual_data = table.get_async(key).await.unwrap();
-                let Some(actual_data) = actual_data.as_mut() else {
-                    panic!("Key {key} not found in {table_name}/{db_name}");
-                };
-                let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+                let mut last_error = None;
 
-                exclude
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .for_each(|id| {
-                        fvs.remove(id);
-                        actual_data.remove(id);
-                    });
-                assert_eq!(actual_data, &fvs);
+                // Retry loop: 5 attempts with 100ms sleep between retries. This is needed because the previous send operation
+                // may not have been fully committed yet. send is asynchronous and may not complete immediately.
+                for attempt in 1..=5 {
+                    last_error = None;
+                    match table.get_async(key).await {
+                        Ok(Some(mut actual_data)) => {
+                            let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+
+                            exclude
+                                .split(',')
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty())
+                                .for_each(|id| {
+                                    fvs.remove(id);
+                                    actual_data.remove(id);
+                                });
+
+                            if actual_data == fvs {
+                                // Success, break out of retry loop
+                                break;
+                            } else {
+                                last_error = Some(format!(
+                                    "Data mismatch on attempt {attempt}: expected {fvs:?}, got {actual_data:?}"
+                                ));
+                            }
+                        }
+                        Ok(None) => {
+                            last_error = Some(format!(
+                                "Key {key} not found in {table_name}/{db_name} on attempt {attempt}"
+                            ));
+                        }
+                        Err(e) => {
+                            last_error = Some(format!("Database error on attempt {attempt}: {e}"));
+                        }
+                    }
+                    // If this is not the last attempt, sleep before retrying
+                    if attempt < 5 {
+                        sleep(Duration::from_millis(100)).await;
+                    }
+                }
+                // If we got here and there's still an error, panic on the last attempt
+                if let Some(error) = last_error {
+                    panic!("{error}");
+                }
             }
         }
     }
@@ -283,6 +316,7 @@ pub fn make_dash_ha_global_config() -> DashHaGlobalConfig {
         dp_channel_src_port_max: Some(45678),
         dp_channel_probe_fail_threshold: Some(3),
         dp_channel_probe_interval_ms: Some(1000),
+        vnet_name: Some("vnet0".to_string()),
     }
 }
 
@@ -401,26 +435,41 @@ pub fn make_vdpu_actor_state(up: bool, dpu_state: &DpuActorState) -> (String, VD
     )
 }
 
+pub fn string_to_ip(s: String) -> Option<IpAddress> {
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(v4) = s.parse::<std::net::Ipv4Addr>() {
+        Some(IpAddress {
+            ip: Some(Ip::Ipv4(u32::from(v4))),
+        })
+    } else if let Ok(v6) = s.parse::<std::net::Ipv6Addr>() {
+        Some(IpAddress {
+            ip: Some(Ip::Ipv6(v6.octets().to_vec())),
+        })
+    } else {
+        None
+    }
+}
+
 /// Create a DashHaSetConfigTable for a given DPU
 /// The allocation scheme is as follows:
 /// switch_n/dpu_x and switch_n+1/dpu_x are in the same HA set, where n is even
 /// vdpu id is vdpu{switch id * 8}-{dpu}
-pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, DashHaSetConfigTable) {
+pub fn make_dpu_scope_ha_set_config(switch: u16, dpu: u16) -> (String, HaSetConfig) {
     let switch_pair_id = switch / 2;
     let vdpu0_id = format!("vdpu{}-{dpu}", switch_pair_id * 2);
     let vdpu1_id = format!("vdpu{}-{dpu}", switch_pair_id * 2 + 1);
-    let ha_set = DashHaSetConfigTable {
+    let ha_set = HaSetConfig {
         version: "1".to_string(),
-        vip_v4: format!("3.2.{switch_pair_id}.{dpu}"),
-        vip_v6: Some(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
-        // dpu or switch
-        owner: Some("dpu".to_string()),
+        vip_v4: string_to_ip(format!("3.2.{switch_pair_id}.{dpu}")),
+        vip_v6: string_to_ip(normalize_ipv6(&format!("3:2:{switch_pair_id}::{dpu}"))),
         // dpu or eni
-        scope: Some("dpu".to_string()),
+        scope: HaScope::Dpu as i32,
         vdpu_ids: vec![vdpu0_id.clone(), vdpu1_id.clone()],
-        pinned_vdpu_bfd_probe_states: None,
-        preferred_vdpu_ids: Some(vec![vdpu0_id]),
-        preferred_standalone_vdpu_index: Some(0),
+        pinned_vdpu_bfd_probe_states: vec!["".to_string()],
+        preferred_vdpu_id: vdpu0_id,
+        preferred_standalone_vdpu_index: 0,
     };
     (format!("haset{switch_pair_id}-{dpu}"), ha_set)
 }
@@ -431,10 +480,10 @@ pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTab
     let global_cfg = make_dash_ha_global_config();
     let ha_set = DashHaSetTable {
         version: "1".to_string(),
-        vip_v4: haset_cfg.vip_v4,
-        vip_v6: haset_cfg.vip_v6,
-        owner: haset_cfg.owner,
-        scope: haset_cfg.scope,
+        vip_v4: ip_to_string(&haset_cfg.vip_v4.unwrap()),
+        vip_v6: Some(ip_to_string(&haset_cfg.vip_v6.unwrap())),
+        owner: None,
+        scope: Some("ha_scope_dpu".to_string()),
         local_npu_ip: format!("10.0.{switch}.{dpu}"),
         local_ip: format!("18.0.{switch}.{dpu}"),
         peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),

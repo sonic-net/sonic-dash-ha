@@ -4,7 +4,7 @@ select 14
 HSET DASH_HA_SCOPE_STATE|haset0_0 last_updated_time "1718053542000" ha_role "dead" ha_role_start_time "1718053542000" ha_term "1" activate_role_pending "false" flow_reconcile_pending "false" brainsplit_recover_pending "false"
 
 select 0
-HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 disable "false"
+HSET DASH_HA_SCOPE_CONFIG_TABLE:vdpu0:haset0_0 disabled "false"
 
 select 14
 HSET DASH_HA_SCOPE_STATE|haset0_0 activate_role_pending "true"

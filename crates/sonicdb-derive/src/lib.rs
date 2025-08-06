@@ -15,6 +15,7 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
     let mut table_name: String = "".to_string();
     let mut key_separator: char = 'a';
     let mut db_name: String = "".to_string();
+    let mut protobuf_encoded: bool = false;
     let mut is_dpu: bool = false;
     for attr in &input.attrs {
         if attr.path().is_ident("sonicdb") {
@@ -39,6 +40,14 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
                     let value = meta.value()?; // this parses the `=`
                     let s: LitStr = value.parse()?;
                     db_name = s.value();
+                    Ok(())
+                } else if meta.path.is_ident("is_proto") {
+                    let value = meta.value()?; // this parses the `=`
+                    let proto_bool: LitStr = value.parse()?;
+                    match proto_bool.value().to_lowercase().as_str() {
+                        "true" => protobuf_encoded = true,
+                        _ => protobuf_encoded = false,
+                    };
                     Ok(())
                 } else if meta.path.is_ident("is_dpu") {
                     let value = meta.value()?;
@@ -67,10 +76,49 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
         panic!("Missing key_separator attribute");
     }
 
+    let convert_pb_to_json_impl = if protobuf_encoded {
+        quote! {
+            fn is_proto() -> bool {
+                true
+            }
+            fn convert_pb_to_json(kfv: &mut swss_common::KeyOpFieldValues) {
+                let value_hex = match kfv.field_values.get("pb") {
+                    Some(v) => v.to_str().ok(),
+                    None => None,
+                };
+                let value_hex = match value_hex {
+                    Some(s) if !s.is_empty() => s,
+                    _ => return,
+                };
+                let value_bytes = match hex::decode(value_hex) {
+                    Ok(bytes) => bytes,
+                    Err(_) => return,
+                };
+                let config = match #struct_name::decode(&*value_bytes) {
+                    Ok(cfg) => cfg,
+                    Err(_) => return,
+                };
+
+                let json = match serde_json::to_string(&config) {
+                    Ok(j) => j,
+                    Err(_) => return,
+                };
+                kfv.field_values.clear();
+                kfv.field_values.insert("json".to_string(), json.into());
+            }
+        }
+    } else {
+        quote! {
+            fn is_proto() -> bool {
+                false
+            }
+        }
+    };
+
     let is_dpu_value = is_dpu;
 
     let expanded = quote! {
-        impl swss_common::SonicDbTable for #struct_name {
+        impl sonic_common::SonicDbTable for #struct_name {
             fn key_separator() -> char {
                 #key_separator
             }
@@ -86,9 +134,10 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
             fn is_dpu() -> bool {
                 #is_dpu_value
             }
+
+            #convert_pb_to_json_impl
         }
     };
 
-    // Return the generated code
     TokenStream::from(expanded)
 }

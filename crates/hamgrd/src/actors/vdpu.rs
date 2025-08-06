@@ -3,9 +3,10 @@ use crate::actors::DbBasedActor;
 use crate::db_structs::VDpu;
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType, VDpuActorState};
 use anyhow::Result;
+use sonic_common::SonicDbTable;
 use swbus_actor::Context;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, State};
-use swss_common::{KeyOpFieldValues, KeyOperation, SonicDbTable};
+use swss_common::{KeyOpFieldValues, KeyOperation};
 use tracing::{error, instrument};
 
 pub struct VDpuActor {
@@ -150,8 +151,8 @@ mod test {
         },
         ha_actor_messages::*,
     };
+    use sonic_common::SonicDbTable;
     use std::time::Duration;
-    use swss_common::SonicDbTable;
 
     #[tokio::test]
     async fn vdpu_actor() {
