@@ -1,5 +1,6 @@
+use crate::TableCache;
 use sonic_common::SonicDbTable;
-use std::{collections::HashMap, future::Future, sync::Arc};
+use std::{future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
     simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
@@ -7,7 +8,7 @@ use swbus_edge::{
     SwbusEdgeRuntime,
 };
 use swss_common::{
-    ConsumerStateTable, FieldValues, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table, ZmqConsumerStateTable,
+    ConsumerStateTable, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table, ZmqConsumerStateTable,
 };
 use tokio::task::JoinHandle;
 use tokio_util::task::AbortOnDropHandle;
@@ -64,7 +65,9 @@ where
             }
 
             // Merge the kfv to get the whole table as an update
-            let kfv = table_cache.merge_kfv(kfv);
+            let Some(kfv) = table_cache.merge_kfv(kfv) else {
+                return; // No change, skip sending
+            };
             if !selector(&kfv) {
                 return;
             }
@@ -111,33 +114,6 @@ where
             }
         }
     })
-}
-
-/// An in-memory copy of a table.
-/// We keep a copy so that we can send the entire table for each update, rather than just the updated fields.
-/// This relieves the need for actors to handle partial updates by caching their own copy.
-#[derive(Default)]
-struct TableCache(HashMap<String, FieldValues>);
-
-impl TableCache {
-    /// Merge the update and return a `KeyOpFieldValues` that contains the state of the entire table.
-    fn merge_kfv(&mut self, kfv: KeyOpFieldValues) -> KeyOpFieldValues {
-        match kfv.operation {
-            KeyOperation::Set => {
-                let field_values = self.0.entry(kfv.key.clone()).or_default();
-                field_values.extend(kfv.field_values);
-                KeyOpFieldValues {
-                    key: kfv.key,
-                    operation: KeyOperation::Set,
-                    field_values: field_values.clone(),
-                }
-            }
-            KeyOperation::Del => {
-                self.0.remove(&kfv.key);
-                kfv
-            }
-        }
-    }
 }
 
 pub trait ConsumerTable: Send + 'static {

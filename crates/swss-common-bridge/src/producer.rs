@@ -1,3 +1,4 @@
+use crate::TableCache;
 use std::{future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
@@ -31,6 +32,7 @@ where
 {
     let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
+        let mut table_cache = TableCache::default();
         loop {
             let Some(msg) = swbus.recv().await else {
                 // Swbus shut down, we might as well quit.
@@ -45,8 +47,12 @@ where
             let (error_code, error_message) = match ActorMessage::deserialize(&payload) {
                 Ok(actor_msg) => match actor_msg.deserialize_data::<KeyOpFieldValues>() {
                     Ok(kfv) => {
-                        table.apply_kfv(kfv).await;
-                        (SwbusErrorCode::Ok, String::new())
+                        if table_cache.replace_kfv(kfv.clone()) {
+                            table.apply_kfv(kfv).await;
+                            (SwbusErrorCode::Ok, String::new())
+                        } else {
+                            (SwbusErrorCode::Ok, "No change in data".to_string())
+                        }
                     }
                     Err(e) => (
                         SwbusErrorCode::InvalidPayload,
@@ -119,10 +125,10 @@ mod test {
         SwbusEdgeRuntime,
     };
     use swss_common::{
-        ConsumerStateTable, KeyOpFieldValues, ProducerStateTable, ZmqClient, ZmqConsumerStateTable,
+        ConsumerStateTable, KeyOpFieldValues, KeyOperation, ProducerStateTable, ZmqClient, ZmqConsumerStateTable,
         ZmqProducerStateTable, ZmqServer,
     };
-    use swss_common_testing::{random_kfvs, random_zmq_endpoint, Redis};
+    use swss_common_testing::{random_fvs, random_kfvs, random_string, random_zmq_endpoint, Redis};
     use tokio::time::timeout;
 
     #[tokio::test]
@@ -131,6 +137,13 @@ mod test {
         let pst = ProducerStateTable::new(redis.db_connector(), "mytable").unwrap();
         let cst = ConsumerStateTable::new(redis.db_connector(), "mytable", None, None).unwrap();
         timeout(Duration::from_secs(5), run_test(cst, pst)).await.unwrap();
+    }
+    #[tokio::test]
+    async fn producer_state_table_bridge_check_dup() {
+        let redis = Redis::start();
+        let pst = ProducerStateTable::new(redis.db_connector(), "mytable").unwrap();
+        let cst = ConsumerStateTable::new(redis.db_connector(), "mytable", None, None).unwrap();
+        timeout(Duration::from_secs(5), run_dup_test(cst, pst)).await.unwrap();
     }
 
     #[tokio::test]
@@ -143,6 +156,18 @@ mod test {
         let zpst = ZmqProducerStateTable::new(redis.db_connector(), "mytable", zmqc, false).unwrap();
         let zcst = ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs, None, None).unwrap();
         timeout(Duration::from_secs(5), run_test(zcst, zpst)).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn zmq_ponsumer_state_table_bridge_check_dup() {
+        let (zmq_endpoint, _deleter) = random_zmq_endpoint();
+        let mut zmqs = ZmqServer::new(&zmq_endpoint).unwrap();
+        let zmqc = ZmqClient::new(&zmq_endpoint).unwrap();
+
+        let redis = Redis::start();
+        let zpst = ZmqProducerStateTable::new(redis.db_connector(), "mytable", zmqc, false).unwrap();
+        let zcst = ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs, None, None).unwrap();
+        timeout(Duration::from_secs(5), run_dup_test(zcst, zpst)).await.unwrap();
     }
 
     async fn run_test<C: ConsumerTable, P: ProducerTable>(mut consumer_table: C, producer_table: P) {
@@ -180,6 +205,74 @@ mod test {
         kfvs.sort_unstable();
         kfvs_received.sort_unstable();
         assert_eq!(kfvs, kfvs_received);
+    }
+
+    async fn run_dup_test<C: ConsumerTable, P: ProducerTable>(mut consumer_table: C, producer_table: P) {
+        // Setup swbus
+        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"));
+        swbus_edge.start().await.unwrap();
+        let rt = Arc::new(swbus_edge);
+
+        // Create edge client to send updates to the bridge
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
+
+        // Spawn the bridge
+        let _bridge = ProducerBridge::spawn(rt, sp("mytable-bridge"), producer_table);
+
+        // Send some updates to the bridge
+        let mut kfvs = Vec::new();
+        for _ in 0..10 {
+            let kfv = KeyOpFieldValues {
+                key: random_string(),
+                operation: KeyOperation::Set,
+                field_values: random_fvs(),
+            };
+
+            kfvs.push(kfv);
+        }
+
+        for kfv in &kfvs {
+            let msg = OutgoingMessage {
+                destination: sp("mytable-bridge"),
+                body: MessageBody::Request {
+                    payload: encode_kfv(kfv),
+                },
+            };
+            swbus.send(msg).await.unwrap();
+        }
+
+        // Receive the updates directly
+        let mut kfvs_received = Vec::new();
+        while kfvs_received.len() < kfvs.len() {
+            consumer_table.read_data().await;
+            kfvs_received.extend(consumer_table.pops().await);
+        }
+
+        // Assert we got all the same updates
+        kfvs.sort_unstable();
+        kfvs_received.sort_unstable();
+        assert_eq!(kfvs, kfvs_received);
+
+        // Resend the same updates to the producer bridge
+        for kfv in &kfvs {
+            let msg = OutgoingMessage {
+                destination: sp("dpu-bridge"),
+                body: MessageBody::Request {
+                    payload: encode_kfv(kfv),
+                },
+            };
+            swbus.send(msg).await.unwrap();
+            println!("Sent: {}", kfv.key);
+        }
+        let result = timeout(Duration::from_secs(3), consumer_table.read_data()).await;
+        if result.is_ok() {
+            // If we got here, it means the bridge did not skip the updates
+            let received = consumer_table.pops().await;
+            for kfv in received {
+                println!("Received: {}", kfv.key);
+            }
+            panic!("Expected bridge to skip duplicate updates, but it processed them");
+        }
     }
 
     fn encode_kfv(kfv: &KeyOpFieldValues) -> Vec<u8> {
