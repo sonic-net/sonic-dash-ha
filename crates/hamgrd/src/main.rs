@@ -45,7 +45,7 @@ async fn main() {
     }
 
     set_dpu_slot_id(args.slot_id as u8);
-    sonic_db_config_initialize_global("/var/run/redis/sonic-db/database_global.json").unwrap();
+    sonic_db_config_initialize_global("/var/run/redis/sonic-db/database_global.json", true).unwrap();
 
     // Read swbusd config from redis or yaml file
     let swbus_config = swbus_config_from_db(args.slot_id).unwrap();
