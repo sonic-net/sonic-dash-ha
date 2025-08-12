@@ -1240,7 +1240,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.4",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -2144,7 +2144,7 @@ dependencies = [
 [[package]]
 name = "swss-common"
 version = "0.1.0"
-source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#93af9275a3c413b45a47e4fd7967f15e2ea13297"
+source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#1484a851dbfdd4b122c361cd7ea03eca0afe5d63"
 dependencies = [
  "bindgen",
  "getset",
@@ -2178,7 +2178,7 @@ dependencies = [
 [[package]]
 name = "swss-common-testing"
 version = "0.1.0"
-source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#93af9275a3c413b45a47e4fd7967f15e2ea13297"
+source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#1484a851dbfdd4b122c361cd7ea03eca0afe5d63"
 dependencies = [
  "lazy_static",
  "rand",
