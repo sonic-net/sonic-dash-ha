@@ -1,11 +1,12 @@
 use crate::SwbusEdgeRuntime;
+use std::collections::HashMap;
 use std::sync::Arc;
 use swbus_proto::{
     message_id_generator::MessageIdGenerator,
     result::Result,
     swbus::{
-        swbus_message::Body, DataRequest, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage,
-        SwbusMessageHeader, TraceRouteRequest, TraceRouteResponse,
+        request_response::ResponseBody, swbus_message::Body, DataRequest, ManagementQueryResult, ManagementRequest,
+        ManagementRequestType, RequestResponse, ServicePath, SwbusErrorCode, SwbusMessage, SwbusMessageHeader,
     },
 };
 use tokio::sync::{
@@ -23,13 +24,14 @@ pub struct SimpleSwbusEdgeClient {
     handler_rx: Mutex<Receiver<SwbusMessage>>,
     source: ServicePath,
     id_generator: MessageIdGenerator,
+    sink: bool,
 }
 
 impl SimpleSwbusEdgeClient {
     /// Create and connect a new client.
     ///
     /// `public` determines whether the client is registered using [`SwbusEdgeRuntime::add_handler`] or [`SwbusEdgeRuntime::add_private_handler`].
-    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool) -> Self {
+    pub fn new(rt: Arc<SwbusEdgeRuntime>, source: ServicePath, public: bool, sink: bool) -> Self {
         let (handler_tx, handler_rx) = channel::<SwbusMessage>(crate::edge_runtime::SWBUS_RECV_QUEUE_SIZE);
         if public {
             rt.add_handler(source.clone(), handler_tx);
@@ -42,7 +44,12 @@ impl SimpleSwbusEdgeClient {
             handler_rx: Mutex::new(handler_rx),
             source,
             id_generator: MessageIdGenerator::new(),
+            sink,
         }
+    }
+
+    pub fn get_edge_runtime(&self) -> &Arc<SwbusEdgeRuntime> {
+        &self.rt
     }
 
     /// Receive a message.
@@ -66,6 +73,18 @@ impl SimpleSwbusEdgeClient {
         let destination = header.destination.unwrap();
         let body = msg.body.unwrap();
 
+        if self.sink && destination != self.source {
+            // sink will drop all messages not to itself and reply with NoRoute
+            return HandleReceivedMessage::Respond(SwbusMessage::new(
+                SwbusMessageHeader::new(self.source.clone(), source, self.id_generator.generate()),
+                Body::Response(RequestResponse::infra_error(
+                    id,
+                    SwbusErrorCode::NoRoute,
+                    "Route not found",
+                )),
+            ));
+        }
+
         match body {
             Body::DataRequest(DataRequest { payload }) => HandleReceivedMessage::PassToActor(IncomingMessage {
                 id,
@@ -86,17 +105,37 @@ impl SimpleSwbusEdgeClient {
                     request_id,
                     error_code: SwbusErrorCode::try_from(error_code).unwrap_or(SwbusErrorCode::UnknownError),
                     error_message,
+                    response_body: None,
                 },
             }),
             Body::PingRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
                 SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
                 Body::Response(RequestResponse::ok(id)),
             )),
-            Body::TraceRouteRequest(TraceRouteRequest { trace_id }) => {
-                HandleReceivedMessage::Respond(SwbusMessage::new(
-                    SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
-                    Body::TraceRouteResponse(TraceRouteResponse { trace_id }),
-                ))
+            Body::TraceRouteRequest(_) => HandleReceivedMessage::Respond(SwbusMessage::new(
+                SwbusMessageHeader::new(destination, source, self.id_generator.generate()),
+                Body::Response(RequestResponse::ok(id)),
+            )),
+            Body::ManagementRequest(ManagementRequest { request, arguments }) => {
+                let request_type = match ManagementRequestType::try_from(request) {
+                    Ok(request_type) => request_type,
+                    Err(_) => {
+                        // TODO: Log error
+                        return HandleReceivedMessage::Ignore;
+                    }
+                };
+                HandleReceivedMessage::PassToActor(IncomingMessage {
+                    id,
+                    source,
+                    destination,
+                    body: MessageBody::ManagementRequest {
+                        request: request_type,
+                        args: arguments
+                            .iter()
+                            .map(|arg| (arg.name.clone(), arg.value.clone()))
+                            .collect(),
+                    },
+                })
             }
             _ => HandleReceivedMessage::Ignore,
         }
@@ -130,15 +169,27 @@ impl SimpleSwbusEdgeClient {
                     request_id,
                     error_code,
                     error_message,
-                } => Body::Response(RequestResponse {
-                    request_id,
-                    error_code: error_code.into(),
-                    error_message,
-                    response_body: None,
-                }),
+                    response_body,
+                } => {
+                    let response_body = response_body.map(|MessageResponseBody::ManagementQueryResult { payload }| {
+                        ResponseBody::ManagementQueryResult(ManagementQueryResult { value: payload })
+                    });
+
+                    Body::Response(RequestResponse {
+                        request_id,
+                        error_code: error_code.into(),
+                        error_message,
+                        response_body,
+                    })
+                }
+                MessageBody::ManagementRequest { .. } => unimplemented!(),
             }),
         };
         (id, msg)
+    }
+
+    pub fn get_service_path(self: &Arc<Self>) -> &ServicePath {
+        &self.source
     }
 }
 
@@ -159,7 +210,17 @@ pub enum MessageBody {
         request_id: MessageId,
         error_code: SwbusErrorCode,
         error_message: String,
+        response_body: Option<MessageResponseBody>,
     },
+    ManagementRequest {
+        request: ManagementRequestType,
+        args: HashMap<String, String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum MessageResponseBody {
+    ManagementQueryResult { payload: String },
 }
 
 /// A message received from another Swbus client.

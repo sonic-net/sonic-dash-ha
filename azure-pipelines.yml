@@ -22,6 +22,10 @@ stages:
       vmImage: 'ubuntu-22.04'
 
     steps:
+    - checkout: self
+      clean: true
+      submodules: true
+
     - script: |
         set -exuo pipefail
         # dash-ha build deps

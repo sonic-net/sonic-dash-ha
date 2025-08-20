@@ -295,9 +295,9 @@ impl SwbusMultiplexer {
             .iter()
             .find(|nh| nh.conn_info().as_ref().unwrap().id() == conn_info.id());
 
-        if nh.is_some() {
+        if let Some(nh) = nh {
             debug!("Found direct route to the connection: {}", direct_route);
-            Ok(nh.unwrap().clone())
+            Ok(nh.clone())
         } else {
             Err(SwbusError::internal(
                 SwbusErrorCode::Fail,

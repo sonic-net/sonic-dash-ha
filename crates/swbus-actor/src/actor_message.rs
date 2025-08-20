@@ -9,7 +9,7 @@ use swbus_edge::{
 
 pub use serde_json::Value;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ActorMessage {
     pub key: String,
     pub data: Value,
@@ -21,17 +21,31 @@ impl ActorMessage {
         Ok(Self { key: key.into(), data })
     }
 
+    /// Deserialize the JSON value of `self.data` into a rust type.
     pub fn deserialize_data<T: DeserializeOwned>(&self) -> Result<T> {
-        serde_json::from_value(self.data.clone())
-            .with_context(|| format!("deserializing ActorMessage::data into {}", type_name::<T>()))
+        serde_json::from_value(self.data.clone()).with_context(|| {
+            format!(
+                "deserializing ActorMessage (key={}) into {}",
+                self.key,
+                type_name::<T>(),
+            )
+        })
     }
 
-    pub(crate) fn serialize(&self) -> Vec<u8> {
+    /// Serialize the message into an swbus message payload that can be decoded with [`Self::deserialize`].
+    ///
+    /// This can be used to produce messages to send to actors without using an `Outgoing` state table.
+    /// Actors should not use this.
+    pub fn serialize(&self) -> Vec<u8> {
         // this should never fail, we know serde_json can handle ActorMessage fine.
         serde_json::to_vec(self).unwrap()
     }
 
-    pub(crate) fn deserialize(data: &[u8]) -> Result<Self> {
+    /// Deserialize a message created with [`Self::serialize`].
+    ///
+    /// This can be used to receive messages from actors without using an `Incoming` state table.
+    /// Actors should not use this.
+    pub fn deserialize(data: &[u8]) -> Result<Self> {
         serde_json::from_slice(data).context("deserializing ActorMessage")
     }
 }

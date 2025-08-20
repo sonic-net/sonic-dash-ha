@@ -24,16 +24,19 @@ uuid.workspace = true
 # Log and error handling
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
 
 # Internal dependencies
 swbus-edge.workspace = true
 swbus-core.workspace = true
 swbus-proto.workspace = true
 swbus-config.workspace = true
+swbus-actor.workspace = true
 
 [dev-dependencies]
-swss-common-testing.workspace = true
-swss-common.workspace = true
+swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
 swss-serde.workspace = true
 
 [lints]

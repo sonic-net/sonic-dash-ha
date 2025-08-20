@@ -13,12 +13,12 @@
                 "version": 1,
                 "flag": 0,
                 "ttl": 1,
-                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
+                "source": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0",
                 "destination": "region-a.cluster-a.10.0.0.1-dpu0"
               },
               "body": {
                 "ManagementRequest": {
-                  "request": "show_route",
+                  "request": 0,
                   "arguments": []
                 }
               }
@@ -34,7 +34,7 @@
                 "flag": 0,
                 "ttl": 63,
                 "source": "region-a.cluster-a.10.0.0.1-dpu0",
-                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0"
+                "destination": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0/ping/0"
               },
               "body": {
                 "Response": {
@@ -61,7 +61,7 @@
                           "nh_service_path": "region-a.cluster-a.10.0.0.2-dpu0",
                           "route_scope": 2,
                           "hop_count": 1
-                        }                        
+                        }
                       ]
                     }
                   }

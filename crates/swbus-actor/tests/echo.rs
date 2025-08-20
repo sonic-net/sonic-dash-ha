@@ -1,5 +1,5 @@
 use std::{mem, time::Duration};
-use swbus_actor::{Actor, ActorMessage, ActorRuntime, Result, State};
+use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, Result, State};
 use swbus_edge::{swbus_proto::swbus::ConnectionType, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use tokio::{
     sync::oneshot::{channel, Sender},
@@ -19,8 +19,8 @@ async fn echo() {
 
     let (notify_done, is_done) = channel();
 
-    swbus_actor::spawn(EchoServer, sp("echo"));
-    swbus_actor::spawn(EchoClient(notify_done), sp("client"));
+    swbus_actor::spawn(EchoServer, "test", "echo");
+    swbus_actor::spawn(EchoClient(notify_done), "test", "client");
 
     timeout(Duration::from_secs(3), is_done)
         .await
@@ -38,11 +38,12 @@ impl EchoClient {
 
 impl Actor for EchoClient {
     async fn init(&mut self, state: &mut State) -> Result<()> {
-        state.outgoing().send(sp("echo"), ActorMessage::new("0", &0)?);
+        let sp = state.outgoing().from_my_sp("test", "echo");
+        state.outgoing().send(sp, ActorMessage::new("0", &0)?);
         Ok(())
     }
 
-    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
         let count = key.parse::<u32>().unwrap();
 
         // Assert that the incoming table has messages 0..=count still cached
@@ -65,7 +66,7 @@ impl Actor for EchoClient {
 struct EchoServer;
 
 impl Actor for EchoServer {
-    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
         let entry = state.incoming().get_entry(key).unwrap();
         let source = entry.source.clone();
         let msg = entry.msg.clone();

@@ -66,12 +66,8 @@ impl SwbusConn {
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
-        let endpoint = Endpoint::from_str(&format!("http://{}", conn_info.remote_addr())).map_err(|e| {
-            SwbusError::input(
-                SwbusErrorCode::InvalidArgs,
-                format!("Failed to create endpoint: {}.", e),
-            )
-        })?;
+        let endpoint = Endpoint::from_str(&format!("http://{}", conn_info.remote_addr()))
+            .map_err(|e| SwbusError::input(SwbusErrorCode::InvalidArgs, format!("Failed to create endpoint: {e}.")))?;
 
         let channel = match endpoint.connect().await {
             Ok(c) => c,

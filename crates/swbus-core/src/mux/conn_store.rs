@@ -5,14 +5,14 @@ use crate::mux::SwbusMultiplexer;
 use dashmap::DashMap;
 use std::sync::Arc;
 use swbus_config::PeerConfig;
-use tokio::task::JoinHandle;
 use tokio::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tracing::*;
 
 #[derive(Debug)]
 enum ConnTracker {
     SwbusConn(SwbusConn),
-    Task(JoinHandle<()>),
+    Task(CancellationToken),
 }
 
 pub struct SwbusConnStore {
@@ -39,9 +39,15 @@ impl SwbusConnStore {
         let mux_clone = self.mux.clone();
         let conn_store = self.clone();
         let current_span = Span::current();
-        let retry_task: JoinHandle<()> = tokio::spawn(
+
+        let token = CancellationToken::new();
+        let child_token = token.clone();
+        tokio::spawn(
             async move {
                 loop {
+                    if child_token.is_cancelled() {
+                        return;
+                    }
                     match SwbusConn::connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
                         Ok(conn) => {
                             info!("Successfully connect to the peer");
@@ -57,7 +63,7 @@ impl SwbusConnStore {
             }
             .instrument(current_span.clone()),
         );
-        self.connections.insert(conn_info_clone, ConnTracker::Task(retry_task));
+        self.connections.insert(conn_info_clone, ConnTracker::Task(token));
     }
 
     pub fn add_peer(self: &Arc<SwbusConnStore>, peer: PeerConfig) {
@@ -86,19 +92,22 @@ impl SwbusConnStore {
     }
 
     pub async fn shutdown(&self) {
-        while let Some(entry) = self.connections.iter().next() {
+        for entry in self.connections.iter() {
             match entry.value() {
                 ConnTracker::SwbusConn(conn) => {
+                    debug!("shutting down connection: {:?}", conn.info());
                     if let Err(swbus_err) = conn.shutdown().await {
                         error!("Failed to shutdown connection: {:?}", swbus_err);
                     }
+                    debug!("Connection is shutdown: {:?}", conn.info());
                 }
                 ConnTracker::Task(task) => {
-                    task.abort();
+                    task.cancel();
                 }
             }
-            self.connections.remove(entry.key());
         }
+        self.connections.clear();
+        info!("All connections and reconnect tasks are stopped");
     }
 }
 

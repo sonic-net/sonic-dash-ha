@@ -1,24 +1,29 @@
-use crate::{Actor, State};
+use crate::{state::ActorStateDump, Actor, ActorMessage, Context, State};
+use std::collections::HashMap;
 use std::sync::Arc;
 use swbus_edge::{
-    simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::SwbusErrorCode,
+    simple_client::{IncomingMessage, MessageBody, MessageResponseBody, OutgoingMessage, SimpleSwbusEdgeClient},
+    swbus_proto::swbus::{ManagementRequestType, ServicePath, SwbusErrorCode},
 };
+use tracing::{debug, error, info, instrument};
 
 /// An actor and the support structures needed to run it.
 pub(crate) struct ActorDriver<A> {
     actor: A,
     state: State,
     swbus_edge: Arc<SimpleSwbusEdgeClient>,
+    context: Context,
 }
 
 impl<A: Actor> ActorDriver<A> {
     pub(crate) fn new(actor: A, swbus_edge: SimpleSwbusEdgeClient) -> Self {
         let swbus_edge = Arc::new(swbus_edge);
+        let edge_runtime = swbus_edge.get_edge_runtime().clone();
         ActorDriver {
             actor,
             state: State::new(swbus_edge.clone()),
             swbus_edge,
+            context: Context::new(edge_runtime),
         }
     }
 
@@ -31,43 +36,79 @@ impl<A: Actor> ActorDriver<A> {
         loop {
             tokio::select! {
                 _ = self.state.outgoing.drive_resend_loop() => unreachable!("drive_resend_loop never returns"),
-                // received = self.state.incoming.recv() => match received {
-                //     Received::ActorMessage { key } => self.handle_message(&key).await,
-                //     Received::Ack { id } => self.state.outgoing.ack_message(id),
-                // }
-                maybe_msg = self.swbus_edge.recv() => self.handle_swbus_message(maybe_msg.expect("swbus-edge died")).await,
+                maybe_msg = self.swbus_edge.recv() => {
+                    if let Some(maybe_msg) = maybe_msg {
+                        self.handle_swbus_message(maybe_msg).await;
+                    } else {
+                        //recv returns None when the message is not for actors
+                        continue;
+                    }
+                }
+            }
+            if self.context.stopped {
+                info!(
+                    "actor {} terminated",
+                    self.swbus_edge.get_service_path().to_longest_path()
+                );
+                break;
             }
         }
     }
-
+    #[instrument(name="handle_swbus_message", level="debug", skip_all, fields(actor=self.swbus_edge.get_service_path().to_longest_path(), id=%msg.id))]
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
+        debug!("received message: {msg:?}");
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
-                match self.state.incoming.handle_request(id, source, &payload).await {
-                    Ok(key) => self.handle_actor_message(&key).await,
-                    // TODO: This is an obscure error scenario, do we handle it?
-                    Err(e) => eprintln!("Incoming state table failed to handle request: {e:#}"),
+                let Ok(actor_msg) = ActorMessage::deserialize(&payload) else {
+                    eprintln!("Received invalid actor message from {source}");
+                    return;
+                };
+                debug!("received from {}: {:?}", source.to_longest_path(), actor_msg);
+                let res = self.state.incoming.handle_request(id, source.clone(), &payload).await;
+                let (error_code, error_message) = match &res {
+                    Ok(_) => (SwbusErrorCode::Ok, String::new()),
+                    Err(e) => {
+                        eprintln!("Incoming state table failed to handle request: {e:#}");
+                        (SwbusErrorCode::Fail, format!("{e:#}"))
+                    }
+                };
+                debug!("message handled by incoming state table: {error_code:?} {error_message}");
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source.clone(),
+                        body: MessageBody::Response {
+                            request_id: id,
+                            error_code,
+                            error_message,
+                            response_body: None,
+                        },
+                    })
+                    .await
+                    .expect("failed to send swbus message");
+
+                if let Ok(key) = res {
+                    self.handle_actor_message(&key).await;
                 }
             }
             MessageBody::Response {
                 request_id,
                 error_code,
                 error_message,
-            } => {
-                if error_code == SwbusErrorCode::Ok {
-                    self.state.outgoing.ack_message(request_id);
-                } else {
-                    // TODO: What to do with error messages?
-                    eprintln!("error response to {request_id}: ({error_code:?}) {error_message}");
-                }
+                ..
+            } => self
+                .state
+                .outgoing
+                .handle_response(request_id, error_code, &error_message, source),
+            MessageBody::ManagementRequest { request, args } => {
+                self.handle_management_request(id, &source, request, args).await;
             }
         }
     }
 
     /// Handle an actor message in the incoming state table, triggering `Actor::handle_message`.
     async fn handle_actor_message(&mut self, key: &str) {
-        let res = self.actor.handle_message(&mut self.state, key).await;
+        let res = self.actor.handle_message(&mut self.state, key, &mut self.context).await;
         let (error_code, error_message) = match res {
             Ok(()) => {
                 self.state.internal.commit_changes().await;
@@ -75,24 +116,60 @@ impl<A: Actor> ActorDriver<A> {
                 (SwbusErrorCode::Ok, String::new())
             }
             Err(e) => {
+                error!("Actor failed to handle message: {e:#}");
                 self.state.internal.drop_changes();
                 self.state.outgoing.drop_queued_messages();
                 (SwbusErrorCode::Fail, format!("{e:#}"))
             }
         };
+        info!("message handled by actor: {error_code:?} {error_message}");
+        self.state.incoming.request_handled(key, error_code, &error_message);
+    }
 
-        let entry = self.state.incoming.get_entry(key).unwrap();
+    async fn handle_management_request(
+        &mut self,
+        request_id: u64,
+        source: &ServicePath,
+        request: ManagementRequestType,
+        _args: HashMap<String, String>,
+    ) {
+        match request {
+            ManagementRequestType::HamgrdGetActorState => {
+                let state = self.dump_state();
 
-        self.swbus_edge
-            .send(OutgoingMessage {
-                destination: entry.source.clone(),
-                body: MessageBody::Response {
-                    request_id: entry.request_id,
-                    error_code,
-                    error_message,
-                },
-            })
-            .await
-            .expect("failed to send swbus message");
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source.clone(),
+                        body: MessageBody::Response {
+                            request_id,
+                            error_code: SwbusErrorCode::Ok,
+                            error_message: "".into(),
+                            response_body: Some(MessageResponseBody::ManagementQueryResult {
+                                payload: serde_json::to_string(&state).unwrap(),
+                            }),
+                        },
+                    })
+                    .await
+                    .expect("failed to send swbus message");
+            }
+            _ => {
+                self.swbus_edge
+                    .send(OutgoingMessage {
+                        destination: source.clone(),
+                        body: MessageBody::Response {
+                            request_id,
+                            error_code: SwbusErrorCode::InvalidArgs,
+                            error_message: format!("Unsupported request type: {request:?}"),
+                            response_body: None,
+                        },
+                    })
+                    .await
+                    .expect("failed to send swbus message");
+            }
+        }
+    }
+
+    fn dump_state(&self) -> ActorStateDump {
+        self.state.dump_state()
     }
 }

@@ -21,6 +21,7 @@ async fn test_b2b() {
     // error: thread::set_current should only be called once per thread".
     run_tests(&mut topo, "tests/data/b2b/test_ping.json", None).await;
     run_tests(&mut topo, "tests/data/b2b/test_show_route.json", None).await;
+    run_tests(&mut topo, "tests/data/b2b/test_trace_route.json", None).await;
 }
 //Can't add another test that brings up a topology and runs tests unless the new topo has
 // different ports than the existing ones. Otherwise, the tests will fail because the ports

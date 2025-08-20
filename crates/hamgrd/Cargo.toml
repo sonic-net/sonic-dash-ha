@@ -13,3 +13,25 @@ edition.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+swbus-edge = { path = "../swbus-edge" }
+swbus-actor = { path = "../swbus-actor" }
+swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common-bridge = { path = "../swss-common-bridge" }
+swss-serde = { path = "../swss-serde" }
+swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swbus-config.workspace = true
+sonic-common.workspace = true
+sonicdb-derive.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_with.workspace = true
+clap.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sonic-dash-api-proto.workspace = true
+prost.workspace = true
+hex.workspace = true
+lazy_static.workspace = true
+serde_json.workspace = true

@@ -203,6 +203,7 @@ mod tests {
             }
         }
         "#;
+        let _: SwbusMessage = serde_json::from_str(conn1_ra).unwrap();
         receive_and_compare(&mut conn1_sendq_rx, conn1_ra).await;
 
         let conn2_ra = r#"
@@ -216,7 +217,7 @@ mod tests {
             },
             "body": {
                 "RouteAnnouncement": {
-                "entries": [             
+                "entries": [
                     {
                     "service_path": "region-a.cluster-a",
                     "nh_service_path": null,
@@ -240,7 +241,7 @@ mod tests {
                     "nh_service_path": null,
                     "route_scope": 3,
                     "hop_count": 2
-                    }                    
+                    }
                 ]
                 }
             }

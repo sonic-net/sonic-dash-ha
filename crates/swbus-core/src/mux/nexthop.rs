@@ -143,6 +143,21 @@ impl SwbusNextHop {
         message: SwbusMessage,
     ) -> Result<Option<SwbusMessage>> {
         // process message locally
+        let dest_sp = message.header.as_ref().unwrap().destination.as_ref().unwrap();
+        if !dest_sp.service_type.is_empty() {
+            // local nexthop uses swbusd service path. If the dest sp is to a local service and
+            // there is no route to the service, the packet will be routed to here. We need to
+            // return no route error in this case.
+            let response = SwbusMessage::new_response(
+                message.header.as_ref().unwrap(),
+                None,
+                SwbusErrorCode::NoRoute,
+                "Route not found",
+                mux.generate_message_id(),
+                None,
+            );
+            return Ok(Some(response));
+        }
         let response = match message.body.as_ref() {
             Some(swbus_message::Body::PingRequest(_)) => self.process_ping_request(mux, message)?,
             _ => {

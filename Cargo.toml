@@ -5,14 +5,16 @@ members = [
     "crates/swbus-core",
     "crates/swbusd",
     "crates/hamgrd",
-    "crates/swss-common",
-    "crates/swss-common-testing",
     "crates/swss-serde",
-    "crates/swbus-edge", 
+    "crates/swbus-edge",
     "crates/swbus-proto",
-    "crates/swbus-cli", 
+    "crates/swbus-cli",
     "crates/swbus-config",
     "crates/swbus-actor",
+    "crates/swss-common-bridge",
+    "crates/container",
+    "crates/sonicdb-derive",
+    "crates/sonic-dash-api-proto"
 ]
 exclude = []
 
@@ -33,8 +35,8 @@ unused_import_braces = 'warn'
 
 [workspace.dependencies]
 # Async framework
-tokio = { version = "1.37", features = ["macros", "rt-multi-thread"] }
-tokio-util = "0.7"
+tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
 
 # Log and error handling
@@ -48,10 +50,11 @@ human-panic = "2"
 better-panic = "0.3"
 signal-hook = "0.3"
 
-# Serializatoin
+# Serialization
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 serde_yaml = "0.9"
+serde_with = "3.12"
 
 # Command line utils
 clap = { version = "4", features = ["derive", "cargo", "wrap_help", "unicode", "string", "unstable-styles"] }
@@ -66,9 +69,12 @@ contracts = "0.6"
 derivative = "2"
 derive_builder = "0.20"
 getset = "0.1"
+hex = "0.4"
 lazy_static = "1.4"
 owning_ref = "0.4"
+prost-build = "0.13"
 strum = { version = "0.26", features = ["derive"] }
+strum_macros = "0.26"
 regex = "1"
 dashmap = "6"
 itertools = "0.13"
@@ -76,6 +82,10 @@ atomic_enum = "0.3"
 tempfile = "3"
 tabled = "0.17"
 futures-core = "0.3"
+futures-util = "0.3"
+chrono = "0.4"
+enumset = "1"
+bollard = { version = "0.17.1", features = ["chrono"] }
 uuid = { version = "1.15", features = ["v4"] }
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
@@ -84,8 +94,10 @@ swbus-core = { version = "0.1.0", path = "crates/swbus-core" }
 swbus-edge = { version = "0.1.0", path = "crates/swbus-edge" }
 swbus-config = { version = "0.1.0", path = "crates/swbus-config" }
 swss-serde = { version = "0.1.0", path = "crates/swss-serde" }
-swss-common = { version = "0.1.0", path = "crates/swss-common" }
-swss-common-testing = { version = "0.1.0", path = "crates/swss-common-testing" }
+swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
+sonicdb-derive = { version = "0.1.0", path = "crates/sonicdb-derive" }
+sonic-dash-api-proto = { version = "0.1.0", path = "crates/sonic-dash-api-proto" }
+swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
 
 # Dev dependencies
 criterion = "0.5"

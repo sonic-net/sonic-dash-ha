@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap, fs::File, future::pending, io::BufReader, mem, path::PathBuf, sync::Arc, time::Duration,
 };
-use swbus_actor::{Actor, ActorMessage, ActorRuntime, State};
+use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, State};
 use swbus_edge::{swbus_proto::swbus::ConnectionType, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::{DbConnector, Table};
 use swss_common_testing::{random_string, Redis};
@@ -120,7 +120,11 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
     let redis = Redis::start();
     let (notify_done, mut recv_done) = channel::<()>(1);
 
-    let mut swbus_edge = SwbusEdgeRuntime::new("<none>".into(), sp("edge"), ConnectionType::InNode);
+    let mut swbus_edge = SwbusEdgeRuntime::new(
+        "<none>".into(),
+        ServicePath::from_string("test.test.test/test/test").unwrap(),
+        ConnectionType::InNode,
+    );
     swbus_edge.start().await.unwrap();
     let actor_rt = ActorRuntime::new(Arc::new(swbus_edge));
     swbus_actor::set_global_runtime(actor_rt);
@@ -130,14 +134,14 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
             name: s.clone(),
             db: redis.db_connector(),
             notify_done: notify_done.clone(),
-            spec: t.actors.remove(&s).expect(&format!("No actor in test json named {s}")),
+            spec: t.actors.remove(&s).expect("No actor in test json named {s}"),
             env: Environment::default(),
         };
 
-        swbus_actor::spawn(actor, sp(&s));
+        swbus_actor::spawn(actor, "test", &s);
     }
 
-    if let Err(_) = timeout(Duration::from_secs(5), recv_done.recv()).await {
+    if timeout(Duration::from_secs(5), recv_done.recv()).await.is_err() {
         Some("test timed out")
     } else {
         None
@@ -216,7 +220,7 @@ impl Actor for TestActor {
         Ok(())
     }
 
-    async fn handle_message(&mut self, state: &mut State, key: &str) -> Result<()> {
+    async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
         let entry = state.incoming().get_entry(key).unwrap();
         self.env.clear();
         self.env.set("source", &entry.source.resource_id);
@@ -226,7 +230,7 @@ impl Actor for TestActor {
         let handle_message_map = mem::take(&mut self.spec.handle_message);
         if let Some(actions) = handle_message_map.get(key).or_else(|| handle_message_map.get("*")) {
             for action in actions {
-                self.run_action(&action, state).await?;
+                self.run_action(action, state).await?;
             }
         }
         self.spec.handle_message = handle_message_map;

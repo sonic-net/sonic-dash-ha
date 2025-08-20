@@ -129,7 +129,23 @@ where
         match message.body {
             Some(swbus_message::Body::TraceRouteRequest(_)) => {
                 info!("Received traceroute request: {:?}", message);
-                // self.process_ping_request(&message);
+
+                let id = self.mux.generate_message_id();
+                let my_sp = self.mux.get_my_service_path();
+                let response = SwbusMessage::new_response(
+                    message.header.as_ref().unwrap(),
+                    Some(my_sp),
+                    SwbusErrorCode::Ok,
+                    "",
+                    id,
+                    None,
+                );
+
+                self.mux.route_message(response).await?;
+
+                if message.header.as_ref().unwrap().destination.as_ref().unwrap() != my_sp {
+                    self.mux.route_message(message).await?;
+                }
             }
             Some(swbus_message::Body::RouteAnnouncement(route_entries)) => {
                 // drop route announcement message
@@ -152,8 +168,15 @@ where
         request_header: &SwbusMessageHeader,
         mgmt_request: ManagementRequest,
     ) -> Result<SwbusMessage> {
-        match mgmt_request.request.as_str() {
-            "show_route" => {
+        let request_type = ManagementRequestType::try_from(mgmt_request.request).map_err(|_| {
+            SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                format!("Invalid management request: {:?}", mgmt_request.request),
+            )
+        })?;
+
+        match request_type {
+            ManagementRequestType::SwbusdGetRoutes => {
                 debug!("Received show_route request");
                 let routes = self.mux.dump_route_table();
                 debug!("show_route response: {:?}", routes);

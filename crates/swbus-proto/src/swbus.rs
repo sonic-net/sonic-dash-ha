@@ -140,7 +140,7 @@ impl ServicePath {
         .join("/");
         match rsc_str.is_empty() {
             true => loc_str.to_string(),
-            false => format!("{}/{}", loc_str, rsc_str),
+            false => format!("{loc_str}/{rsc_str}"),
         }
     }
 
@@ -155,6 +155,33 @@ impl ServicePath {
             return RouteScope::InCluster;
         }
         RouteScope::Client
+    }
+
+    /// copy the fields from the other service path starting from the first non-empty one
+    pub fn join(&mut self, other: &ServicePath) {
+        vec![
+            &mut self.region_id,
+            &mut self.cluster_id,
+            &mut self.node_id,
+            &mut self.service_type,
+            &mut self.service_id,
+            &mut self.resource_type,
+            &mut self.resource_id,
+        ]
+        .into_iter()
+        .zip(vec![
+            &other.region_id,
+            &other.cluster_id,
+            &other.node_id,
+            &other.service_type,
+            &other.service_id,
+            &other.resource_type,
+            &other.resource_id,
+        ])
+        .skip_while(|(_, b)| b.is_empty())
+        .for_each(|(a, b)| {
+            *a = b.clone();
+        });
     }
 }
 
@@ -211,16 +238,16 @@ pub fn deserialize_service_path_opt<'de, D>(deserializer: D) -> Result<Option<Se
 where
     D: Deserializer<'de>,
 {
-    let value = Option::<String>::deserialize(deserializer)?;
-    match value {
-        None => Ok(None),
+    let opt = Option::<String>::deserialize(deserializer)?;
+
+    match opt {
         Some(s) => match ServicePath::from_string(&s) {
             Ok(sp) => Ok(Some(sp)),
             Err(_) => Err(serde::de::Error::custom(format!(
-                "Failed to parse service path from string: {}",
-                s
+                "Failed to parse service path from string: {s}"
             ))),
         },
+        None => Ok(None),
     }
 }
 
@@ -234,8 +261,7 @@ where
     match ServicePath::from_string(&s) {
         Ok(sp) => Ok(sp),
         Err(_) => Err(serde::de::Error::custom(format!(
-            "Failed to parse service path from string: {}",
-            s
+            "Failed to parse service path from string: {s}"
         ))),
     }
 }
@@ -374,25 +400,15 @@ impl PingRequest {
 }
 
 impl TraceRouteRequest {
-    pub fn new(trace_id: &str) -> Self {
-        TraceRouteRequest {
-            trace_id: trace_id.to_string(),
-        }
-    }
-}
-
-impl TraceRouteResponse {
-    pub fn new(trace_id: &str) -> Self {
-        TraceRouteResponse {
-            trace_id: trace_id.to_string(),
-        }
+    pub fn new() -> Self {
+        TraceRouteRequest {}
     }
 }
 
 impl ManagementRequest {
-    pub fn new(request: &str) -> Self {
+    pub fn new(request: ManagementRequestType) -> Self {
         ManagementRequest {
-            request: request.to_string(),
+            request: request.into(),
             arguments: Vec::<ManagementRequestArg>::new(),
         }
     }
@@ -457,6 +473,25 @@ mod tests {
     }
 
     #[test]
+    fn service_path_join() {
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("other-region.cluster.node/stype/sid/rtype/rid").unwrap();
+        service_path.join(&other);
+        assert_eq!(service_path, other);
+
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("/other-stype/sid").unwrap();
+        let expected = ServicePath::from_string("region.cluster.node/other-stype/sid").unwrap();
+        service_path.join(&other);
+        assert_eq!(service_path, expected);
+
+        let mut service_path = ServicePath::from_string("region.cluster.node/stype/sid/rtype/rid").unwrap();
+        let other = ServicePath::from_string("").unwrap();
+        let expected = service_path.clone();
+        service_path.join(&other);
+        assert_eq!(service_path, expected);
+    }
+    #[test]
     fn request_response_can_be_created() {
         let response = RequestResponse::ok(create_mock_message_id());
         test_packing_with_swbus_message(swbus_message::Body::Response(response));
@@ -487,14 +522,8 @@ mod tests {
 
     #[test]
     fn trace_route_request_can_be_created() {
-        let request = TraceRouteRequest::new("mock-trace-id");
+        let request = TraceRouteRequest::new();
         test_packing_with_swbus_message(swbus_message::Body::TraceRouteRequest(request));
-    }
-
-    #[test]
-    fn trace_route_response_can_be_created() {
-        let response = TraceRouteResponse::new("mock-trace-id");
-        test_packing_with_swbus_message(swbus_message::Body::TraceRouteResponse(response));
     }
 
     #[test]

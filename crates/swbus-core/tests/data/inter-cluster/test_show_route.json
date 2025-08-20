@@ -17,7 +17,7 @@
               },
               "body": {
                 "ManagementRequest": {
-                  "request": "show_route",
+                  "request": 0,
                   "arguments": []
                 }
               }
@@ -60,7 +60,7 @@
                           "nh_service_path": "region-a.cluster-a.gw",
                           "route_scope": 2,
                           "hop_count": 1
-                        },                        
+                        },
                         {
                           "service_path": "region-a.cluster-a.node1/testsvc/0",
                           "nh_service_path": "region-a.cluster-a.node1/testsvc/0",

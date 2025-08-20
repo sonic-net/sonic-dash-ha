@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sonic_common::log::init_logger_for_test;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
@@ -17,7 +18,6 @@ use tracing_subscriber::{fmt, prelude::*, Layer};
 pub const RECEIVE_TIMEOUT: u32 = 3;
 
 /// The Topo struct contains the server jobs and clients' TX and RX of its message queues.
-
 pub struct TopoRuntime {
     /// test folder name
     pub topo_file: String,
@@ -82,6 +82,8 @@ impl TopoRuntime {
     /// The client configurations are a map of client names to the client configuration.
     /// The client configuration contains the server (swbusd) name where the client is connected and the service path of the client.
     pub async fn bring_up(&mut self) {
+        init_logger_for_test();
+
         let file = File::open(&self.topo_file).unwrap();
         let reader = BufReader::new(file);
 
@@ -123,7 +125,7 @@ impl TopoRuntime {
     async fn start_client(&mut self, name: &str, node_addr: &SocketAddr, client_sp: ServicePath) {
         let (receive_queue_tx, receive_queue_rx) = mpsc::channel::<SwbusMessage>(2);
         let start = Instant::now();
-        let addr = format!("http://{}", node_addr);
+        let addr = format!("http://{node_addr}");
 
         while start.elapsed() < Duration::from_secs(10) {
             println!("Trying to connect to the server at {}", node_addr);
@@ -135,7 +137,7 @@ impl TopoRuntime {
             )
             .await
             {
-                Ok((_, send_queue_tx, _)) => {
+                Ok((_, send_queue_tx)) => {
                     self.client_receivers.insert(name.to_string(), receive_queue_rx);
                     self.client_senders.insert(name.to_string(), send_queue_tx);
                     println!("Client {} connected to {}", name, node_addr);
@@ -223,7 +225,7 @@ async fn receive_and_compare(topo: &mut TopoRuntime, expected_responses: &[Messa
                 panic!("channel broken");
             }
             Err(_) => {
-                panic!("timeout waiting for response: {:?}", resp);
+                panic!("timeout waiting for response: {resp:?}");
             }
         }
     }

@@ -1,3 +1,5 @@
+use super::get_unix_time;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use swss_common::{FieldValues, Table};
 
@@ -27,6 +29,14 @@ impl Internal {
         self.table.insert(key.into(), entry);
     }
 
+    pub fn has_entry(&self, key: &str, swss_key: &str) -> bool {
+        let entry = self.table.get(key);
+        match entry {
+            Some(entry) => entry.data.swss_key == swss_key,
+            None => false,
+        }
+    }
+
     pub(crate) fn new() -> Self {
         Self::default()
     }
@@ -42,19 +52,46 @@ impl Internal {
             entry.commit_changes().await;
         }
     }
+
+    pub(crate) fn dump_state(&self) -> HashMap<String, InternalTableData> {
+        self.table
+            .iter()
+            .map(|(key, entry)| (key.clone(), entry.data.clone()))
+            .collect()
+    }
 }
 
 #[derive(Debug)]
 struct InternalTableEntry {
     swss_table: Table,
-    swss_key: String,
+    data: InternalTableData,
+}
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InternalTableData {
+    pub swss_table_name: String,
+    pub swss_key: String,
     // Local cache/copy of the table's FVs
-    fvs: FieldValues,
-    mutated: bool,
+    pub fvs: FieldValues,
+    pub mutated: bool,
 
     // FVs that will be restored if an actor callback fails
-    backup_fvs: FieldValues,
+    pub backup_fvs: FieldValues,
+
+    /// Last time changes were written to the table, in unix seconds.
+    /// `None` if the table was never written to.
+    pub last_updated_time: Option<u64>,
+}
+
+impl PartialEq for InternalTableData {
+    // Skip last_update_time in comparison during test
+    fn eq(&self, other: &Self) -> bool {
+        self.swss_table_name == other.swss_table_name
+            && self.swss_key == other.swss_key
+            && self.fvs == other.fvs
+            && self.backup_fvs == other.backup_fvs
+            && self.mutated == other.mutated
+    }
 }
 
 impl InternalTableEntry {
@@ -68,36 +105,41 @@ impl InternalTableEntry {
         let backup_fvs = fvs.clone();
 
         Self {
+            data: InternalTableData {
+                swss_table_name: swss_table.get_name().to_string(),
+                swss_key,
+                fvs,
+                mutated: false,
+                backup_fvs,
+                last_updated_time: None,
+            },
             swss_table,
-            swss_key,
-            fvs,
-            mutated: false,
-            backup_fvs,
         }
     }
 
     fn fvs(&self) -> &FieldValues {
-        &self.fvs
+        &self.data.fvs
     }
 
     fn fvs_mut(&mut self) -> &mut FieldValues {
-        if !self.mutated {
-            self.backup_fvs.clone_from(&self.fvs);
-            self.mutated = true;
+        if !self.data.mutated {
+            self.data.backup_fvs.clone_from(&self.data.fvs);
+            self.data.mutated = true;
         }
-        &mut self.fvs
+        &mut self.data.fvs
     }
 
     async fn commit_changes(&mut self) {
-        self.mutated = false;
+        self.data.mutated = false;
         self.swss_table
-            .set_async(&self.swss_key, self.fvs.clone())
+            .set_async(&self.data.swss_key, self.data.fvs.clone())
             .await
             .expect("Table::set threw an exception");
+        self.data.last_updated_time = Some(get_unix_time());
     }
 
     fn drop_changes(&mut self) {
-        self.mutated = false;
-        self.fvs.clone_from(&self.backup_fvs);
+        self.data.mutated = false;
+        self.data.fvs.clone_from(&self.data.backup_fvs);
     }
 }
