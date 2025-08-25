@@ -31,7 +31,7 @@ impl DbBasedActor for VDpuActor {
 }
 
 impl VDpuActor {
-    async fn register_to_dpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
+    fn register_to_dpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         if self.vdpu.is_none() {
             return Ok(());
         }
@@ -42,12 +42,20 @@ impl VDpuActor {
         Ok(())
     }
 
+    fn do_cleanup(&mut self, _context: &mut Context, state: &mut State) {
+        // unregister from the DPU Actor
+        let result = self.register_to_dpu_actor(state.outgoing(), false);
+        if result.is_err() {
+            error!("Failed to unregister from DPU Actor: {:?}", result.err());
+        }
+    }
+
     async fn handle_vdpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
         let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
             // unregister from the DPU Actor
-            self.register_to_dpu_actor(outgoing, false).await?;
+            self.do_cleanup(context, state);
             context.stop();
             return Ok(());
         }
@@ -55,7 +63,7 @@ impl VDpuActor {
         self.vdpu = Some(swss_serde::from_field_values(&dpu_kfv.field_values)?);
 
         // Subscribe to the DPU Actor for state updates
-        self.register_to_dpu_actor(outgoing, true).await?;
+        self.register_to_dpu_actor(outgoing, true)?;
         Ok(())
     }
 
@@ -192,6 +200,8 @@ mod test {
 
             send! { key: VDpuActor::table_name(), data: { "key": VDpuActor::table_name(), "operation": "Del", "field_values": {"main_dpu_ids": "switch1_dpu0"}},
                     addr: crate::common_bridge_sp::<VDpu>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::DPUState, "test-vdpu"), data: { "active": false },
+                    addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
 
         ];
 

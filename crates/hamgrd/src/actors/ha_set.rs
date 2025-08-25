@@ -7,6 +7,7 @@ use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
 use sonic_dash_api_proto::ip_to_string;
+use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
@@ -149,6 +150,24 @@ impl HaSetActor {
         Ok(())
     }
 
+    fn delete_dash_ha_set_table(&self, vdpus: &[VDpuStateExt], outgoing: &mut Outgoing) -> Result<()> {
+        if !vdpus.iter().any(|vdpu_ext| vdpu_ext.vdpu.dpu.is_managed) {
+            debug!("None of DPUs is managed by local HAMGRD. Skip dash_ha_set deletion");
+            return Ok(());
+        }
+
+        let kfv = KeyOpFieldValues {
+            key: self.id.clone(),
+            operation: KeyOperation::Del,
+            field_values: HashMap::new(),
+        };
+
+        let msg = ActorMessage::new(self.id.clone(), &kfv)?;
+        outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
+
+        Ok(())
+    }
+
     async fn update_vnet_route_tunnel_table(
         &self,
         vdpus: &Vec<VDpuStateExt>,
@@ -213,7 +232,12 @@ impl HaSetActor {
         Ok(())
     }
 
-    async fn register_to_vdpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
+    fn delete_vnet_route_tunnel_table(&self, internal: &mut Internal) -> Result<()> {
+        internal.delete(VnetRouteTunnelTable::table_name());
+        Ok(())
+    }
+
+    fn register_to_vdpu_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         let Some(ref dash_ha_set_config) = self.dash_ha_set_config else {
             return Ok(());
         };
@@ -304,9 +328,10 @@ impl HaSetActor {
         let (_internal, incoming, outgoing) = state.get_all();
         let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
-            // unregister from the DPU Actor
-            self.register_to_vdpu_actor(outgoing, false).await?;
-
+            // cleanup resources before stopping
+            if let Err(e) = self.do_cleanup(state) {
+                error!("Failed to cleanup HaSetActor resources: {}", e);
+            }
             context.stop();
             return Ok(());
         }
@@ -315,7 +340,7 @@ impl HaSetActor {
         self.dash_ha_set_config = Some(decode_from_field_values(&dpu_kfv.field_values).unwrap());
 
         // Subscribe to the DPU Actor for state updates.
-        self.register_to_vdpu_actor(outgoing, true).await?;
+        self.register_to_vdpu_actor(outgoing, true)?;
 
         if first_time {
             self.bridges.push(
@@ -377,6 +402,26 @@ impl HaSetActor {
 
             outgoing.send(entry.source.clone(), msg);
         }
+        Ok(())
+    }
+
+    fn do_cleanup(&mut self, state: &mut State) -> Result<()> {
+        let (internal, incoming, outgoing) = state.get_all();
+
+        let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
+            debug!("Not all DPU info is ready for cleanup");
+            return Ok(());
+        };
+
+        if let Err(e) = self.delete_dash_ha_set_table(&vdpus, outgoing) {
+            error!("Failed to delete dash_ha_set_table: {}", e);
+        }
+
+        if let Err(e) = self.delete_vnet_route_tunnel_table(internal) {
+            error!("Failed to delete vnet_route_tunnel_table: {}", e);
+        }
+
+        self.register_to_vdpu_actor(outgoing, false)?;
         Ok(())
     }
 }
@@ -512,10 +557,13 @@ mod test {
             // Verify that haset actor state is sent to ha-scope actor
             recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj },
                     addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
-            chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.unwrap(), ip_to_string(&ha_set_cfg.vip_v4.unwrap())), data: expected_vnet_route },
+            chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())), data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())), nonexist },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
@@ -586,11 +634,18 @@ mod test {
             send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
             // Verify that the DASH_HA_SET_TABLE was updated
 
-            chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.unwrap(), ip_to_string(&ha_set_cfg.vip_v4.unwrap())),
+            chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                     data: expected_vnet_route },
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())), nonexist },
+
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
