@@ -217,8 +217,8 @@ where
 
     let addr = crate::common_bridge_sp::<T>(&edge_runtime);
 
-    if actor_id.is_some() {
-        let sp = edge_runtime.new_sp(actor_name, actor_id.unwrap());
+    if let Some(actor_id) = actor_id {
+        let sp = edge_runtime.new_sp(actor_name, actor_id);
         Ok(ConsumerBridge::spawn::<T, _, _, _>(
             edge_runtime,
             addr,

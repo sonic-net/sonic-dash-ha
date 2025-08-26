@@ -113,7 +113,7 @@ impl<'a> Container<'a> {
         Ok(())
     }
 
-    pub fn new(feature: &str) -> Container {
+    pub fn new(feature: &str) -> Container<'_> {
         Container {
             feature,
             db_connections: DbConnections::initialize_connection(),
