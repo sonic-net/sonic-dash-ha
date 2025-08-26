@@ -44,15 +44,15 @@ stages:
         runBranch: 'refs/heads/master'
         path: $(Build.ArtifactStagingDirectory)/download/common
         patterns: |
-          target/debs/bullseye/libnl-3-200_*.deb
-          target/debs/bullseye/libnl-3-dev_*.deb
-          target/debs/bullseye/libnl-genl-3-200_*.deb
-          target/debs/bullseye/libnl-genl-3-dev_*.deb
-          target/debs/bullseye/libnl-route-3-200_*.deb
-          target/debs/bullseye/libnl-route-3-dev_*.deb
-          target/debs/bullseye/libnl-nf-3-200_*.deb
-          target/debs/bullseye/libnl-nf-3-dev_*.deb
-          target/debs/bullseye/libyang_*.deb
+          target/debs/bookworm/libnl-3-200_*.deb
+          target/debs/bookworm/libnl-3-dev_*.deb
+          target/debs/bookworm/libnl-genl-3-200_*.deb
+          target/debs/bookworm/libnl-genl-3-dev_*.deb
+          target/debs/bookworm/libnl-route-3-200_*.deb
+          target/debs/bookworm/libnl-route-3-dev_*.deb
+          target/debs/bookworm/libnl-nf-3-200_*.deb
+          target/debs/bookworm/libnl-nf-3-dev_*.deb
+          target/debs/bookworm/libyang_*.deb
       displayName: "Download common-libs deb packages"
 
     - task: DownloadPipelineArtifact@2
