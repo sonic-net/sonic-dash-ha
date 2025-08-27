@@ -516,6 +516,10 @@ mod test {
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
@@ -591,6 +595,10 @@ mod test {
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
