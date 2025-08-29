@@ -105,7 +105,7 @@ impl HaSetActor {
             scope: sonic_dash_api_proto::types::HaScope::try_from(dash_ha_set_config.scope)
                 .map(|s| {
                     let name = s.as_str_name();
-                    name.strip_prefix("SCOPE_").unwrap_or(name).to_lowercase()
+                    name.strip_prefix("HA_SCOPE_").unwrap_or(name).to_lowercase()
                 })
                 .ok(),
             local_npu_ip: local_vdpu.dpu.npu_ipv4.clone(),

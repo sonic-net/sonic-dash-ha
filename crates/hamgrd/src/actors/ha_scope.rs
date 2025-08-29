@@ -241,11 +241,15 @@ impl HaScopeActor {
             ha_set_id: dash_ha_scope_config.ha_set_id.clone(),
             vip_v4: haset.ha_set.vip_v4.clone(),
             vip_v6: haset.ha_set.vip_v6.clone(),
-            ha_role: format!(
-                "{}",
-                DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
-            )
-            .to_lowercase(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
+            ha_role: if dash_ha_scope_config.desired_ha_state == DesiredHaState::Unspecified as i32 {
+                "standby".to_string()
+            } else {
+                format!(
+                    "{}",
+                    DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
+                )
+                .to_lowercase()
+            }, /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
             flow_reconcile_requested,
             activate_role_requested,
         };

@@ -483,7 +483,7 @@ pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTab
         vip_v4: ip_to_string(&haset_cfg.vip_v4.unwrap()),
         vip_v6: Some(ip_to_string(&haset_cfg.vip_v6.unwrap())),
         owner: None,
-        scope: Some("ha_scope_dpu".to_string()),
+        scope: Some("dpu".to_string()),
         local_npu_ip: format!("10.0.{switch}.{dpu}"),
         local_ip: format!("18.0.{switch}.{dpu}"),
         peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),
