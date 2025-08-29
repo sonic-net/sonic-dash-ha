@@ -295,7 +295,7 @@ pub struct DashHaScopeTable {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
 #[sonicdb(
-    table_name = "DASH_HA_SCOPE_STATE",
+    table_name = "DASH_HA_SCOPE_STATE_TABLE",
     key_separator = "|",
     db_name = "DPU_STATE_DB",
     is_dpu = "true"
