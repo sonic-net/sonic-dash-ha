@@ -268,10 +268,12 @@ mod test {
         if result.is_ok() {
             // If we got here, it means the bridge did not skip the updates
             let received = consumer_table.pops().await;
-            for kfv in received {
-                println!("Received: {}", kfv.key);
+            if !received.is_empty() {
+                for kfv in received {
+                    println!("Received: {}", kfv.key);
+                }
+                panic!("Expected bridge to skip duplicate updates, but it processed them");
             }
-            panic!("Expected bridge to skip duplicate updates, but it processed them");
         }
     }
 
