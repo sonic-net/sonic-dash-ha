@@ -821,7 +821,8 @@ mod test {
                         "flow_reconcile_requested": "false"
                     },
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with no pending activation
             chkdb! { type: NpuDashHaScopeState,
@@ -840,7 +841,23 @@ mod test {
 
             // Send vdpu state update after bfd session up
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
-
+            // Recv update to DPU DASH_HA_SCOPE_TABLE, triggered by vdpu state update
+            recv! { key: &ha_set_id, data: {
+                    "key": &ha_set_id,
+                    "operation": "Set",
+                    "field_values": {
+                        "version": "3",
+                        "ha_role": "active",
+                        "disabled": "false",
+                        "ha_set_id": &ha_set_id,
+                        "vip_v4": ha_set_obj.vip_v4.clone(),
+                        "vip_v6": ha_set_obj.vip_v6.clone(),
+                        "activate_role_requested": "false",
+                        "flow_reconcile_requested": "false"
+                    },
+                    },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                },
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with bfd session up
             chkdb! { type: NpuDashHaScopeState,
                     key: &scope_id_in_state, data: npu_ha_scope_state_fvs6,
@@ -857,10 +874,26 @@ mod test {
         let commands = [
             // Send DASH_HA_SCOPE_CONFIG_TABLE with desired_ha_state = dead
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
-                    "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Dead as i32, HaOwner::Dpu as i32)},
+                    "field_values": {"json": format!(r#"{{"version":"4","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Dead as i32, HaOwner::Dpu as i32)},
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
+            recv! { key: &ha_set_id, data: {
+                    "key": &ha_set_id,
+                    "operation": "Set",
+                    "field_values": {
+                        "version": "4",
+                        "ha_role": "dead",
+                        "disabled": "false",
+                        "ha_set_id": &ha_set_id,
+                        "vip_v4": ha_set_obj.vip_v4.clone(),
+                        "vip_v6": ha_set_obj.vip_v6.clone(),
+                        "activate_role_requested": "false",
+                        "flow_reconcile_requested": "false"
+                    },
+                    },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                },
             // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
             chkdb! { type: NpuDashHaScopeState,
                     key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,
@@ -871,6 +904,8 @@ mod test {
                     "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Dead as i32, HaOwner::Dpu as i32)},
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": false }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": false }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;

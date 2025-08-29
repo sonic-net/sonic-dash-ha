@@ -13,6 +13,7 @@ pub(crate) struct ActorDriver<A> {
     state: State,
     swbus_edge: Arc<SimpleSwbusEdgeClient>,
     context: Context,
+    mark_deleted: bool,
 }
 
 impl<A: Actor> ActorDriver<A> {
@@ -24,7 +25,13 @@ impl<A: Actor> ActorDriver<A> {
             state: State::new(swbus_edge.clone()),
             swbus_edge,
             context: Context::new(edge_runtime),
+            mark_deleted: false,
         }
+    }
+
+    /// Check if the actor is ready for deletion (no unacked messages)
+    fn ready_for_delete(&self) -> bool {
+        self.state.outgoing.ready_for_delete()
     }
 
     /// Run the actor's main loop
@@ -46,11 +53,21 @@ impl<A: Actor> ActorDriver<A> {
                 }
             }
             if self.context.stopped {
-                info!(
-                    "actor {} terminated",
-                    self.swbus_edge.get_service_path().to_longest_path()
-                );
-                break;
+                self.mark_deleted = true;
+            }
+            if self.mark_deleted {
+                if self.ready_for_delete() {
+                    info!(
+                        "actor {} terminated",
+                        self.swbus_edge.get_service_path().to_longest_path()
+                    );
+                    break;
+                } else {
+                    debug!(
+                        "actor {} marked for deletion, waiting for unacked messages to complete",
+                        self.swbus_edge.get_service_path().to_longest_path()
+                    );
+                }
             }
         }
     }
@@ -60,6 +77,24 @@ impl<A: Actor> ActorDriver<A> {
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
+                if self.mark_deleted {
+                    // Actor is marked for deletion, send OK response but don't process
+                    debug!("Actor marked for deletion, skipping request processing");
+                    self.swbus_edge
+                        .send(OutgoingMessage {
+                            destination: source.clone(),
+                            body: MessageBody::Response {
+                                request_id: id,
+                                error_code: SwbusErrorCode::Ok,
+                                error_message: "Request ignored: actor has been marked for deletion".to_string(),
+                                response_body: None,
+                            },
+                        })
+                        .await
+                        .expect("failed to send swbus message");
+                    return;
+                }
+
                 let Ok(actor_msg) = ActorMessage::deserialize(&payload) else {
                     eprintln!("Received invalid actor message from {source}");
                     return;

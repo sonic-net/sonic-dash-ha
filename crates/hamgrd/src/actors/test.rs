@@ -136,7 +136,8 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
     }
 
     // Execute commands
-    for cmd in commands {
+    for (index, cmd) in commands.iter().enumerate() {
+        let step = index + 1;
         match cmd {
             Send { key, data, addr, fail } => {
                 let client = &clients[addr];
@@ -149,7 +150,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 };
                 let sent_id = client.send(msg).await.unwrap();
 
-                print!("Sent {key}, ");
+                print!("Step {step} - Sent {key}, ");
 
                 if *fail {
                     print!("expecting Fail, ");
@@ -187,7 +188,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
             Recv { key, data, addr } => {
                 let client = &clients[addr];
-                print!("Receiving {key}, ");
+                print!("Step {step} - Receiving {key}, ");
                 let (am, request_id) = match timeout(client.recv()).await {
                     Ok(Some(IncomingMessage {
                         body: MessageBody::Request { payload },
@@ -225,6 +226,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 data,
                 exclude,
             } => {
+                print!("Step {step} - Checking {table_name}/{db_name} for key {key}, ");
                 let db = crate::db_named(db_name, *is_dpu).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
 
@@ -249,6 +251,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
                             if actual_data == fvs {
                                 // Success, break out of retry loop
+                                println!("found");
                                 break;
                             } else {
                                 last_error = Some(format!(
@@ -272,7 +275,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 }
                 // If we got here and there's still an error, panic on the last attempt
                 if let Some(error) = last_error {
-                    panic!("{error}");
+                    panic!("Step {step} - {error}");
                 }
             }
         }
