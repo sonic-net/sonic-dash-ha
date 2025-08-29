@@ -38,13 +38,23 @@ async fn echo() {
     let (notify_done, is_done) = channel();
 
     swbus_actor::spawn(KVStore(Redis::start()), "test", "kv");
-    swbus_actor::spawn(KVClient(notify_done), "test", "client");
+    swbus_actor::spawn(KVClient(notify_done, false), "test", "client");
 
     timeout(Duration::from_secs(3), is_done)
         .await
         .expect("timeout")
         .unwrap();
-    verify_actor_state(swbus_edge, &mut mgmt_resp_queue_rx).await;
+    verify_actor_state(swbus_edge.clone(), &mut mgmt_resp_queue_rx).await;
+
+    // Test delete operation
+    let (notify_done_delete, is_done_delete) = channel();
+    swbus_actor::spawn(KVClient(notify_done_delete, true), "test", "client");
+
+    timeout(Duration::from_secs(3), is_done_delete)
+        .await
+        .expect("timeout")
+        .unwrap();
+    verify_actor_state_after_delete(swbus_edge, &mut mgmt_resp_queue_rx).await;
 }
 
 async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_rx: &mut mpsc::Receiver<SwbusMessage>) {
@@ -95,6 +105,7 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
                 "count": "1000"
             },
             "mutated": false,
+            "to_delete": false,
             "backup_fvs": {
                 "count": "999"
             },
@@ -166,10 +177,127 @@ async fn verify_actor_state(swbus_edge: Arc<SwbusEdgeRuntime>, mgmt_resp_queue_r
     }
 }
 
+async fn verify_actor_state_after_delete(
+    swbus_edge: Arc<SwbusEdgeRuntime>,
+    mgmt_resp_queue_rx: &mut mpsc::Receiver<SwbusMessage>,
+) {
+    // send a request to get actor state
+    let mgmt_request = ManagementRequest::new(ManagementRequestType::HamgrdGetActorState);
+
+    let header = SwbusMessageHeader::new(sp("mgmt_resp"), sp("kv"), 2);
+
+    let request_msg = SwbusMessage {
+        header: Some(header),
+        body: Some(Body::ManagementRequest(mgmt_request)),
+    };
+    swbus_edge.send(request_msg).await.unwrap();
+    let expected_json = r#"
+    {
+        "incoming": {
+            "": {
+            "msg": {
+                "key": "",
+                "data": {
+                "Del": {
+                    "key": "count"
+                }
+                }
+            },
+            "source": {
+                "region_id": "test",
+                "cluster_id": "test",
+                "node_id": "test",
+                "service_type": "test",
+                "service_id": "test",
+                "resource_type": "test",
+                "resource_id": "client"
+            },
+            "request_id": 0,
+            "version": 2002,
+            "created_time": 0,
+            "last_updated_time": 0,
+            "response": "Ok",
+            "acked": true
+            }
+        },
+        "internal": {},
+        "outgoing":{
+            "outgoing_queued":[],
+            "outgoing_sent":{
+                "kv-get":{
+                    "msg":{
+                        "key":"kv-get",
+                        "data":{
+                            "key":"count",
+                            "val":"1000"
+                        }
+                    },
+                    "id":0,
+                    "created_time":0,
+                    "last_updated_time":0,
+                    "last_sent_time":0,
+                    "version":1001,
+                    "acked":true,
+                    "response":"Ok",
+                    "response_source":{
+                        "region_id":"test",
+                        "cluster_id":"test",
+                        "node_id":"test",
+                        "service_type":"test",
+                        "service_id":"test",
+                        "resource_type":"test",
+                        "resource_id":"client"
+                    }
+                }
+            }
+        }
+    }
+    "#;
+
+    let expected: ActorStateDump = serde_json::from_str(expected_json).unwrap();
+    match timeout(Duration::from_secs(3), mgmt_resp_queue_rx.recv()).await {
+        Ok(Some(msg)) => match msg.body {
+            Some(Body::Response(ref response)) => {
+                assert_eq!(response.request_id, 2);
+                assert_eq!(response.error_code, SwbusErrorCode::Ok as i32);
+                match response.response_body {
+                    Some(ResponseBody::ManagementQueryResult(ref result)) => {
+                        println!("{}", &result.value);
+                        let mut state: ActorStateDump = serde_json::from_str(&result.value).unwrap();
+                        if let Some(inner_fields) = state.outgoing.outgoing_sent.get_mut("kv-get") {
+                            inner_fields.id = 0;
+                            inner_fields.created_time = 0;
+                            inner_fields.last_updated_time = 0;
+                            inner_fields.last_sent_time = 0;
+                        }
+                        // Reset timestamps for incoming message
+                        if let Some(incoming_entry) = state.incoming.get_mut("") {
+                            incoming_entry.request_id = 0;
+                            incoming_entry.created_time = 0;
+                            incoming_entry.last_updated_time = 0;
+                        }
+
+                        assert_eq!(state, expected);
+                    }
+                    _ => panic!("message body is not a ManagementQueryResult"),
+                }
+            }
+            _ => panic!("message body is not a Response"),
+        },
+        Ok(None) => {
+            panic!("channel broken");
+        }
+        Err(_) => {
+            panic!("request timeout: didn't receive response");
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 enum KVMessage {
     Get { key: String },
     Set { key: String, val: String },
+    Del { key: String },
 }
 
 impl KVMessage {
@@ -183,6 +311,10 @@ impl KVMessage {
             val: v.into(),
         }
     }
+
+    fn del(k: impl Into<String>) -> Self {
+        KVMessage::Del { key: k.into() }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -191,7 +323,7 @@ struct KVGetResult {
     val: String,
 }
 
-struct KVClient(Sender<()>);
+struct KVClient(Sender<()>, bool);
 
 impl KVClient {
     fn notify_done(&mut self) {
@@ -201,13 +333,26 @@ impl KVClient {
 
 impl Actor for KVClient {
     async fn init(&mut self, state: &mut State) -> Result<()> {
-        state
-            .outgoing()
-            .send(sp("kv"), ActorMessage::new("", &KVMessage::get("count"))?);
+        if self.1 {
+            // to_delete is true, send delete message and immediately notify done
+            state
+                .outgoing()
+                .send(sp("kv"), ActorMessage::new("", &KVMessage::del("count"))?);
+            self.notify_done();
+        } else {
+            state
+                .outgoing()
+                .send(sp("kv"), ActorMessage::new("", &KVMessage::get("count"))?);
+        }
         Ok(())
     }
 
     async fn handle_message(&mut self, state: &mut State, key: &str, _context: &mut Context) -> Result<()> {
+        if self.1 {
+            // For delete operations, we shouldn't receive any messages
+            return Ok(());
+        }
+
         assert_eq!(key, "kv-get");
         let KVGetResult { key, val } = state.incoming().get(key)?.deserialize_data::<KVGetResult>()?;
 
@@ -267,6 +412,9 @@ impl Actor for KVStore {
             }
             KVMessage::Set { key, val } => {
                 state.internal().get_mut("data").insert(key, val.into());
+            }
+            KVMessage::Del { key: _ } => {
+                state.internal().delete("data");
             }
         }
         Ok(())

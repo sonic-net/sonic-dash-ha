@@ -29,6 +29,12 @@ impl Internal {
         self.table.insert(key.into(), entry);
     }
 
+    pub fn delete(&mut self, key: &str) {
+        if let Some(entry) = self.table.get_mut(key) {
+            entry.delete();
+        }
+    }
+
     pub fn has_entry(&self, key: &str, swss_key: &str) -> bool {
         let entry = self.table.get(key);
         match entry {
@@ -48,8 +54,17 @@ impl Internal {
     }
 
     pub(crate) async fn commit_changes(&mut self) {
-        for entry in self.table.values_mut() {
+        let mut keys_to_remove = Vec::new();
+
+        for (key, entry) in self.table.iter_mut() {
             entry.commit_changes().await;
+            if entry.data.to_delete {
+                keys_to_remove.push(key.clone());
+            }
+        }
+
+        for key in keys_to_remove {
+            self.table.remove(&key);
         }
     }
 
@@ -74,6 +89,7 @@ pub struct InternalTableData {
     // Local cache/copy of the table's FVs
     pub fvs: FieldValues,
     pub mutated: bool,
+    pub to_delete: bool,
 
     // FVs that will be restored if an actor callback fails
     pub backup_fvs: FieldValues,
@@ -91,6 +107,7 @@ impl PartialEq for InternalTableData {
             && self.fvs == other.fvs
             && self.backup_fvs == other.backup_fvs
             && self.mutated == other.mutated
+            && self.to_delete == other.to_delete
     }
 }
 
@@ -110,6 +127,7 @@ impl InternalTableEntry {
                 swss_key,
                 fvs,
                 mutated: false,
+                to_delete: false,
                 backup_fvs,
                 last_updated_time: None,
             },
@@ -129,17 +147,29 @@ impl InternalTableEntry {
         &mut self.data.fvs
     }
 
+    fn delete(&mut self) {
+        self.data.to_delete = true;
+    }
+
     async fn commit_changes(&mut self) {
-        self.data.mutated = false;
-        self.swss_table
-            .set_async(&self.data.swss_key, self.data.fvs.clone())
-            .await
-            .expect("Table::set threw an exception");
-        self.data.last_updated_time = Some(get_unix_time());
+        if self.data.to_delete {
+            self.swss_table
+                .del_async(&self.data.swss_key)
+                .await
+                .expect("Table::del threw an exception");
+        } else {
+            self.data.mutated = false;
+            self.swss_table
+                .set_async(&self.data.swss_key, self.data.fvs.clone())
+                .await
+                .expect("Table::set threw an exception");
+            self.data.last_updated_time = Some(get_unix_time());
+        }
     }
 
     fn drop_changes(&mut self) {
         self.data.mutated = false;
+        self.data.to_delete = false;
         self.data.fvs.clone_from(&self.data.backup_fvs);
     }
 }

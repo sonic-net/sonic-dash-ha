@@ -6,7 +6,7 @@ use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationTyp
 use crate::ServicePath;
 use anyhow::{anyhow, Result};
 use sonic_common::SonicDbTable;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
@@ -125,10 +125,17 @@ impl DpuActor {
         Ok(bridges)
     }
 
+    fn do_cleanup(&mut self, _context: &mut Context, state: &mut State) {
+        if let Err(e) = self.update_bfd_sessions(state, true) {
+            error!("Failed to cleanup BFD sessions: {}", e);
+        }
+    }
+
     async fn handle_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
         let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
+            self.do_cleanup(context, state);
             context.stop();
             return Ok(());
         }
@@ -316,28 +323,40 @@ impl DpuActor {
         peer_ip: &str,
         global_cfg: &DashHaGlobalConfig,
         outgoing: &mut Outgoing,
+        remove: bool,
     ) -> Result<()> {
         // todo: this needs to wait until HaScope has been activated.
         let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
             debug!("DPU is not managed by this HA instance. Ignore BFD session creation");
             return Ok(());
         };
-        let bfd_session = BfdSessionTable {
-            tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
-            rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
-            multiplier: global_cfg.dpu_bfd_probe_multiplier,
-            multihop: true,
-            local_addr: dpu.pa_ipv4.clone(),
-            session_type: Some("passive".to_string()),
-            shutdown: false,
-        };
 
-        let fv = swss_serde::to_field_values(&bfd_session)?;
         let sep = BfdSessionTable::key_separator();
-        let kfv = KeyOpFieldValues {
-            key: format!("default{sep}default{sep}{peer_ip}"),
-            operation: KeyOperation::Set,
-            field_values: fv,
+        let key = format!("default{sep}default{sep}{peer_ip}");
+
+        let kfv = if remove {
+            KeyOpFieldValues {
+                key,
+                operation: KeyOperation::Del,
+                field_values: HashMap::new(),
+            }
+        } else {
+            let bfd_session = BfdSessionTable {
+                tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+                rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+                multiplier: global_cfg.dpu_bfd_probe_multiplier,
+                multihop: true,
+                local_addr: dpu.pa_ipv4.clone(),
+                session_type: Some("passive".to_string()),
+                shutdown: false,
+            };
+
+            let fv = swss_serde::to_field_values(&bfd_session)?;
+            KeyOpFieldValues {
+                key,
+                operation: KeyOperation::Set,
+                field_values: fv,
+            }
         };
 
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
@@ -345,9 +364,9 @@ impl DpuActor {
         Ok(())
     }
 
-    fn update_bfd_sessions(&self, state: &mut State) -> Result<()> {
+    fn update_bfd_sessions(&self, state: &mut State, remove: bool) -> Result<()> {
         if !self.is_local_managed() {
-            debug!("DPU is not managed by this HA instance. Ignore BFD session creation");
+            debug!("DPU is not managed by this HA instance. Ignore BFD session creation or deletion");
             return Ok(());
         }
         let (_internal, incoming, outgoing) = state.get_all();
@@ -375,7 +394,7 @@ impl DpuActor {
         remote_npus.push(npu_ipv4.clone());
         remote_npus.sort();
         for npu in remote_npus {
-            self.update_bfd_session(&npu, &global_cfg, outgoing)?;
+            self.update_bfd_session(&npu, &global_cfg, outgoing, remove)?;
         }
         Ok(())
     }
@@ -408,7 +427,7 @@ impl DpuActor {
 
         // create bfd session
         let global_cfg = Self::get_dash_ha_global_config(incoming)?;
-        self.update_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing)?;
+        self.update_bfd_session(&remote_dpu.npu_ipv4, &global_cfg, outgoing, false)?;
         Ok(())
     }
 
@@ -421,7 +440,7 @@ impl DpuActor {
     }
 
     fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
-        self.update_bfd_sessions(state)?;
+        self.update_bfd_sessions(state, false)?;
         Ok(())
     }
 
@@ -566,6 +585,15 @@ mod test {
             // simulate delete of Dpu entry
             send! { key: Dpu::table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs},
                 addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
+
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
         ];
         test::run_commands(&runtime, runtime.sp("dpu", "switch0_dpu0"), &commands).await;
         if tokio::time::timeout(Duration::from_secs(1), handle).await.is_err() {

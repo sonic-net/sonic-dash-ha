@@ -68,6 +68,7 @@ macro_rules! chkdb {
             key: String::from($key),
             data: serde_json::json!($data),
             exclude: "".to_string(),
+            nonexist: false,
         }
     };
 
@@ -79,6 +80,19 @@ macro_rules! chkdb {
             key: String::from($key),
             data: serde_json::json!($data),
             exclude: String::from($exclude),
+            nonexist: false,
+        }
+    };
+
+    (type: $type:ty, key: $key:expr, nonexist) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from(<$type>::db_name()),
+            is_dpu: <$type>::is_dpu(),
+            table: String::from(<$type>::table_name()),
+            key: String::from($key),
+            data: serde_json::json!({}),
+            exclude: "".to_string(),
+            nonexist: true,
         }
     };
 
@@ -90,6 +104,19 @@ macro_rules! chkdb {
             key: String::from($key),
             data: serde_json::json!($data),
             exclude: String::from($exclude),
+            nonexist: false,
+        }
+    };
+
+    (db: $db:expr, is_dpu: $is_dpu:expr, table: $table:expr, key: $key:expr, nonexist) => {
+        $crate::actors::test::Command::ChkDb {
+            db: String::from($db),
+            is_dpu: $is_dpu,
+            table: String::from($table),
+            key: String::from($key),
+            data: serde_json::json!({}),
+            exclude: "".to_string(),
+            nonexist: true,
         }
     };
 }
@@ -114,6 +141,7 @@ pub enum Command {
         key: String,
         data: Value,
         exclude: String,
+        nonexist: bool,
     },
 }
 
@@ -224,42 +252,54 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 key,
                 data,
                 exclude,
+                nonexist,
             } => {
                 let db = crate::db_named(db_name, *is_dpu).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
 
                 let mut last_error = None;
-
+                print!("Checking DB {db_name}/{table_name} for key {key}, ");
                 // Retry loop: 5 attempts with 100ms sleep between retries. This is needed because the previous send operation
                 // may not have been fully committed yet. send is asynchronous and may not complete immediately.
                 for attempt in 1..=5 {
                     last_error = None;
                     match table.get_async(key).await {
                         Ok(Some(mut actual_data)) => {
-                            let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
-
-                            exclude
-                                .split(',')
-                                .map(str::trim)
-                                .filter(|s| !s.is_empty())
-                                .for_each(|id| {
-                                    fvs.remove(id);
-                                    actual_data.remove(id);
-                                });
-
-                            if actual_data == fvs {
-                                // Success, break out of retry loop
-                                break;
-                            } else {
+                            if *nonexist {
                                 last_error = Some(format!(
-                                    "Data mismatch on attempt {attempt}: expected {fvs:?}, got {actual_data:?}"
+                                    "Key {key} unexpectedly found in {table_name}/{db_name} on attempt {attempt} (expected nonexist)"
                                 ));
+                            } else {
+                                let mut fvs: FieldValues = serde_json::from_value(data.clone()).unwrap();
+
+                                exclude
+                                    .split(',')
+                                    .map(str::trim)
+                                    .filter(|s| !s.is_empty())
+                                    .for_each(|id| {
+                                        fvs.remove(id);
+                                        actual_data.remove(id);
+                                    });
+
+                                if actual_data == fvs {
+                                    // Success, break out of retry loop
+                                    break;
+                                } else {
+                                    last_error = Some(format!(
+                                        "Data mismatch on attempt {attempt}: expected {fvs:?}, got {actual_data:?}"
+                                    ));
+                                }
                             }
                         }
                         Ok(None) => {
-                            last_error = Some(format!(
-                                "Key {key} not found in {table_name}/{db_name} on attempt {attempt}"
-                            ));
+                            if *nonexist {
+                                // Success, key doesn't exist as expected
+                                break;
+                            } else {
+                                last_error = Some(format!(
+                                    "Key {key} not found in {table_name}/{db_name} on attempt {attempt}"
+                                ));
+                            }
                         }
                         Err(e) => {
                             last_error = Some(format!("Database error on attempt {attempt}: {e}"));
@@ -274,6 +314,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 if let Some(error) = last_error {
                     panic!("{error}");
                 }
+                println!("check passed");
             }
         }
     }
