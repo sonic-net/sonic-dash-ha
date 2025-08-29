@@ -22,7 +22,7 @@ enum ShowSubCmd {
 
 trait ShowCmdHandler {
     fn create_request(&self, ctx: &super::CommandContext, src_sp: &ServicePath) -> SwbusMessage;
-    fn process_response(&self, response: &RequestResponse);
+    fn process_response(&self, ctx: &super::CommandContext, response: &RequestResponse);
 }
 
 impl super::CmdHandler for ShowCmd {
@@ -55,7 +55,7 @@ impl super::CmdHandler for ShowCmd {
                 let body = result.msg.unwrap().body.unwrap();
                 match body {
                     swbus_message::Body::Response(response) => {
-                        sub_cmd.process_response(&response);
+                        sub_cmd.process_response(ctx, &response);
                     }
                     _ => {
                         info!("Invalid response");

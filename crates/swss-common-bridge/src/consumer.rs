@@ -188,7 +188,7 @@ mod test {
     use swbus_actor::ActorMessage;
     use swbus_edge::{
         simple_client::{IncomingMessage, MessageBody, SimpleSwbusEdgeClient},
-        swbus_proto::swbus::ServicePath,
+        swbus_proto::swbus::{ConnectionType, ServicePath},
         SwbusEdgeRuntime,
     };
     use swss_common::{
@@ -244,7 +244,7 @@ mod test {
         mut producer_table: P,
     ) {
         // Setup swbus
-        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"));
+        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"), ConnectionType::InNode);
         swbus_edge.start().await.unwrap();
         let rt = Arc::new(swbus_edge);
 
@@ -319,7 +319,7 @@ mod test {
 
     async fn run_proto_test<C: ConsumerTable, P: ProducerTable>(consumer_table: C, mut producer_table: P) {
         // Setup swbus
-        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"));
+        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"), ConnectionType::InNode);
         swbus_edge.start().await.unwrap();
         let rt = Arc::new(swbus_edge);
 

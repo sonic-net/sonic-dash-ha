@@ -12,14 +12,15 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
-use tracing::{error, info};
+use tracing_subscriber::{fmt, prelude::*, Layer};
 
 // 3 seconds receive timeout
 pub const RECEIVE_TIMEOUT: u32 = 3;
 
 /// The Topo struct contains the server jobs and clients' TX and RX of its message queues.
 pub struct TopoRuntime {
-    pub name: String,
+    /// test folder name
+    pub topo_file: String,
     /// The server jobs are the tokio tasks that run the swbusd servers.
     pub server_jobs: Vec<JoinHandle<()>>,
     /// The client_receivers are the message queues of the clients to receive messages.
@@ -28,13 +29,11 @@ pub struct TopoRuntime {
     pub client_senders: HashMap<String, mpsc::Sender<SwbusMessage>>,
 }
 
-/// The test case data including the name, topo, description, and test steps.
-/// topo is optional and if it is not provided, the test will be skipped if it doesn't match current topo.
+/// The test case data including the name, description, and test steps.
 /// The test steps contain the requests to be sent from the client and the expected responses from specified clients.
 #[derive(Serialize, Deserialize, Debug)]
 struct TestCaseData {
     pub name: String,
-    pub topo: Option<String>,
     pub description: Option<String>,
     pub steps: Vec<TestStepData>,
 }
@@ -67,9 +66,9 @@ struct SwbusClientConfig {
 }
 
 impl TopoRuntime {
-    pub fn new(name: &str) -> Self {
+    pub fn new(topo_file: &str) -> Self {
         TopoRuntime {
-            name: name.to_string(),
+            topo_file: topo_file.to_string(),
             server_jobs: Vec::new(),
             client_receivers: HashMap::new(),
             client_senders: HashMap::new(),
@@ -85,15 +84,11 @@ impl TopoRuntime {
     pub async fn bring_up(&mut self) {
         init_logger_for_test();
 
-        let file = File::open("tests/data/topos.json").unwrap();
+        let file = File::open(&self.topo_file).unwrap();
         let reader = BufReader::new(file);
 
         // Parse the topo data
-        let topo_cfgs: HashMap<String, TopoData> = serde_json::from_reader(reader).expect("failed to parse topos.json");
-
-        let topo_cfg = topo_cfgs
-            .get(&self.name)
-            .unwrap_or_else(|| panic!("Failed to find topo {}", self.name));
+        let topo_cfg: TopoData = serde_json::from_reader(reader).expect("failed to parse topo.json");
 
         for (name, server) in topo_cfg.servers.clone() {
             self.start_server(&name, &server).await;
@@ -112,7 +107,7 @@ impl TopoRuntime {
             .await;
         }
 
-        info!("Topo {} is up", self.name);
+        println!("Topo {} is up", self.topo_file);
     }
 
     async fn start_server(&mut self, name: &str, route_config: &SwbusConfig) {
@@ -124,7 +119,7 @@ impl TopoRuntime {
 
         self.server_jobs.push(server_task);
 
-        info!("Server {} started at {}", name, &route_config.endpoint);
+        println!("Server {} started at {}", name, &route_config.endpoint);
     }
 
     async fn start_client(&mut self, name: &str, node_addr: &SocketAddr, client_sp: ServicePath) {
@@ -133,16 +128,26 @@ impl TopoRuntime {
         let addr = format!("http://{node_addr}");
 
         while start.elapsed() < Duration::from_secs(10) {
-            match SwbusCoreClient::connect(addr.clone(), client_sp.clone(), receive_queue_tx.clone()).await {
+            println!("Trying to connect to the server at {}", node_addr);
+            match SwbusCoreClient::connect(
+                addr.clone(),
+                client_sp.clone(),
+                ConnectionType::InNode,
+                receive_queue_tx.clone(),
+            )
+            .await
+            {
                 Ok((_, send_queue_tx)) => {
                     self.client_receivers.insert(name.to_string(), receive_queue_rx);
                     self.client_senders.insert(name.to_string(), send_queue_tx);
-                    info!("Client {} connected to {}", name, node_addr);
+                    println!("Client {} connected to {}", name, node_addr);
                     return;
                 }
                 Err(e) => {
-                    error!("Failed to connect to the server: {:?}", e);
+                    println!("Failed to connect to the server: {:?}", e);
+                    //std::thread::sleep(std::time::Duration::from_secs(1));
                     time::sleep(Duration::from_secs(1)).await;
+                    println!("awake from sleep");
                 }
             }
         }
@@ -163,26 +168,22 @@ pub async fn run_tests(topo: &mut TopoRuntime, test_json_file: &str, test_case_n
                 continue;
             }
         }
-        if test.topo.is_some() && test.topo.as_ref().unwrap() != &topo.name {
-            info!(
-                "Skipping test {} due to mismatched topo: test.topo={}, running-topo={}",
-                test.name,
-                test.topo.as_ref().unwrap(),
-                topo.name
-            );
-            continue;
-        }
-        info!("Running test: {}", test.name);
+
+        println!("Running test: {}", test.name);
         for (i, step) in test.steps.iter_mut().enumerate() {
-            info!("  ---  Step {}  ---", i);
+            println!("  ---  Step {}  ---", i);
             for req in &step.requests {
-                let sender = topo.client_senders.get(&req.client).unwrap();
+                let sender = topo
+                    .client_senders
+                    .get(&req.client)
+                    .unwrap_or_else(|| panic!("Failed to find client sender {} in topo file", &req.client));
+
                 match sender.send(req.message.clone()).await {
                     Ok(_) => {
-                        info!("Sent message from client {}", req.client);
+                        println!("Sent message from client {}", req.client);
                     }
                     Err(e) => {
-                        error!("Failed to send message from client {}: {:?}", req.client, e);
+                        println!("Failed to send message from client {}: {:?}", req.client, e);
                     }
                 }
             }
@@ -190,7 +191,7 @@ pub async fn run_tests(topo: &mut TopoRuntime, test_json_file: &str, test_case_n
             if to_generate {
                 let responses = record_received_messages(topo, RECEIVE_TIMEOUT).await;
                 step.responses = responses;
-                info!("  ---  Recorded {} messages  ---", &step.responses.len());
+                println!("  ---  Recorded {} messages  ---", &step.responses.len());
             } else {
                 receive_and_compare(topo, &step.responses, RECEIVE_TIMEOUT).await;
             }
@@ -206,12 +207,19 @@ pub async fn run_tests(topo: &mut TopoRuntime, test_json_file: &str, test_case_n
 /// if the responses are not in order.
 async fn receive_and_compare(topo: &mut TopoRuntime, expected_responses: &[MessageClientPair], timeout: u32) {
     for resp in expected_responses.iter() {
-        let receiver = topo.client_receivers.get_mut(&resp.client).unwrap();
+        let receiver = topo
+            .client_receivers
+            .get_mut(&resp.client)
+            .unwrap_or_else(|| panic!("Failed to find client receiver {} in topo file", &resp.client));
+
         match time::timeout(Duration::from_secs(timeout as u64), receiver.recv()).await {
             Ok(Some(msg)) => {
                 let normalized_msg = swbus_proto::swbus::normalize_msg(&msg);
 
-                assert_eq!(normalized_msg, resp.message);
+                assert_eq!(
+                    normalized_msg, resp.message,
+                    "Received(left) message does not match the expected(right)"
+                );
             }
             Ok(None) => {
                 panic!("channel broken");
@@ -241,4 +249,29 @@ async fn record_received_messages(topo: &mut TopoRuntime, timeout: u32) -> Vec<M
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
     responses
+}
+
+pub fn init_logger() {
+    let stdout_level = tracing::level_filters::LevelFilter::DEBUG;
+    // Create a stdout logger for `info!` and lower severity levels
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_filter(stdout_level);
+
+    // Create a stderr logger for `error!` and higher severity levels
+    let stderr_layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_filter(tracing::level_filters::LevelFilter::ERROR);
+
+    // Combine the layers and set them as the global subscriber
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(stderr_layer)
+        .init();
 }

@@ -176,7 +176,7 @@ impl PartialEq for IncomingTableEntry {
 mod test {
     use super::*;
     use crate::actor_message::ActorMessage;
-    use swbus_edge::swbus_proto::swbus::ServicePath;
+    use swbus_edge::swbus_proto::swbus::{ConnectionType, ServicePath};
     use swbus_edge::SwbusEdgeRuntime;
 
     #[test]
@@ -184,6 +184,7 @@ mod test {
         let swbus_edge = Arc::new(SwbusEdgeRuntime::new(
             "none".to_string(),
             ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
+            ConnectionType::InNode,
         ));
 
         let swbus_edge = Arc::new(SimpleSwbusEdgeClient::new(

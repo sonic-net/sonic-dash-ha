@@ -10,7 +10,7 @@ use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::{ServicePath, SwbusErrorCode},
+    swbus_proto::swbus::{ConnectionType, ServicePath, SwbusErrorCode},
     SwbusEdgeRuntime,
 };
 use swss_common::{FieldValues, Table};
@@ -283,6 +283,7 @@ pub async fn create_edge_runtime() -> SwbusEdgeRuntime {
     let mut swbus_edge: SwbusEdgeRuntime = SwbusEdgeRuntime::new(
         "none".to_string(),
         ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
+        ConnectionType::InNode,
     );
     swbus_edge.start().await.unwrap();
     swbus_edge

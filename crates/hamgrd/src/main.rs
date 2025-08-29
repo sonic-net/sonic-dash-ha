@@ -9,7 +9,11 @@ use std::{
 };
 use swbus_actor::{set_global_runtime, ActorRuntime};
 use swbus_config::swbus_config_from_db;
-use swbus_edge::{simple_client::SimpleSwbusEdgeClient, swbus_proto::swbus::ServicePath, RuntimeEnv, SwbusEdgeRuntime};
+use swbus_edge::{
+    simple_client::SimpleSwbusEdgeClient,
+    swbus_proto::swbus::{ConnectionType, ServicePath},
+    RuntimeEnv, SwbusEdgeRuntime,
+};
 use swss_common::{sonic_db_config_initialize_global, DbConnector};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tokio::{signal, task::JoinHandle, time::timeout};
@@ -63,7 +67,11 @@ async fn main() {
     let runtime_data = RuntimeData::new(args.slot_id, swbus_config.npu_ipv4, swbus_config.npu_ipv6);
 
     // Setup swbus and actor runtime
-    let mut swbus_edge = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), swbus_sp.clone());
+    let mut swbus_edge = SwbusEdgeRuntime::new(
+        format!("http://{}", swbus_config.endpoint),
+        swbus_sp.clone(),
+        ConnectionType::InNode,
+    );
     swbus_edge.set_runtime_env(Box::new(runtime_data));
 
     swbus_edge.start().await.unwrap();

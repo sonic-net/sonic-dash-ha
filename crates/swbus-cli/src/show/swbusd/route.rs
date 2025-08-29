@@ -13,7 +13,7 @@ struct RouteDisplay {
     service_path: String,
     hop_count: u32,
     nh_id: String,
-    nh_scope: String,
+    route_scope: String,
     nh_service_path: String,
 }
 
@@ -29,18 +29,21 @@ impl ShowCmdHandler for ShowRouteCmd {
         }
     }
 
-    fn process_response(&self, response: &RequestResponse) {
+    fn process_response(&self, ctx: &CommandContext, response: &RequestResponse) {
         let routes = match &response.response_body {
-            Some(request_response::ResponseBody::RouteQueryResult(route_result)) => route_result,
+            Some(request_response::ResponseBody::RouteEntries(route_result)) => route_result,
             _ => {
-                info!("Expecting RouteQueryResult but got something else: {:?}", response);
+                info!("Expecting RouteEntries but got something else: {:?}", response);
                 return;
             }
         };
 
+        let my_sp = Some(ctx.sp.clone());
         let routes: Vec<RouteDisplay> = routes
             .entries
             .iter()
+            // Filter out the entry for the show_route request itself
+            .filter(|entry| entry.service_path != my_sp)
             .map(|entry| RouteDisplay {
                 service_path: entry
                     .service_path
@@ -49,7 +52,7 @@ impl ShowCmdHandler for ShowRouteCmd {
                     .to_longest_path(),
                 hop_count: entry.hop_count,
                 nh_id: entry.nh_id.clone(),
-                nh_scope: RouteScope::try_from(entry.nh_scope).unwrap().as_str_name().to_string(),
+                route_scope: RouteScope::try_from(entry.route_scope).unwrap().as_str_name().to_string(),
                 nh_service_path: entry
                     .nh_service_path
                     .as_ref()

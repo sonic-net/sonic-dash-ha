@@ -18,6 +18,7 @@ use tracing::{debug, error, info};
 pub struct SwbusCoreClient {
     uri: String,
     sp: ServicePath,
+    conn_type: ConnectionType,
 
     // tx queue to send messages to swbusd
     pub(crate) send_queue_tx: Arc<RwLock<Option<mpsc::Sender<SwbusMessage>>>>,
@@ -29,10 +30,16 @@ pub struct SwbusCoreClient {
 
 // Factory functions
 impl SwbusCoreClient {
-    pub fn new(uri: String, sp: ServicePath, message_processor_tx: mpsc::Sender<SwbusMessage>) -> Self {
+    pub fn new(
+        uri: String,
+        sp: ServicePath,
+        message_processor_tx: mpsc::Sender<SwbusMessage>,
+        conn_type: ConnectionType,
+    ) -> Self {
         Self {
             uri,
             sp,
+            conn_type,
             send_queue_tx: Arc::new(RwLock::new(None)),
             message_processor_tx,
             swbusd_connect_task: None,
@@ -49,6 +56,7 @@ impl SwbusCoreClient {
     pub async fn connect(
         uri: String,
         sp: ServicePath,
+        conn_type: ConnectionType,
         receive_queue_tx: mpsc::Sender<SwbusMessage>,
     ) -> Result<(tokio::task::JoinHandle<Result<()>>, mpsc::Sender<SwbusMessage>)> {
         let (send_queue_tx, send_queue_rx) = mpsc::channel::<SwbusMessage>(100);
@@ -80,7 +88,7 @@ impl SwbusCoreClient {
 
         meta.insert(
             SWBUS_CONNECTION_TYPE,
-            MetadataValue::from_str(ConnectionType::Local.as_str_name()).unwrap(),
+            MetadataValue::from_str(conn_type.as_str_name()).unwrap(),
         );
 
         let recv_stream = match client.stream_messages(send_stream_request).await {
@@ -105,10 +113,10 @@ impl SwbusCoreClient {
         let sp = self.sp.clone();
         let message_processor_tx = self.message_processor_tx.clone();
         let send_queue_tx_arc = self.send_queue_tx.clone();
-
+        let conn_type = self.conn_type;
         let handle = tokio::spawn(async move {
             loop {
-                match Self::connect(uri.clone(), sp.clone(), message_processor_tx.clone()).await {
+                match Self::connect(uri.clone(), sp.clone(), conn_type, message_processor_tx.clone()).await {
                     Ok((recv_stream_task, send_queue_tx)) => {
                         info!("Successfully connected to swbusd at {}", uri);
                         send_queue_tx_arc.write().await.replace(send_queue_tx);

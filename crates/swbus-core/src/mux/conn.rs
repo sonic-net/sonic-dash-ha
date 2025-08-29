@@ -98,10 +98,7 @@ impl SwbusConn {
 
         let mut stream_message_request = Request::new(request_stream);
 
-        let sp_str = conn_info
-            .local_service_path()
-            .expect("missing local service path")
-            .to_string();
+        let sp_str = mux.get_my_service_path().to_string();
 
         let meta = stream_message_request.metadata_mut();
 

@@ -108,7 +108,7 @@ where
                     SwbusError::RouteError { code, detail } => (code, detail),
                 };
                 let response = SwbusMessage::new_response(
-                    &msg,
+                    msg.header.as_ref().unwrap(),
                     Some(&self.sp),
                     code,
                     &err_msg,

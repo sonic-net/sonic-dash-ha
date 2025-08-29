@@ -260,7 +260,7 @@ impl ShowCmdHandler for ShowActorCmd {
         }
     }
 
-    fn process_response(&self, response: &RequestResponse) {
+    fn process_response(&self, _: &CommandContext, response: &RequestResponse) {
         let result = match &response.response_body {
             Some(request_response::ResponseBody::ManagementQueryResult(ref result)) => &result.value,
             _ => {

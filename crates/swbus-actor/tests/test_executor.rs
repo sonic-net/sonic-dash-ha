@@ -4,7 +4,7 @@ use std::{
     collections::HashMap, fs::File, future::pending, io::BufReader, mem, path::PathBuf, sync::Arc, time::Duration,
 };
 use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, State};
-use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
+use swbus_edge::{swbus_proto::swbus::ConnectionType, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::{DbConnector, Table};
 use swss_common_testing::{random_string, Redis};
 use tokio::{
@@ -123,6 +123,7 @@ async fn run_test(mut t: TestSpec) -> Option<&'static str> {
     let mut swbus_edge = SwbusEdgeRuntime::new(
         "<none>".into(),
         ServicePath::from_string("test.test.test/test/test").unwrap(),
+        ConnectionType::InNode,
     );
     swbus_edge.start().await.unwrap();
     let actor_rt = ActorRuntime::new(Arc::new(swbus_edge));

@@ -9,11 +9,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .message_attribute("swbus.ServicePath", "#[derive(Eq, Hash, Ord, PartialOrd)]")
         .field_attribute("swbus.SwbusMessageHeader.id", "#[serde(default, skip_serializing)]")
         .field_attribute(
-            "swbus.RouteQueryResultEntry.nh_id",
+            "swbus.RouteEntry.nh_id",
             "#[serde(default, skip_serializing)]",
         )
         .field_attribute(
-            "swbus.RouteQueryResult.entries",
+            "swbus.RouteEntries.entries",
             "#[serde(serialize_with = \"sorted_vec_serializer\")]",
         )
         .field_attribute(
@@ -25,11 +25,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[serde(serialize_with = \"serialize_service_path_opt\",deserialize_with = \"deserialize_service_path_opt\")]",
         )
         .field_attribute(
-            "swbus.RouteQueryResultEntry.service_path",
+            "swbus.RouteEntry.service_path",
             "#[serde(serialize_with = \"serialize_service_path_opt\",deserialize_with = \"deserialize_service_path_opt\")]",
         )
         .field_attribute(
-            "swbus.RouteQueryResultEntry.nh_service_path",
+            "swbus.RouteEntry.nh_service_path",
             "#[serde(serialize_with = \"serialize_service_path_opt\",deserialize_with = \"deserialize_service_path_opt\")]",
         );
 
