@@ -86,7 +86,7 @@ impl<A: Actor> ActorDriver<A> {
                             body: MessageBody::Response {
                                 request_id: id,
                                 error_code: SwbusErrorCode::Ok,
-                                error_message: String::new(),
+                                error_message: "Request ignored: actor has been marked for deletion".to_string(),
                                 response_body: None,
                             },
                         })
