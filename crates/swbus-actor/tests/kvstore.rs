@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{mem, time::Duration};
 use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, Result, State};
-use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
+use swbus_edge::{swbus_proto::swbus::ConnectionType, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use swss_common::Table;
 use swss_common_testing::Redis;
 use tokio::{
@@ -26,7 +26,7 @@ async fn echo() {
     // Add a handler to the runtime to receive management response
     let (mgmt_resp_queue_tx, mut mgmt_resp_queue_rx) = mpsc::channel::<SwbusMessage>(1);
 
-    let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"));
+    let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"), ConnectionType::InNode);
     swbus_edge.add_handler(sp("mgmt_resp"), mgmt_resp_queue_tx);
 
     swbus_edge.start().await.unwrap();

@@ -273,11 +273,15 @@ impl HaScopeActor {
             ha_set_id: dash_ha_scope_config.ha_set_id.clone(),
             vip_v4: haset.ha_set.vip_v4.clone(),
             vip_v6: haset.ha_set.vip_v6.clone(),
-            ha_role: format!(
-                "{}",
-                DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
-            )
-            .to_lowercase(), /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
+            ha_role: if dash_ha_scope_config.desired_ha_state == DesiredHaState::Unspecified as i32 {
+                "standby".to_string()
+            } else {
+                format!(
+                    "{}",
+                    DesiredHaState::try_from(dash_ha_scope_config.desired_ha_state).unwrap()
+                )
+                .to_lowercase()
+            }, /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
             flow_reconcile_requested,
             activate_role_requested,
         };
@@ -850,7 +854,8 @@ mod test {
                         "flow_reconcile_requested": "false"
                     },
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                },
 
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with no pending activation
             chkdb! { type: NpuDashHaScopeState,
@@ -869,7 +874,23 @@ mod test {
 
             // Send vdpu state update after bfd session up
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
-
+            // Recv update to DPU DASH_HA_SCOPE_TABLE, triggered by vdpu state update
+            recv! { key: &ha_set_id, data: {
+                    "key": &ha_set_id,
+                    "operation": "Set",
+                    "field_values": {
+                        "version": "3",
+                        "ha_role": "active",
+                        "disabled": "false",
+                        "ha_set_id": &ha_set_id,
+                        "vip_v4": ha_set_obj.vip_v4.clone(),
+                        "vip_v6": ha_set_obj.vip_v6.clone(),
+                        "activate_role_requested": "false",
+                        "flow_reconcile_requested": "false"
+                    },
+                    },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                },
             // Write to NPU DASH_HA_SCOPE_STATE through internal state with bfd session up
             chkdb! { type: NpuDashHaScopeState,
                     key: &scope_id_in_state, data: npu_ha_scope_state_fvs6,
@@ -890,12 +911,6 @@ mod test {
                     },
                     addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
-            // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
-            chkdb! { type: NpuDashHaScopeState,
-                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,
-                    exclude: "pending_operation_list_last_updated_time_in_ms" },
-
-            // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role=dead
             recv! { key: &ha_set_id, data: {
                     "key": &ha_set_id,
                     "operation": "Set",
@@ -910,7 +925,12 @@ mod test {
                         "flow_reconcile_requested": "false"
                     },
                     },
-                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                    addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                },
+            // Check NPU DASH_HA_SCOPE_STATE is updated with desired_ha_state = dead
+            chkdb! { type: NpuDashHaScopeState,
+                    key: &scope_id_in_state, data: npu_ha_scope_state_fvs7,
+                    exclude: "pending_operation_list_last_updated_time_in_ms" },
 
             // simulate delete of ha-scope entry
             send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",

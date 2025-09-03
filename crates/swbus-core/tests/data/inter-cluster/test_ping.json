@@ -1,0 +1,49 @@
+[
+  {
+    "name": "inter_cluster_ping",
+    "description": "verify ping and response",
+    "steps": [
+      {
+        "requests": [
+          {
+            "client": "swbusd_cluster-a.node1_client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 64,
+                "source": "region-a.cluster-a.node1/testsvc/0",
+                "destination": "region-a.cluster-b.node1"
+              },
+              "body": {
+                "PingRequest": {}
+              }
+            }
+          }
+        ],
+        "responses": [
+          {
+            "client": "swbusd_cluster-a.node1_client",
+            "message": {
+              "header": {
+                "version": 1,
+                "flag": 0,
+                "ttl": 60,
+                "source": "region-a.cluster-b.node1",
+                "destination": "region-a.cluster-a.node1/testsvc/0"
+              },
+              "body": {
+                "Response": {
+                  "request_id": 0,
+                  "error_code": 1,
+                  "error_message": "",
+                  "response_body": null
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

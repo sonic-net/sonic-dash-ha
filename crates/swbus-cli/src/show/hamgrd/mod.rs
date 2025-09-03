@@ -22,8 +22,8 @@ impl ShowCmdHandler for ShowHamgrdCmd {
         sub_cmd.create_request(ctx, src_sp)
     }
 
-    fn process_response(&self, response: &RequestResponse) {
+    fn process_response(&self, ctx: &CommandContext, response: &RequestResponse) {
         let HamgrdCmd::Actor(sub_cmd) = &self.subcommand;
-        sub_cmd.process_response(response);
+        sub_cmd.process_response(ctx, response);
     }
 }

@@ -106,7 +106,7 @@ impl HaSetActor {
             scope: sonic_dash_api_proto::types::HaScope::try_from(dash_ha_set_config.scope)
                 .map(|s| {
                     let name = s.as_str_name();
-                    name.strip_prefix("SCOPE_").unwrap_or(name).to_lowercase()
+                    name.strip_prefix("HA_SCOPE_").unwrap_or(name).to_lowercase()
                 })
                 .ok(),
             local_npu_ip: local_vdpu.dpu.npu_ipv4.clone(),
@@ -564,6 +564,10 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Del", "field_values": {}},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
             chkdb! { type: VnetRouteTunnelTable, key: &format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())), nonexist },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;

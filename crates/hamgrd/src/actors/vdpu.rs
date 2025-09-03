@@ -202,7 +202,6 @@ mod test {
                     addr: crate::common_bridge_sp::<VDpu>(&runtime.get_swbus_edge()) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::DPUState, "test-vdpu"), data: { "active": false },
                     addr: runtime.sp(DpuActor::name(), "switch1_dpu0") },
-
         ];
 
         test::run_commands(&runtime, runtime.sp(VDpuActor::name(), "test-vdpu"), &commands).await;

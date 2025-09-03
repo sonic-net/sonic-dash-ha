@@ -104,6 +104,9 @@ enum SwbusErrorCode {
   // Invalid message payload.
   SWBUS_ERROR_CODE_INVALID_PAYLOAD = 211;
 
+  // Invalid route announcement
+  SWBUS_ERROR_CODE_INVALID_ROUTE = 212;
+
   // Input error ends.
   SWBUS_ERROR_CODE_INPUT_ERROR_MAX = 299;
 
@@ -146,7 +149,7 @@ message RequestResponse {
   SwbusErrorCode error_code = 20;
   string error_message = 30;
   oneof ResponseBody {
-    RouteQueryResult route_query_result = 100;
+    RouteEntries route_entries = 100;
     ManagementQueryResult management_query_result = 110;
   }
 }
@@ -156,9 +159,9 @@ message RequestResponse {
 //
 enum ConnectionType {
   CONNECTION_TYPE_CLIENT = 0;
-  CONNECTION_TYPE_LOCAL = 1;
-  CONNECTION_TYPE_CLUSTER = 2;
-  CONNECTION_TYPE_REGION = 3;
+  CONNECTION_TYPE_IN_NODE = 1;
+  CONNECTION_TYPE_IN_CLUSTER = 2;
+  CONNECTION_TYPE_IN_REGION = 3;
   CONNECTION_TYPE_GLOBAL = 4;
 }
 
@@ -167,27 +170,21 @@ enum ConnectionType {
 //
 enum RouteScope {
   ROUTE_SCOPE_CLIENT = 0;
-  ROUTE_SCOPE_LOCAL = 1;
-  ROUTE_SCOPE_CLUSTER = 2;
-  ROUTE_SCOPE_REGION = 3;
+  ROUTE_SCOPE_IN_NODE = 1;
+  ROUTE_SCOPE_IN_CLUSTER = 2;
+  ROUTE_SCOPE_IN_REGION = 3;
   ROUTE_SCOPE_GLOBAL = 4;
 }
 
-message RegistrationQueryRequest {
+message RouteEntries {
+  repeated RouteEntry entries = 10;
 }
 
-message RegistrationQueryResponse {
-}
-
-message RouteQueryResult {
-  repeated RouteQueryResultEntry entries = 10;
-}
-
-message RouteQueryResultEntry {
+message RouteEntry {
   ServicePath service_path = 10;
   string nh_id = 20;
   ServicePath nh_service_path = 30;
-  RouteScope nh_scope = 40;
+  RouteScope route_scope = 40;
   uint32 hop_count = 50;
 }
 
@@ -237,9 +234,8 @@ message SwbusMessage {
   oneof Body {
     RequestResponse response = 20;
 
-    // Registration
-    RegistrationQueryRequest registration_query_request = 101;
-    RegistrationQueryResponse registration_query_response = 102;
+    // Route Update
+    RouteEntries route_announcement = 100;
 
     // Ping
     PingRequest ping_request = 310;

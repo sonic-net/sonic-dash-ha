@@ -158,7 +158,11 @@ async fn main() {
 
     sp.service_type = "swbus-cli".to_string();
     sp.service_id = Uuid::new_v4().to_string();
-    let mut runtime = SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), sp.clone());
+    let mut runtime = SwbusEdgeRuntime::new(
+        format!("http://{}", swbus_config.endpoint),
+        sp.clone(),
+        ConnectionType::Client,
+    );
     runtime.start().await.unwrap();
     let runtime = Arc::new(runtime);
 
@@ -279,7 +283,7 @@ mod tests {
         assert!(config
             .routes
             .iter()
-            .any(|r| r.scope == RouteScope::Cluster && r.key == expected_sp));
+            .any(|r| r.scope == RouteScope::InCluster && r.key == expected_sp));
 
         cleanup_configdb_for_test();
     }

@@ -10,7 +10,7 @@ use std::{net::Ipv4Addr, net::Ipv6Addr, sync::Arc};
 use swbus_actor::{ActorMessage, ActorRuntime};
 use swbus_edge::{
     simple_client::{IncomingMessage, MessageBody, OutgoingMessage, SimpleSwbusEdgeClient},
-    swbus_proto::swbus::{ServicePath, SwbusErrorCode},
+    swbus_proto::swbus::{ConnectionType, ServicePath, SwbusErrorCode},
     SwbusEdgeRuntime,
 };
 use swss_common::{FieldValues, Table};
@@ -164,7 +164,8 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
     }
 
     // Execute commands
-    for cmd in commands {
+    for (index, cmd) in commands.iter().enumerate() {
+        let step = index + 1;
         match cmd {
             Send { key, data, addr, fail } => {
                 let client = &clients[addr];
@@ -177,7 +178,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 };
                 let sent_id = client.send(msg).await.unwrap();
 
-                print!("Sent {key}, ");
+                print!("Step {step} - Sent {key}, ");
 
                 if *fail {
                     print!("expecting Fail, ");
@@ -215,7 +216,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
             Recv { key, data, addr } => {
                 let client = &clients[addr];
-                print!("Receiving {key}, ");
+                print!("Step {step} - Receiving {key}, ");
                 let (am, request_id) = match timeout(client.recv()).await {
                     Ok(Some(IncomingMessage {
                         body: MessageBody::Request { payload },
@@ -254,6 +255,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 exclude,
                 nonexist,
             } => {
+                print!("Step {step} - Checking {table_name}/{db_name} for key {key}, ");
                 let db = crate::db_named(db_name, *is_dpu).await.unwrap();
                 let mut table = Table::new(db, table_name).unwrap();
 
@@ -283,6 +285,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
                                 if actual_data == fvs {
                                     // Success, break out of retry loop
+                                    println!("found");
                                     break;
                                 } else {
                                     last_error = Some(format!(
@@ -312,7 +315,7 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 }
                 // If we got here and there's still an error, panic on the last attempt
                 if let Some(error) = last_error {
-                    panic!("{error}");
+                    panic!("Step {step} - {error}");
                 }
                 println!("check passed");
             }
@@ -324,6 +327,7 @@ pub async fn create_edge_runtime() -> SwbusEdgeRuntime {
     let mut swbus_edge: SwbusEdgeRuntime = SwbusEdgeRuntime::new(
         "none".to_string(),
         ServicePath::from_string("unknown.unknown.unknown/hamgrd/0").unwrap(),
+        ConnectionType::InNode,
     );
     swbus_edge.start().await.unwrap();
     swbus_edge
@@ -524,7 +528,7 @@ pub fn make_dpu_scope_ha_set_obj(switch: u16, dpu: u16) -> (String, DashHaSetTab
         vip_v4: ip_to_string(&haset_cfg.vip_v4.unwrap()),
         vip_v6: Some(ip_to_string(&haset_cfg.vip_v6.unwrap())),
         owner: None,
-        scope: Some("ha_scope_dpu".to_string()),
+        scope: Some("dpu".to_string()),
         local_npu_ip: format!("10.0.{switch}.{dpu}"),
         local_ip: format!("18.0.{switch}.{dpu}"),
         peer_ip: format!("18.0.{}.{dpu}", switch_pair_id * 2 + 1),

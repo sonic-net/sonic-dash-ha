@@ -295,7 +295,7 @@ pub struct DashHaScopeTable {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
 #[sonicdb(
-    table_name = "DASH_HA_SCOPE_STATE",
+    table_name = "DASH_HA_SCOPE_STATE_TABLE",
     key_separator = "|",
     db_name = "DPU_STATE_DB",
     is_dpu = "true"
@@ -310,10 +310,13 @@ pub struct DpuDashHaScopeState {
     // The current term confirmed by ASIC.
     pub ha_term: String,
     // DPU is pending on role activation.
+    #[serde(default)]
     pub activate_role_pending: bool,
     // Flow reconcile is requested and pending approval.
+    #[serde(default)]
     pub flow_reconcile_pending: bool,
     // Brainsplit is detected, and DPU is pending on recovery.
+    #[serde(default)]
     pub brainsplit_recover_pending: bool,
 }
 

@@ -1,6 +1,6 @@
 use std::{mem, time::Duration};
 use swbus_actor::{Actor, ActorMessage, ActorRuntime, Context, Result, State};
-use swbus_edge::{swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
+use swbus_edge::{swbus_proto::swbus::ConnectionType, swbus_proto::swbus::ServicePath, SwbusEdgeRuntime};
 use tokio::{
     sync::oneshot::{channel, Sender},
     time::timeout,
@@ -12,7 +12,7 @@ fn sp(name: &str) -> ServicePath {
 
 #[tokio::test]
 async fn echo() {
-    let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"));
+    let mut swbus_edge = SwbusEdgeRuntime::new("none".to_string(), sp("none"), ConnectionType::InNode);
     swbus_edge.start().await.unwrap();
     let actor_runtime = ActorRuntime::new(swbus_edge.into());
     swbus_actor::set_global_runtime(actor_runtime);

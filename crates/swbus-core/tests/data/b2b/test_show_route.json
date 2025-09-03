@@ -42,18 +42,24 @@
                   "error_code": 1,
                   "error_message": "",
                   "response_body": {
-                    "RouteQueryResult": {
+                    "RouteEntries": {
                       "entries": [
                         {
                           "service_path": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
                           "nh_service_path": "region-a.cluster-a.10.0.0.1-dpu0/testsvc/0",
-                          "nh_scope": 1,
+                          "route_scope": 0,
                           "hop_count": 1
                         },
                         {
                           "service_path": "region-a.cluster-a.10.0.0.2-dpu0",
                           "nh_service_path": "region-a.cluster-a.10.0.0.2-dpu0",
-                          "nh_scope": 2,
+                          "route_scope": 2,
+                          "hop_count": 1
+                        },
+                        {
+                          "service_path": "region-a.cluster-a.10.0.0.2-dpu0",
+                          "nh_service_path": "region-a.cluster-a.10.0.0.2-dpu0",
+                          "route_scope": 2,
                           "hop_count": 1
                         }
                       ]

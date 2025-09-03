@@ -1,3 +1,4 @@
+use super::get_unix_time;
 use crate::actor_message::{actor_msg_to_swbus_msg, ActorMessage};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,8 +11,7 @@ use swbus_edge::{
     swbus_proto::swbus::{ServicePath, SwbusErrorCode, SwbusMessage},
 };
 use tokio::time::{interval, Interval};
-
-use super::get_unix_time;
+use tracing::debug;
 
 const RESEND_TIME: Duration = Duration::from_secs(60);
 
@@ -59,6 +59,7 @@ impl Outgoing {
     /// Actor logic succeeded, so send out messages.
     pub(crate) async fn send_queued_messages(&mut self) {
         for msg in self.queued_messages.drain(..) {
+            debug!("Sending message: {msg:?}");
             self.swbus_client
                 .send_raw(msg.swbus_message.clone())
                 .await
@@ -148,6 +149,11 @@ impl Outgoing {
     {
         let resource_id = format!("{}|{}", T::db_name(), T::table_name());
         self.from_my_sp("swss-common-bridge", &resource_id)
+    }
+
+    /// Check if there are no unacked messages
+    pub fn ready_for_delete(&self) -> bool {
+        self.unacked_messages.is_empty()
     }
 
     pub(crate) fn dump_state(&self) -> OutgoingStateData {
