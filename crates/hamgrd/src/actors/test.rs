@@ -594,6 +594,8 @@ pub fn make_dpu_ha_scope_state(role: &str) -> DpuDashHaScopeState {
         ha_role_start_time: now_in_millis(),
         // The current term confirmed by ASIC.
         ha_term: "1".to_string(),
+        // The DPU HA state.
+        ha_state: role.to_string(),
         activate_role_pending: false,
         flow_reconcile_pending: false,
         brainsplit_recover_pending: false,

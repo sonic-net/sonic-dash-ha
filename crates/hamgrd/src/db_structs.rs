@@ -309,6 +309,8 @@ pub struct DpuDashHaScopeState {
     pub ha_role_start_time: i64,
     // The current term confirmed by ASIC.
     pub ha_term: String,
+    // The DPU ha state.
+    pub ha_state: String,
     // DPU is pending on role activation.
     #[serde(default)]
     pub activate_role_pending: bool,
