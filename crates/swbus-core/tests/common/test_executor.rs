@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use sonic_common::log::init_logger_for_test;
 use std::collections::HashMap;
 use std::env;
 use std::fs::{self, File};
@@ -12,7 +11,6 @@ use swbus_proto::swbus::*;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{self, Duration, Instant};
-use tracing_subscriber::{fmt, prelude::*, Layer};
 
 // 3 seconds receive timeout
 pub const RECEIVE_TIMEOUT: u32 = 3;
@@ -82,8 +80,6 @@ impl TopoRuntime {
     /// The client configurations are a map of client names to the client configuration.
     /// The client configuration contains the server (swbusd) name where the client is connected and the service path of the client.
     pub async fn bring_up(&mut self) {
-        init_logger_for_test();
-
         let file = File::open(&self.topo_file).unwrap();
         let reader = BufReader::new(file);
 
@@ -249,29 +245,4 @@ async fn record_received_messages(topo: &mut TopoRuntime, timeout: u32) -> Vec<M
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
     responses
-}
-
-pub fn init_logger() {
-    let stdout_level = tracing::level_filters::LevelFilter::DEBUG;
-    // Create a stdout logger for `info!` and lower severity levels
-    let stdout_layer = fmt::layer()
-        .with_writer(std::io::stdout)
-        .without_time()
-        .with_target(false)
-        .with_level(false)
-        .with_filter(stdout_level);
-
-    // Create a stderr logger for `error!` and higher severity levels
-    let stderr_layer = fmt::layer()
-        .with_writer(std::io::stderr)
-        .without_time()
-        .with_target(false)
-        .with_level(false)
-        .with_filter(tracing::level_filters::LevelFilter::ERROR);
-
-    // Combine the layers and set them as the global subscriber
-    tracing_subscriber::registry()
-        .with(stdout_layer)
-        .with(stderr_layer)
-        .init();
 }

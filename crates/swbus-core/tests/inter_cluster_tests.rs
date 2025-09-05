@@ -1,15 +1,9 @@
 mod common;
-use common::test_executor::{init_logger, run_tests, TopoRuntime};
-
+use common::test_executor::{run_tests, TopoRuntime};
+use sonic_common::log::init_logger_for_test;
 #[tokio::test]
 async fn test_inter_cluster() {
-    let trace_enabled: bool = std::env::var("ENABLE_TRACE")
-        .map(|val| val == "1" || val.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-
-    if trace_enabled {
-        init_logger();
-    }
+    init_logger_for_test();
 
     let mut topo = TopoRuntime::new("tests/data/inter-cluster/topo.json");
     topo.bring_up().await;

@@ -13,7 +13,7 @@
                 "flag": 0,
                 "ttl": 1,
                 "source": "region-a.cluster-a.node1/testsvc/0",
-                "destination": "region-a.cluster-b.node1"
+                "destination": "region-a.cluster-a.node1"
               },
               "body": {
                 "ManagementRequest": {
