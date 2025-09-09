@@ -404,7 +404,7 @@ impl HaScopeActor {
         };
 
         // in dpu driven mode, local_ha_state is same as dpu acked ha state
-        npu_ha_scope_state.local_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
+        npu_ha_scope_state.local_ha_state = Some(dpu_ha_scope_state.ha_state.clone());
         npu_ha_scope_state.local_ha_state_last_updated_time_in_ms = Some(dpu_ha_scope_state.ha_role_start_time);
         // The reason of the last HA state change.
         npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
@@ -418,7 +418,7 @@ impl HaScopeActor {
             .to_lowercase(),
         );
         // The HA state that ASIC acked.
-        npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
+        npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_state.clone());
 
         // The current target term of the HA state machine. in dpu-driven mode, use the term acked by asic
         npu_ha_scope_state.local_target_term = Some(dpu_ha_scope_state.ha_term.clone());
