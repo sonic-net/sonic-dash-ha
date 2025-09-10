@@ -13,8 +13,6 @@ members = [
     "crates/swbus-actor",
     "crates/swss-common-bridge",
     "crates/container",
-    "crates/sonicdb-derive",
-    "crates/sonic-dash-api-proto"
 ]
 exclude = []
 
@@ -95,14 +93,18 @@ swbus-edge = { version = "0.1.0", path = "crates/swbus-edge" }
 swbus-config = { version = "0.1.0", path = "crates/swbus-config" }
 swss-serde = { version = "0.1.0", path = "crates/swss-serde" }
 swbus-actor = { version = "0.1.0", path = "crates/swbus-actor" }
-sonicdb-derive = { version = "0.1.0", path = "crates/sonicdb-derive" }
-sonic-dash-api-proto = { version = "0.1.0", path = "crates/sonic-dash-api-proto" }
-swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common-bridge = { version = "0.1.0", path = "crates/swss-common-bridge" }
+sonic-dash-api-proto = { git = "https://github.com/yue-fred-gao/sonic-dash-api.git", branch = "add_rust_crate" }
+#swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common = { git = "https://github.com/yue-fred-gao/sonic-swss-common.git", branch = "relocate_sonicdb", features = ["async"] }
+sonicdb-derive = { git = "https://github.com/yue-fred-gao/sonic-swss-common.git", branch = "relocate_sonicdb" }
+sonicdb = { git = "https://github.com/yue-fred-gao/sonic-swss-common.git", branch = "relocate_sonicdb" }
 
 # Dev dependencies
 criterion = "0.5"
 fakeit = "1.1"
 pretty_assertions = "1"
+swss-common-testing = { git = "https://github.com/yue-fred-gao/sonic-swss-common.git", branch = "relocate_sonicdb" }
 
 # Build dependencies
 tonic-build = "0.12"
