@@ -9,7 +9,7 @@ pub mod vdpu;
 #[cfg(test)]
 pub mod test;
 use anyhow::Result as AnyhowResult;
-use sonic_common::SonicDbTable;
+use sonicdb::SonicDbTable;
 use std::sync::Arc;
 use swbus_actor::{spawn, Actor, ActorMessage};
 use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;

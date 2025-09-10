@@ -24,7 +24,6 @@ stages:
     steps:
     - checkout: self
       clean: true
-      submodules: true
 
     - script: |
         set -exuo pipefail

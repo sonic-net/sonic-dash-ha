@@ -24,7 +24,7 @@ signal-hook.workspace = true
 color-eyre.workspace = true
 
 # internal dependencies
-swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common.workspace = true
 
 # Utils
 lazy_static.workspace = true

@@ -1,5 +1,5 @@
 use crate::TableCache;
-use sonic_common::SonicDbTable;
+use sonicdb::SonicDbTable;
 use std::{future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
