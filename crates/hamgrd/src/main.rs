@@ -21,10 +21,10 @@ use tracing::error;
 mod actors;
 mod db_structs;
 mod ha_actor_messages;
-use actors::spawn_zmq_producer_bridge;
 use actors::{dpu::DpuActor, ha_scope::HaScopeActor, ha_set::HaSetActor, vdpu::VDpuActor, DbBasedActor};
+use actors::{spawn_vanilla_producer_bridge, spawn_zmq_producer_bridge};
 use anyhow::Result;
-use db_structs::{BfdSessionTable, DashHaScopeTable, DashHaSetTable, Dpu, VDpu};
+use db_structs::{BfdSessionTable, DashHaScopeTable, DashHaSetTable, Dpu, VDpu, VnetRouteTunnelTable};
 use lazy_static::lazy_static;
 use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use std::any::Any;
@@ -152,6 +152,8 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
     let handle = spawn_zmq_producer_bridge::<DashHaScopeTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
+    let handle = spawn_vanilla_producer_bridge::<VnetRouteTunnelTable>(edge_runtime.clone()).await?;
+    handles.push(handle);
     Ok(handles)
 }
 
