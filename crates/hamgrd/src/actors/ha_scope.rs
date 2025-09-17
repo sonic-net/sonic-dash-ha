@@ -57,20 +57,28 @@ impl HaScopeActor {
     // get vdpu data received via vdpu udpate
     fn get_vdpu(&self, incoming: &Incoming) -> Option<VDpuActorState> {
         let key = VDpuActorState::msg_key(&self.vdpu_id);
-        let Ok(msg) = incoming.get(&key) else {
-            return None;
-        };
-        msg.deserialize_data().ok()
+        let msg = incoming.get(&key)?;
+        match msg.deserialize_data() {
+            Ok(data) => Some(data),
+            Err(e) => {
+                error!("Failed to deserialize VDpuActorState from message: {}", e);
+                None
+            }
+        }
     }
 
     fn get_haset(&self, incoming: &Incoming) -> Option<HaSetActorState> {
         let ha_set_id = self.get_haset_id()?;
 
         let key = HaSetActorState::msg_key(&ha_set_id);
-        let Ok(msg) = incoming.get(&key) else {
-            return None;
-        };
-        msg.deserialize_data().ok()
+        let msg = incoming.get(&key)?;
+        match msg.deserialize_data() {
+            Ok(data) => Some(data),
+            Err(e) => {
+                error!("Failed to deserialize HaSetActorState from message: {}", e);
+                None
+            }
+        }
     }
 
     fn get_haset_id(&self) -> Option<String> {
@@ -79,9 +87,7 @@ impl HaScopeActor {
     }
 
     fn get_dpu_ha_scope_state(&self, incoming: &Incoming) -> Option<DpuDashHaScopeState> {
-        let Ok(msg) = incoming.get(DpuDashHaScopeState::table_name()) else {
-            return None;
-        };
+        let msg = incoming.get(DpuDashHaScopeState::table_name())?;
         let kfv = match msg.deserialize_data::<KeyOpFieldValues>() {
             Ok(data) => data,
             Err(e) => {
@@ -478,7 +484,7 @@ impl HaScopeActor {
         let (_internal, incoming, outgoing) = state.get_all();
 
         // Retrieve the config update from the incoming message
-        let kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
+        let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
 
         if kfv.operation == KeyOperation::Del {
             // cleanup resources before stopping
