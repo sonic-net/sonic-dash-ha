@@ -48,7 +48,10 @@ impl Actor for EchoClient {
 
         // Assert that the incoming table has messages 0..=count still cached
         for i in 0..=count {
-            let n = state.incoming().get(&format!("{i}"))?.deserialize_data::<u32>()?;
+            let n = state
+                .incoming()
+                .get_or_fail(&format!("{i}"))?
+                .deserialize_data::<u32>()?;
             assert_eq!(n, i);
         }
 
