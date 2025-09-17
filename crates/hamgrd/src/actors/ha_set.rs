@@ -3,10 +3,10 @@ use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use anyhow::{anyhow, Result};
-use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
 use sonic_dash_api_proto::ip_to_string;
+use sonicdb::SonicDbTable;
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, outgoing::Outgoing},
@@ -489,9 +489,9 @@ mod test {
         db_structs::*,
         ha_actor_messages::*,
     };
-    use sonic_common::SonicDbTable;
     use sonic_dash_api_proto::ha_set_config::HaSetConfig;
     use sonic_dash_api_proto::ip_to_string;
+    use sonicdb::SonicDbTable;
     use std::collections::HashMap;
     use std::time::Duration;
     use swss_common::CxxString;

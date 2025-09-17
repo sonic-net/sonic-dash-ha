@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Ok};
 use clap::Parser;
 use sonic_common::log;
-use sonic_common::SonicDbTable;
+use sonicdb::SonicDbTable;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::{
     sync::{Arc, Mutex},
@@ -231,7 +231,7 @@ impl RuntimeData {
 
 pub fn common_bridge_sp<T>(runtime: &SwbusEdgeRuntime) -> ServicePath
 where
-    T: sonic_common::SonicDbTable + 'static,
+    T: SonicDbTable + 'static,
 {
     let mut new_sp = runtime.get_base_sp();
     new_sp.resource_type = "swss-common-bridge".into();

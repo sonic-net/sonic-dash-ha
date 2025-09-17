@@ -9,8 +9,9 @@ keywords.workspace = true
 edition.workspace = true
 
 [dependencies]
-swbus-edge = { path = "../swbus-edge" }
-swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master", features = ["async"]  }
+swbus-edge.workspace = true
+swss-common.workspace = true
+sonicdb.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,4 +24,4 @@ sonic-common.workspace = true
 workspace = true
 
 [dev-dependencies]
-swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common-testing.workspace = true

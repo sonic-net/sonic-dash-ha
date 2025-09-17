@@ -9,11 +9,12 @@ keywords.workspace = true
 edition.workspace = true
 
 [dependencies]
-swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master", features = ["async"]  }
-swbus-edge = { path = "../swbus-edge" }
+swss-common.workspace = true
+sonicdb.workspace = true
+swbus-edge.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-swbus-actor = { path = "../swbus-actor" }
+swbus-actor.workspace = true
 anyhow.workspace = true
 sonic-dash-api-proto.workspace = true
 prost.workspace = true
@@ -27,4 +28,4 @@ sonic-common.workspace = true
 workspace = true
 
 [dev-dependencies]
-swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
+swss-common-testing.workspace = true

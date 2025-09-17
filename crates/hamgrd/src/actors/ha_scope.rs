@@ -3,9 +3,9 @@ use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
-use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
+use sonicdb::SonicDbTable;
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
@@ -672,9 +672,9 @@ mod test {
         db_structs::{now_in_millis, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState},
         ha_actor_messages::*,
     };
-    use sonic_common::SonicDbTable;
     use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
     use sonic_dash_api_proto::types::HaOwner;
+    use sonicdb::SonicDbTable;
     use std::time::Duration;
     use swss_common::Table;
     use swss_common_testing::*;
