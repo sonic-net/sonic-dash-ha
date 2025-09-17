@@ -238,3 +238,9 @@ pub struct OutgoingMessage {
     pub destination: ServicePath,
     pub body: MessageBody,
 }
+
+impl Drop for SimpleSwbusEdgeClient {
+    fn drop(&mut self) {
+        self.rt.remove_handler(&self.source);
+    }
+}

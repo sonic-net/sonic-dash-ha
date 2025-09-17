@@ -289,7 +289,7 @@ where
 
     let sp = crate::common_bridge_sp::<T>(&edge_runtime);
     info!(
-        "spawned ZMQ producer bridge for {} at {}",
+        "spawned producer bridge for {} at {}",
         T::table_name(),
         sp.to_longest_path()
     );
