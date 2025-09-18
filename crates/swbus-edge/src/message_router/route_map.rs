@@ -26,4 +26,8 @@ impl RouteMap {
     pub(super) fn remove(&self, svc_path: &ServicePath) -> Option<(SwbusMessageHandlerProxy, Privacy)> {
         self.0.remove(svc_path).map(|(_, value)| value)
     }
+
+    pub(super) fn contains(&self, svc_path: &ServicePath) -> bool {
+        self.0.contains_key(svc_path)
+    }
 }

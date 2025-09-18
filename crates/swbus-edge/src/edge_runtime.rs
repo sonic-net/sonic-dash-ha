@@ -91,6 +91,11 @@ impl SwbusEdgeRuntime {
         }
     }
 
+    /// Check if a handler exists for the given ServicePath.
+    pub fn has_handler(&self, svc_path: &ServicePath) -> bool {
+        self.message_router.has_route(svc_path)
+    }
+
     pub async fn send(&self, message: SwbusMessage) -> Result<()> {
         // Send message to the message router
         match self.sender_to_message_router.send(message).await {

@@ -81,6 +81,10 @@ impl SwbusMessageRouter {
         self.routes.remove(svc_path).map(|(handler, _)| handler)
     }
 
+    pub fn has_route(&self, svc_path: &ServicePath) -> bool {
+        self.routes.contains(svc_path)
+    }
+
     async fn route_message(
         swbus_client: &mut SwbusCoreClient,
         routes: &RouteMap,
