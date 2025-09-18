@@ -48,7 +48,7 @@ struct VDpuStateExt {
 
 impl HaSetActor {
     fn get_dash_global_config(incoming: &Incoming) -> Option<DashHaGlobalConfig> {
-        let Some(msg) = incoming.get(DashHaGlobalConfig::table_name()) else {
+        let Ok(msg) = incoming.get(DashHaGlobalConfig::table_name()) else {
             debug!("DASH_HA_GLOBAL_CONFIG table is not available");
             return None;
         };
@@ -283,14 +283,10 @@ impl HaSetActor {
     // get vdpu data received via vdpu udpate
     fn get_vdpu(&self, incoming: &Incoming, vdpu_id: &str) -> Option<VDpuActorState> {
         let key = VDpuActorState::msg_key(vdpu_id);
-        let msg = incoming.get(&key)?;
-        match msg.deserialize_data() {
-            Ok(vdpu) => Some(vdpu),
-            Err(e) => {
-                error!("Failed to deserialize VDpuActorState from the message: {}", e);
-                None
-            }
-        }
+        let Ok(msg) = incoming.get(&key) else {
+            return None;
+        };
+        msg.deserialize_data().ok()
     }
 
     /// Get vdpu data received via vdpu update and return them in a list with primary DPUs first.
@@ -355,7 +351,7 @@ impl HaSetActor {
         context: &mut Context,
     ) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
             // cleanup resources before stopping
             if let Err(e) = self.do_cleanup(state) {
@@ -417,9 +413,7 @@ impl HaSetActor {
     async fn handle_haset_state_registration(&mut self, state: &mut State, key: &str) -> Result<()> {
         let (_, incoming, outgoing) = state.get_all();
 
-        let entry = incoming
-            .get_entry(key)
-            .ok_or_else(|| anyhow!("Entry not found for key: {}", key))?;
+        let entry = incoming.get_entry(key)?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
             let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {

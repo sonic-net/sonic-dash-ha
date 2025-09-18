@@ -12,7 +12,7 @@ use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, A
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
 use swss_common_bridge::consumer::ConsumerBridge;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 use super::spawn_consumer_bridge_for_actor_with_selector;
 
@@ -60,30 +60,19 @@ impl DpuActor {
         RemoteDpu::table_name()
     }
 
-    fn get_dpu_state(incoming: &Incoming) -> Result<Option<DpuState>> {
-        match incoming.get(DpuState::table_name()) {
-            Some(msg) => {
-                let dpu_state_kfv: KeyOpFieldValues = msg.deserialize_data()?;
-                Ok(Some(swss_serde::from_field_values(&dpu_state_kfv.field_values)?))
-            }
-            None => Ok(None),
-        }
+    fn get_dpu_state(incoming: &Incoming) -> Result<DpuState> {
+        let dpu_state_kfv: KeyOpFieldValues = incoming.get(DpuState::table_name())?.deserialize_data()?;
+        Ok(swss_serde::from_field_values(&dpu_state_kfv.field_values)?)
     }
 
-    fn get_bfd_probe_state(incoming: &Incoming) -> Result<Option<DashBfdProbeState>> {
-        match incoming.get(DashBfdProbeState::table_name()) {
-            Some(msg) => {
-                let bfd_probe_kfv: KeyOpFieldValues = msg.deserialize_data()?;
-                Ok(Some(swss_serde::from_field_values(&bfd_probe_kfv.field_values)?))
-            }
-            None => Ok(None),
-        }
+    fn get_bfd_probe_state(incoming: &Incoming) -> Result<DashBfdProbeState> {
+        let bfd_probe_kfv: KeyOpFieldValues = incoming.get(DashBfdProbeState::table_name())?.deserialize_data()?;
+        Ok(swss_serde::from_field_values(&bfd_probe_kfv.field_values)?)
     }
 
     fn get_dash_ha_global_config(incoming: &Incoming) -> Result<DashHaGlobalConfig> {
-        let ha_global_config_kfv: KeyOpFieldValues = incoming
-            .get_or_fail(DashHaGlobalConfig::table_name())?
-            .deserialize_data()?;
+        let ha_global_config_kfv: KeyOpFieldValues =
+            incoming.get(DashHaGlobalConfig::table_name())?.deserialize_data()?;
         Ok(swss_serde::from_field_values(&ha_global_config_kfv.field_values)?)
     }
 
@@ -144,7 +133,7 @@ impl DpuActor {
 
     async fn handle_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
             self.do_cleanup(context, state);
             context.stop();
@@ -244,16 +233,16 @@ impl DpuActor {
         }
         // Check pmon state from DPU_STATE table
         let dpu_state = match Self::get_dpu_state(incoming) {
-            Ok(dpu_state) => dpu_state,
+            Ok(dpu_state) => Some(dpu_state),
             Err(e) => {
-                error!("Failed to decode DPU_STATE. Error: {}", e);
+                info!("Not able to get DPU state. Assume DPU is down. Error: {}", e);
                 None
             }
         };
         let bfd_probe_state = match Self::get_bfd_probe_state(incoming) {
-            Ok(bfd_probe_state) => bfd_probe_state,
+            Ok(bfd_probe_state) => Some(bfd_probe_state),
             Err(e) => {
-                error!("Failed to decode DASH_BFD_PROBE_STATE. Error: {}", e);
+                debug!("Not able to get BFD probe state. Error: {}", e);
                 None
             }
         };
@@ -321,9 +310,7 @@ impl DpuActor {
 
     // handle DPU state registration request. In response to the request, this actor will send its current state.
     fn handle_dpu_state_registration(&mut self, key: &str, incoming: &Incoming, outgoing: &mut Outgoing) -> Result<()> {
-        let entry = incoming
-            .get_entry(key)
-            .ok_or_else(|| anyhow!("Entry not found for key: {}", key))?;
+        let entry = incoming.get_entry(key)?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
             self.update_dpu_state(incoming, outgoing, Some(entry.source.clone()))?;
@@ -419,7 +406,7 @@ impl DpuActor {
         context: &mut Context,
     ) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
             context.stop();
             return Ok(());
@@ -434,7 +421,7 @@ impl DpuActor {
 
     fn handle_remote_dpu_message_to_local_dpu(&mut self, state: &mut State, key: &str) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
 
         let remote_dpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
 

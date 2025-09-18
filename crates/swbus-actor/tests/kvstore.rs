@@ -354,7 +354,7 @@ impl Actor for KVClient {
         }
 
         assert_eq!(key, "kv-get");
-        let KVGetResult { key, val } = state.incoming().get_or_fail(key)?.deserialize_data::<KVGetResult>()?;
+        let KVGetResult { key, val } = state.incoming().get(key)?.deserialize_data::<KVGetResult>()?;
 
         match &*key {
             "count" => {

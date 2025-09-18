@@ -40,7 +40,7 @@ impl State {
     /// # fn foo() -> anyhow::Result<()> {
     /// # let state: swbus_actor::State = todo!();
     /// let (internal, incoming, outgoing) = state.get_all();
-    /// let x = incoming.get_or_fail("x")?;
+    /// let x = incoming.get("x")?;
     /// let tbl = internal.get_mut("tbl");
     /// tbl["x"] = x.deserialize_data::<String>()?.into();
     /// // Ok
