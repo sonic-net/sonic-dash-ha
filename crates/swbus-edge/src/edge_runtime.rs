@@ -74,6 +74,28 @@ impl SwbusEdgeRuntime {
         self.message_router.add_private_route(svc_path, proxy);
     }
 
+    /// Remove handler by ServicePath.
+    pub fn remove_handler(&self, svc_path: &ServicePath) -> bool {
+        match self.message_router.remove_route(svc_path) {
+            Some(_) => {
+                info!("Removed handler for service path: {}", svc_path.to_longest_path());
+                true
+            }
+            None => {
+                info!(
+                    "No handler found to remove for service path: {}",
+                    svc_path.to_longest_path()
+                );
+                false
+            }
+        }
+    }
+
+    /// Check if a handler exists for the given ServicePath.
+    pub fn has_handler(&self, svc_path: &ServicePath) -> bool {
+        self.message_router.has_route(svc_path)
+    }
+
     pub async fn send(&self, message: SwbusMessage) -> Result<()> {
         // Send message to the message router
         match self.sender_to_message_router.send(message).await {
