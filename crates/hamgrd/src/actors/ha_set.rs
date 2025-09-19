@@ -199,8 +199,8 @@ impl HaSetActor {
 
         for vdpu_ext in vdpus {
             if !vdpu_ext.vdpu.dpu.remote_dpu {
-                // if it is locally managed dpu, use dpu pa_ipv4 as endpoint
-                endpoint.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
+                // if it is locally managed dpu, use local nexthop as endpoint
+                endpoint.push(vdpu_ext.vdpu.dpu.local_nexthop_ip.clone());
             } else {
                 endpoint.push(vdpu_ext.vdpu.dpu.npu_ipv4.clone());
             }
@@ -208,7 +208,7 @@ impl HaSetActor {
             endpoint_monitor.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
             if vdpu_ext.is_primary {
                 if !vdpu_ext.vdpu.dpu.remote_dpu {
-                    primary.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
+                    primary.push(vdpu_ext.vdpu.dpu.local_nexthop_ip.clone());
                 } else {
                     primary.push(vdpu_ext.vdpu.dpu.npu_ipv4.clone());
                 }
