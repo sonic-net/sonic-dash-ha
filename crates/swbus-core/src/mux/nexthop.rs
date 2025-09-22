@@ -114,7 +114,7 @@ impl SwbusNextHop {
             NextHopType::Remote => {
                 let header: &mut SwbusMessageHeader = message.header.as_mut().expect("missing header"); // should not happen otherwise it won't reach here
                 header.ttl -= 1;
-                if header.ttl == 0 {
+                if header.ttl < self.hop_count {
                     debug!("TTL expired");
                     let response = SwbusMessage::new_response(
                         message.header.as_ref().unwrap(),

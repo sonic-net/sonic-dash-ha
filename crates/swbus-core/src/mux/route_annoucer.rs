@@ -99,7 +99,7 @@ impl RouteAnnouncer {
     #[instrument(name = "send_route_announcement", level = "debug", skip_all)]
     async fn send_route_announcement(&self, conn_info: &SwbusConnInfo, routes: &RouteEntries) -> Result<()> {
         let dest_sp = conn_info.remote_service_path().clone();
-        let msg = SwbusMessage {
+        let mut msg = SwbusMessage {
             header: Some(SwbusMessageHeader::new(
                 self.mux.get_my_service_path().clone(),
                 dest_sp,
@@ -107,6 +107,8 @@ impl RouteAnnouncer {
             )),
             body: Some(swbus_message::Body::RouteAnnouncement(routes.clone())),
         };
+        // count itself as 1 hop. The message is only meant for direct neighbors
+        msg.header.as_mut().unwrap().ttl = 2;
         debug!(
             "Sending route announcement to {}, conn_info {:?}, message {:?}",
             conn_info.remote_service_path(),

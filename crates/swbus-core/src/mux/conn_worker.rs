@@ -148,9 +148,15 @@ where
                 }
             }
             Some(swbus_message::Body::RouteAnnouncement(route_entries)) => {
-                // drop route announcement message
-                debug!("Received route announcement");
-                self.mux.process_route_announcement(route_entries, &self.info)?;
+                let my_sp = self.mux.get_my_service_path();
+                if message.header.as_ref().unwrap().destination.as_ref().unwrap() == my_sp {
+                    // Message is destined for this service, process it locally
+                    debug!("Received route announcement");
+                    self.mux.process_route_announcement(route_entries, &self.info)?;
+                } else {
+                    // drop route announcement message
+                    debug!("Dropping route announcement not destined for me");
+                }
             }
             Some(swbus_message::Body::ManagementRequest(ref mgmt_request)) => {
                 let my_sp = self.mux.get_my_service_path();
