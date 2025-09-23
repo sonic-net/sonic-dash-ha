@@ -195,18 +195,33 @@ impl HaSetActor {
         let mut endpoint_monitor = Vec::new();
         let mut primary = Vec::new();
         let mut check_directly_connected = false;
+        let mut any_managed = false;
 
         for vdpu_ext in vdpus {
-            if vdpu_ext.vdpu.dpu.is_managed {
-                // if it is locally managed dpu, use dpu pa_ipv4 as endpoint
-                endpoint.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
+            if !vdpu_ext.vdpu.dpu.remote_dpu {
+                // if it is locally managed dpu, use local nexthop as endpoint
+                endpoint.push(vdpu_ext.vdpu.dpu.local_nexthop_ip.clone());
             } else {
                 endpoint.push(vdpu_ext.vdpu.dpu.npu_ipv4.clone());
             }
 
             endpoint_monitor.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
-            primary.push(vdpu_ext.is_primary.to_string());
-            check_directly_connected |= vdpu_ext.vdpu.dpu.is_managed;
+            if vdpu_ext.is_primary {
+                if !vdpu_ext.vdpu.dpu.remote_dpu {
+                    primary.push(vdpu_ext.vdpu.dpu.local_nexthop_ip.clone());
+                } else {
+                    primary.push(vdpu_ext.vdpu.dpu.npu_ipv4.clone());
+                }
+            }
+            check_directly_connected |= !vdpu_ext.vdpu.dpu.remote_dpu;
+            any_managed |= vdpu_ext.vdpu.dpu.is_managed;
+        }
+
+        if check_directly_connected && !any_managed {
+            debug!(
+                "Skipping VnetRouteTunnelTable update as directly connected DPU and no locally managed DPU are present."
+            );
+            return Ok(());
         }
 
         // update vnet route tunnel table
@@ -544,7 +559,7 @@ mod test {
                 vdpu1_state_obj.dpu.pa_ipv4.clone(),
             ]),
             monitoring: None,
-            primary: Some(vec!["true".to_string(), "false".to_string()]),
+            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(true),
@@ -637,7 +652,7 @@ mod test {
                 vdpu1_state_obj.dpu.pa_ipv4.clone(),
             ]),
             monitoring: None,
-            primary: Some(vec!["true".to_string(), "false".to_string()]),
+            primary: Some(vec![vdpu0_state_obj.dpu.npu_ipv4.clone()]),
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(false),
