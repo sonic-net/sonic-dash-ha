@@ -169,7 +169,7 @@ mod tests {
             "header": {
                 "version": 1,
                 "flag": 0,
-                "ttl": 63,
+                "ttl": 1,
                 "source": "region-a.cluster-a.node0",
                 "destination": "region-a.cluster-a.node1"
             },
@@ -213,7 +213,7 @@ mod tests {
             "header": {
                 "version": 1,
                 "flag": 0,
-                "ttl": 63,
+                "ttl": 1,
                 "source": "region-a.cluster-a.node0",
                 "destination": "region-a.cluster-a.node2"
             },
