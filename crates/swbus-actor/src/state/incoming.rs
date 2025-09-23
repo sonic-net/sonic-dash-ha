@@ -15,13 +15,17 @@ pub struct Incoming {
 }
 
 impl Incoming {
-    pub fn get(&self, key: &str) -> Result<&ActorMessage> {
+    pub fn get(&self, key: &str) -> Option<&ActorMessage> {
         self.get_entry(key).map(|entry| &entry.msg)
     }
 
-    pub fn get_entry(&self, key: &str) -> Result<&IncomingTableEntry> {
-        self.table
-            .get(key)
+    pub fn get_entry(&self, key: &str) -> Option<&IncomingTableEntry> {
+        self.table.get(key)
+    }
+
+    pub fn get_or_fail(&self, key: &str) -> Result<&ActorMessage> {
+        self.get_entry(key)
+            .map(|entry| &entry.msg)
             .ok_or_else(|| anyhow!("Incoming state table has no key '{key}'"))
     }
 
@@ -209,6 +213,10 @@ mod test {
 
         assert_eq!(incoming.get_entry("actor_registration-source/0").unwrap().msg, msg1);
         assert_eq!(incoming.get_entry("actor_registration-source/1").unwrap().msg, msg2);
+
+        // Test get_or_fail
+        assert_eq!(incoming.get_or_fail("actor_registration-source/0").unwrap(), &msg1);
+        assert!(incoming.get_or_fail("nonexistent").is_err());
 
         let regs = incoming.get_by_prefix("actor_registration-");
         assert_eq!(regs.len(), 2);
