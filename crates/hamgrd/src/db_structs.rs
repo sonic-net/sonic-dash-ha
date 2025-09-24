@@ -43,6 +43,7 @@ pub struct Dpu {
     pub vip_ipv6: Option<String>,
     pub pa_ipv4: String,
     pub pa_ipv6: Option<String>,
+    pub local_nexthop_ip: String,
     pub dpu_id: u32,
     pub vdpu_id: Option<String>,
     pub orchagent_zmq_port: u16,
@@ -144,7 +145,6 @@ impl Default for DpuState {
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/BFD/SmartSwitchDpuLivenessUsingBfd.md#27-dpu-bfd-session-state-updates>
-#[serde_as]
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, SonicDb)]
 #[sonicdb(
     table_name = "DASH_BFD_PROBE_STATE",
@@ -153,8 +153,11 @@ impl Default for DpuState {
     is_dpu = "true"
 )]
 pub struct DashBfdProbeState {
-    #[serde(default)]
-    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    #[serde(
+        default,
+        deserialize_with = "string_array_deserialize",
+        serialize_with = "string_array_serialize"
+    )]
     pub v4_bfd_up_sessions: Vec<String>,
     #[serde(
         default = "now_in_millis",
@@ -162,8 +165,11 @@ pub struct DashBfdProbeState {
         serialize_with = "timestamp_serialize"
     )]
     pub v4_bfd_up_sessions_timestamp: i64,
-    #[serde(default)]
-    #[serde_as(as = "StringWithSeparator::<CommaSeparator, String>")]
+    #[serde(
+        default,
+        deserialize_with = "string_array_deserialize",
+        serialize_with = "string_array_serialize"
+    )]
     pub v6_bfd_up_sessions: Vec<String>,
     #[serde(
         default = "now_in_millis",
@@ -194,6 +200,47 @@ where
     serializer.serialize_str(&formatted)
 }
 
+fn string_array_deserialize<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Handle both missing fields and present fields
+    let opt: Option<String> = Option::deserialize(deserializer)?;
+    match opt {
+        Some(s) => {
+            if s.trim().is_empty() {
+                return Ok(Vec::new());
+            }
+
+            let sessions: Vec<String> = s
+                .split(',')
+                .map(|item| {
+                    // Trim whitespace around each item
+                    let trimmed = item.trim();
+                    // Remove enclosing single or double quotes if present
+                    let trimmed = trimmed.strip_prefix('"').unwrap_or(trimmed);
+                    let trimmed = trimmed.strip_suffix('"').unwrap_or(trimmed);
+                    let trimmed = trimmed.strip_prefix('\'').unwrap_or(trimmed);
+                    let trimmed = trimmed.strip_suffix('\'').unwrap_or(trimmed);
+                    trimmed.to_string()
+                })
+                .filter(|item| !item.is_empty()) // Filter out empty strings
+                .collect();
+
+            Ok(sessions)
+        }
+        None => Ok(Vec::new()), // Use empty vector when field is missing
+    }
+}
+
+fn string_array_serialize<S>(sessions: &[String], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let joined = sessions.join(",");
+    serializer.serialize_str(&joined)
+}
+
 fn timestamp_deserialize<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
     D: Deserializer<'de>,
@@ -202,7 +249,14 @@ where
     let opt: Option<String> = Option::deserialize(deserializer)?;
     match opt {
         Some(s) => {
-            let naive = chrono::NaiveDateTime::parse_from_str(&s, TIMESTAMP_FORMAT).map_err(de::Error::custom)?;
+            // Trim whitespace and remove enclosing single or double quotes if present
+            let s = s.trim();
+            let s = s.strip_prefix('"').unwrap_or(s);
+            let s = s.strip_suffix('"').unwrap_or(s);
+            let s = s.strip_prefix('\'').unwrap_or(s);
+            let s = s.strip_suffix('\'').unwrap_or(s);
+
+            let naive = chrono::NaiveDateTime::parse_from_str(s, TIMESTAMP_FORMAT).map_err(de::Error::custom)?;
             Ok(naive.and_utc().timestamp_millis())
         }
         None => Ok(now_in_millis()), // Use default when field is missing
@@ -446,6 +500,7 @@ mod test {
             "operation": "Set",
             "field_values": {
                 "pa_ipv4": "1.2.3.4",
+                "local_nexthop_ip": "2.2.2.5",
                 "dpu_id": "1",
                 "orchagent_zmq_port": "8100",
                 "swbus_port": "23606",
@@ -497,6 +552,7 @@ mod test {
             pa_ipv4: "1.2.3.6".to_string(),
             vip_ipv4: Some("4.5.6.6".to_string()),
             pa_ipv6: None,
+            local_nexthop_ip: "2.2.2.5".to_string(),
             dpu_id: 6,
             orchagent_zmq_port: 8100,
             swbus_port: 23612,
@@ -515,6 +571,7 @@ mod test {
         for d in 6..8 {
             let dpu_fvs = vec![
                 ("pa_ipv4".to_string(), Ipv4Addr::new(1, 2, 3, d).to_string()),
+                ("local_nexthop_ip".to_string(), Ipv4Addr::new(2, 2, 2, 5).to_string()),
                 ("vip_ipv4".to_string(), Ipv4Addr::new(4, 5, 6, d).to_string()),
                 ("dpu_id".to_string(), d.to_string()),
                 ("orchagent_zmq_port".to_string(), "8100".to_string()),
@@ -700,5 +757,55 @@ mod test {
         // v6 timestamp should use default (current time)
         let now = chrono::Utc::now().timestamp_millis();
         assert!((bfd_state.v6_bfd_up_sessions_timestamp - now).abs() < 1000);
+    }
+
+    #[test]
+    fn test_bfd_sessions_quote_and_whitespace_handling() {
+        let json = r#"
+        {
+            "v4_bfd_up_sessions": " \"10.0.1.1\" , '10.0.1.2', 10.0.1.3 , \"10.0.1.4\"  ",
+            "v6_bfd_up_sessions": "'2001:db8::1', \"2001:db8::2\" ,  2001:db8::3  "
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let bfd_state: DashBfdProbeState = swss_serde::from_field_values(&fvs).unwrap();
+
+        // Test v4 sessions - should have quotes removed and whitespace trimmed
+        assert_eq!(bfd_state.v4_bfd_up_sessions.len(), 4);
+        assert_eq!(bfd_state.v4_bfd_up_sessions[0], "10.0.1.1");
+        assert_eq!(bfd_state.v4_bfd_up_sessions[1], "10.0.1.2");
+        assert_eq!(bfd_state.v4_bfd_up_sessions[2], "10.0.1.3");
+        assert_eq!(bfd_state.v4_bfd_up_sessions[3], "10.0.1.4");
+
+        // Test v6 sessions - should have quotes removed and whitespace trimmed
+        assert_eq!(bfd_state.v6_bfd_up_sessions.len(), 3);
+        assert_eq!(bfd_state.v6_bfd_up_sessions[0], "2001:db8::1");
+        assert_eq!(bfd_state.v6_bfd_up_sessions[1], "2001:db8::2");
+        assert_eq!(bfd_state.v6_bfd_up_sessions[2], "2001:db8::3");
+    }
+
+    #[test]
+    fn test_bfd_sessions_serialization_roundtrip() {
+        // Test data with quotes and whitespace
+        let json = r#"
+        {
+            "v4_bfd_up_sessions": " \"10.0.1.1\" , '10.0.1.2', 10.0.1.3 ",
+            "v6_bfd_up_sessions": "'2001:db8::1', \"2001:db8::2\""
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let bfd_state: DashBfdProbeState = swss_serde::from_field_values(&fvs).unwrap();
+
+        // Serialize back to field values
+        let serialized_fvs = swss_serde::to_field_values(&bfd_state).unwrap();
+
+        // Check that serialized format is clean comma-separated without quotes
+        assert_eq!(serialized_fvs["v4_bfd_up_sessions"], "10.0.1.1,10.0.1.2,10.0.1.3");
+        assert_eq!(serialized_fvs["v6_bfd_up_sessions"], "2001:db8::1,2001:db8::2");
+
+        // Deserialize again to ensure consistency
+        let bfd_state2: DashBfdProbeState = swss_serde::from_field_values(&serialized_fvs).unwrap();
+        assert_eq!(bfd_state.v4_bfd_up_sessions, bfd_state2.v4_bfd_up_sessions);
+        assert_eq!(bfd_state.v6_bfd_up_sessions, bfd_state2.v6_bfd_up_sessions);
     }
 }

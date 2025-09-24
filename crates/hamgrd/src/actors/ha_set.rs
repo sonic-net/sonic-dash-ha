@@ -48,7 +48,7 @@ struct VDpuStateExt {
 
 impl HaSetActor {
     fn get_dash_global_config(incoming: &Incoming) -> Option<DashHaGlobalConfig> {
-        let Ok(msg) = incoming.get(DashHaGlobalConfig::table_name()) else {
+        let Some(msg) = incoming.get(DashHaGlobalConfig::table_name()) else {
             debug!("DASH_HA_GLOBAL_CONFIG table is not available");
             return None;
         };
@@ -195,18 +195,33 @@ impl HaSetActor {
         let mut endpoint_monitor = Vec::new();
         let mut primary = Vec::new();
         let mut check_directly_connected = false;
+        let mut any_managed = false;
 
         for vdpu_ext in vdpus {
-            if vdpu_ext.vdpu.dpu.is_managed {
-                // if it is locally managed dpu, use dpu pa_ipv4 as endpoint
-                endpoint.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
+            if !vdpu_ext.vdpu.dpu.remote_dpu {
+                // if it is locally managed dpu, use local nexthop as endpoint
+                endpoint.push(vdpu_ext.vdpu.dpu.local_nexthop_ip.clone());
             } else {
                 endpoint.push(vdpu_ext.vdpu.dpu.npu_ipv4.clone());
             }
 
             endpoint_monitor.push(vdpu_ext.vdpu.dpu.pa_ipv4.clone());
-            primary.push(vdpu_ext.is_primary.to_string());
-            check_directly_connected |= vdpu_ext.vdpu.dpu.is_managed;
+            if vdpu_ext.is_primary {
+                if !vdpu_ext.vdpu.dpu.remote_dpu {
+                    primary.push(vdpu_ext.vdpu.dpu.local_nexthop_ip.clone());
+                } else {
+                    primary.push(vdpu_ext.vdpu.dpu.npu_ipv4.clone());
+                }
+            }
+            check_directly_connected |= !vdpu_ext.vdpu.dpu.remote_dpu;
+            any_managed |= vdpu_ext.vdpu.dpu.is_managed;
+        }
+
+        if check_directly_connected && !any_managed {
+            debug!(
+                "Skipping VnetRouteTunnelTable update as directly connected DPU and no locally managed DPU are present."
+            );
+            return Ok(());
         }
 
         // update vnet route tunnel table
@@ -283,10 +298,14 @@ impl HaSetActor {
     // get vdpu data received via vdpu udpate
     fn get_vdpu(&self, incoming: &Incoming, vdpu_id: &str) -> Option<VDpuActorState> {
         let key = VDpuActorState::msg_key(vdpu_id);
-        let Ok(msg) = incoming.get(&key) else {
-            return None;
-        };
-        msg.deserialize_data().ok()
+        let msg = incoming.get(&key)?;
+        match msg.deserialize_data() {
+            Ok(vdpu) => Some(vdpu),
+            Err(e) => {
+                error!("Failed to deserialize VDpuActorState from the message: {}", e);
+                None
+            }
+        }
     }
 
     /// Get vdpu data received via vdpu update and return them in a list with primary DPUs first.
@@ -351,7 +370,7 @@ impl HaSetActor {
         context: &mut Context,
     ) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get(key)?.deserialize_data()?;
+        let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
             // cleanup resources before stopping
             if let Err(e) = self.do_cleanup(state) {
@@ -413,7 +432,9 @@ impl HaSetActor {
     async fn handle_haset_state_registration(&mut self, state: &mut State, key: &str) -> Result<()> {
         let (_, incoming, outgoing) = state.get_all();
 
-        let entry = incoming.get_entry(key)?;
+        let entry = incoming
+            .get_entry(key)
+            .ok_or_else(|| anyhow!("Entry not found for key: {}", key))?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
             let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
@@ -544,7 +565,7 @@ mod test {
                 vdpu1_state_obj.dpu.pa_ipv4.clone(),
             ]),
             monitoring: None,
-            primary: Some(vec!["true".to_string(), "false".to_string()]),
+            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(true),
@@ -637,7 +658,7 @@ mod test {
                 vdpu1_state_obj.dpu.pa_ipv4.clone(),
             ]),
             monitoring: None,
-            primary: Some(vec!["true".to_string(), "false".to_string()]),
+            primary: Some(vec![vdpu0_state_obj.dpu.npu_ipv4.clone()]),
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(false),
