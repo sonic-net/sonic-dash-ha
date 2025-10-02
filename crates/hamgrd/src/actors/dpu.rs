@@ -1,6 +1,7 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
-    BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuState, RemoteDpu,
+    BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuState, NeighResolveTable,
+    RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use crate::ServicePath;
@@ -10,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
+use swss_common::{DbConnector, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, instrument};
 
@@ -169,6 +170,10 @@ impl DpuActor {
 
         if is_managed {
             if first_time {
+                if let Err(e) = self.set_neigh_resolve(outgoing) {
+                    error!("Failed to set NEIGH_RESOLVE_TABLE: {}", e);
+                }
+
                 // DASH_HA_GLOBAL_CONFIG from common-bridge sent to this actor instance only.
                 // Key is DASH_HA_GLOBAL_CONFIG
                 self.bridges.push(
@@ -462,6 +467,59 @@ impl DpuActor {
             return is_managed;
         }
         false
+    }
+
+    fn set_neigh_resolve(&self, outgoing: &mut Outgoing) -> Result<()> {
+        let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
+            debug!("DPU is not managed by this HA instance, do not set NEIGH_RESOLVE_TABLE");
+            return Ok(());
+        };
+
+        // Query INTERFACE table from CONFIG_DB to find the interface for PA IP
+        let db = DbConnector::new_named("CONFIG_DB", false, 0)?;
+        let table = Table::new(db, "INTERFACE")?;
+        let keys = table.get_keys()?;
+
+        // Find interface that has PA IP (keys are in format "Ethernet232|18.1.202.0/31")
+        let mut interface_name = None;
+        for key in keys {
+            // Split by | to separate interface name from IP prefix
+            let parts: Vec<&str> = key.split('|').collect();
+            if parts.len() == 2 {
+                // Check if the IP prefix contains PA address
+                let ip_prefix = parts[1];
+                if ip_prefix.starts_with(&dpu.pa_ipv4.rsplit_once('.').unwrap_or(("", "")).0) {
+                    interface_name = Some(parts[0].to_string());
+                    break;
+                }
+            }
+        }
+
+        let Some(interface) = interface_name else {
+            return Err(anyhow!("Could not find interface for PA IP address: {}", dpu.pa_ipv4));
+        };
+
+        let swss_key = format!(
+            "{}:{}:{}",
+            NeighResolveTable::table_name(),
+            interface,
+            dpu.pa_ipv4.clone()
+        );
+
+        let entry = NeighResolveTable {
+            mac: "00:00:00:00:00:00".to_string(),
+        };
+
+        let fv = swss_serde::to_field_values(&entry)?;
+        let kfv = KeyOpFieldValues {
+            key: swss_key,
+            operation: KeyOperation::Set,
+            field_values: fv,
+        };
+
+        let msg = ActorMessage::new(self.id.clone(), &kfv)?;
+        outgoing.send(outgoing.common_bridge_sp::<NeighResolveTable>(), msg);
+        Ok(())
     }
 }
 

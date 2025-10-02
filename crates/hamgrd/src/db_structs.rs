@@ -485,6 +485,14 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
     Err(anyhow::anyhow!("DPU entry not found for slot {}", dpu_id))
 }
 
+#[skip_serializing_none]
+#[serde_as]
+#[derive(Default, Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "NEIGH_RESOLVE_TABLE", key_separator = ":", db_name = "APPL_DB")]
+pub struct NeighResolveTable {
+    pub mac: String,
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
