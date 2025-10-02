@@ -488,7 +488,7 @@ impl DpuActor {
             if parts.len() == 2 {
                 // Check if the IP prefix contains PA address
                 let ip_prefix = parts[1];
-                if ip_prefix.starts_with(&dpu.pa_ipv4.rsplit_once('.').unwrap_or(("", "")).0) {
+                if ip_prefix.starts_with(dpu.pa_ipv4.rsplit_once('.').unwrap_or(("", "")).0) {
                     interface_name = Some(parts[0].to_string());
                     break;
                 }
