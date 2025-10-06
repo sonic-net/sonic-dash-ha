@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{DbConnector, KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table};
+use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, instrument};
 
@@ -475,37 +475,7 @@ impl DpuActor {
             return Ok(());
         };
 
-        // Query INTERFACE table from CONFIG_DB to find the interface for PA IP
-        let db = DbConnector::new_named("CONFIG_DB", false, 0)?;
-        let table = Table::new(db, "INTERFACE")?;
-        let keys = table.get_keys()?;
-
-        // Find interface that has PA IP (keys are in format "Ethernet232|18.1.202.0/31")
-        let mut interface_name = None;
-        for key in keys {
-            // Split by | to separate interface name from IP prefix
-            let parts: Vec<&str> = key.split('|').collect();
-            if parts.len() == 2 {
-                // Check if the IP prefix contains PA address
-                let ip_prefix = parts[1];
-                if ip_prefix.starts_with(dpu.pa_ipv4.rsplit_once('.').unwrap_or(("", "")).0) {
-                    interface_name = Some(parts[0].to_string());
-                    break;
-                }
-            }
-        }
-
-        let Some(interface) = interface_name else {
-            return Err(anyhow!("Could not find interface for PA IP address: {}", dpu.pa_ipv4));
-        };
-
-        let swss_key = format!(
-            "{}:{}:{}",
-            NeighResolveTable::table_name(),
-            interface,
-            dpu.pa_ipv4.clone()
-        );
-
+        let swss_key = format!("{}:{}", "".to_string(), dpu.pa_ipv4.clone());
         let entry = NeighResolveTable {
             mac: "00:00:00:00:00:00".to_string(),
         };
@@ -519,6 +489,7 @@ impl DpuActor {
 
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<NeighResolveTable>(), msg);
+
         Ok(())
     }
 }
@@ -562,8 +533,9 @@ mod test {
         dpu::DpuActor,
         test::{self, *},
     };
-    use crate::db_structs::{BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuState, RemoteDpu};
-
+    use crate::db_structs::{
+        BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuState, NeighResolveTable, RemoteDpu,
+    };
     use crate::ha_actor_messages::DpuActorState;
     use sonic_common::SonicDbTable;
     use std::time::Duration;
@@ -572,6 +544,9 @@ mod test {
 
     #[tokio::test]
     async fn dpu_actor() {
+        // To enable trace, set ENABLE_TRACE=1 to run test
+        sonic_common::log::init_logger_for_test();
+
         let _ = Redis::start_config_db();
         let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
         // prepare test data
@@ -624,6 +599,9 @@ mod test {
             // Receiving DPU config-db object from swss-common bridge
             send! { key: Dpu::table_name(), data: { "key": "switch0_dpu0", "operation": "Set", "field_values": dpu_fvs},
                     addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
+            // Check for NeighResolveTable message
+            recv! { key: "switch0_dpu0", data: {"key": format!("{}:{}", "".to_string(), dpu_actor_state_wo_bfd.pa_ipv4.clone()), "operation": "Set", "field_values": {"mac":"00:00:00:00:00:00"}},
+                    addr: crate::common_bridge_sp::<NeighResolveTable>(&runtime.get_swbus_edge()) },
             send! { key: "REMOTE_DPU|switch1_dpu0", data: { "key": "REMOTE_DPU|switch1_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu1_fvs).unwrap() }},
             send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
             recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
