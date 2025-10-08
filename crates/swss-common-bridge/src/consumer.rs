@@ -12,7 +12,7 @@ use swss_common::{
 };
 use tokio::task::JoinHandle;
 use tokio_util::task::AbortOnDropHandle;
-
+use tracing::debug;
 pub struct ConsumerBridge {
     _task: AbortOnDropHandle<()>,
 }
@@ -56,6 +56,7 @@ where
     F: FnMut(&KeyOpFieldValues) -> (ServicePath, String) + Send + 'static,
     S: Fn(&KeyOpFieldValues) -> bool + Sync + Send + 'static,
 {
+    let my_sp = addr.clone();
     let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
         let mut table_cache = TableCache::default();
@@ -63,12 +64,17 @@ where
             if P::is_proto() {
                 P::convert_pb_to_json(&mut kfv);
             }
-
+            debug!("{}: receiving update: {:?}", my_sp.to_longest_path(), kfv);
             // Merge the kfv to get the whole table as an update
             let Some(kfv) = table_cache.merge_kfv(kfv) else {
+                debug!("{}: No change in table, skipping send", my_sp.to_longest_path());
                 return; // No change, skip sending
             };
             if !selector(&kfv) {
+                debug!(
+                    "{}: update does not match selector, skipping send",
+                    my_sp.to_longest_path()
+                );
                 return;
             }
 
