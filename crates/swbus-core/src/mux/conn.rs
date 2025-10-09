@@ -111,8 +111,37 @@ impl SwbusConn {
             MetadataValue::from_str(conn_info.connection_type().as_str_name()).unwrap(),
         );
 
-        let incoming_stream = match client.stream_messages(stream_message_request).await {
-            Ok(response) => response.into_inner(),
+        let (incoming_stream, conn_info_for_worker) = match client.stream_messages(stream_message_request).await {
+            Ok(response) => {
+                // Extract server service path from response metadata and update remote_service_path
+                let server_service_path = match response.metadata().get(SWBUS_SERVER_SERVICE_PATH) {
+                    Some(path) => match ServicePath::from_string(path.to_str().unwrap()) {
+                        Ok(service_path) => {
+                            info!("Received server service path: {}", service_path.to_string());
+                            service_path
+                        }
+                        Err(e) => {
+                            error!("Failed to parse server service path: {:?}", e);
+                            return Err(SwbusError::connection(
+                                SwbusErrorCode::InvalidHeader,
+                                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid server service path: {:?}", e)),
+                            ));
+                        }
+                    },
+                    None => {
+                        error!("Server service path not found in response metadata");
+                        return Err(SwbusError::connection(
+                            SwbusErrorCode::InvalidHeader,
+                            io::Error::new(io::ErrorKind::InvalidData, "Server service path not found in response metadata"),
+                        ));
+                    }
+                };
+
+                // Update conn_info's remote_service_path with actual server service path
+                let updated_conn_info = Arc::new(conn.info().as_ref().clone().with_remote_service_path(server_service_path));
+
+                (response.into_inner(), updated_conn_info)
+            }
             Err(e) => {
                 error!("Failed to establish message streaming: {}.", e);
                 return Err(SwbusError::connection(
@@ -121,8 +150,6 @@ impl SwbusConn {
                 ));
             }
         };
-
-        let conn_info_for_worker = conn.info().clone();
         let shutdown_ct_for_worker = conn.shutdown_ct.clone();
 
         let worker_task = tokio::spawn(async move {

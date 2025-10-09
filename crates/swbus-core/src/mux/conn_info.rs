@@ -55,6 +55,11 @@ impl SwbusConnInfo {
             remote_service_path,
         }
     }
+
+    pub fn with_remote_service_path(mut self, remote_service_path: ServicePath) -> Self {
+        self.remote_service_path = remote_service_path;
+        self
+    }
 }
 
 #[cfg(test)]
