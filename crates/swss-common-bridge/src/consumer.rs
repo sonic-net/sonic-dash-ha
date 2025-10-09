@@ -135,20 +135,20 @@ pub trait ConsumerTable: Send + 'static {
 
 macro_rules! rehydrate_body {
     (true, $self:ident) => {{
-        let db = $self.db_connector_mut().clone_async().await;
-        let mut tbl = Table::new_async(db, $self.table_name()).await.expect("Table::new");
-        let keys = tbl.get_keys_async().await.expect("Table::get_keys");
+        $self.pops().await
+        // let db = $self.db_connector_mut().clone_async().await;
+        // let mut tbl = Table::new_async(db, $self.table_name()).await.expect("Table::new");
+        // let keys = tbl.get_keys_async().await.expect("Table::get_keys");
 
-        let mut out = Vec::with_capacity(keys.len());
-        for key in keys {
-            let field_values = tbl.get_async(&key).await.expect("Table::get").unwrap_or_default();
-            out.push(KeyOpFieldValues {
-                key,
-                operation: KeyOperation::Set,
-                field_values,
-            });
-        }
-        out
+        // let mut out = Vec::with_capacity(keys.len());
+        // for key in keys {
+        //     let field_values = tbl.get_async(&key).await.expect("Table::get").unwrap_or_default();
+        //     out.push(KeyOpFieldValues {
+        //         key,
+        //         operation: KeyOperation::Set,
+        //         field_values,
+        //     });
+        // }
     }};
 
     (false, self) => {
