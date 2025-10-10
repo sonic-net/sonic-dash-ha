@@ -135,20 +135,20 @@ pub trait ConsumerTable: Send + 'static {
 
 macro_rules! rehydrate_body {
     (true, $self:ident) => {{
-        $self.pops().await
-        // let db = $self.db_connector_mut().clone_async().await;
-        // let mut tbl = Table::new_async(db, $self.table_name()).await.expect("Table::new");
-        // let keys = tbl.get_keys_async().await.expect("Table::get_keys");
+        let db = $self.db_connector_mut().clone_async().await;
+        let mut tbl = Table::new_async(db, $self.table_name()).await.expect("Table::new");
+        let keys = tbl.get_keys_async().await.expect("Table::get_keys");
 
-        // let mut out = Vec::with_capacity(keys.len());
-        // for key in keys {
-        //     let field_values = tbl.get_async(&key).await.expect("Table::get").unwrap_or_default();
-        //     out.push(KeyOpFieldValues {
-        //         key,
-        //         operation: KeyOperation::Set,
-        //         field_values,
-        //     });
-        // }
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            let field_values = tbl.get_async(&key).await.expect("Table::get").unwrap_or_default();
+            out.push(KeyOpFieldValues {
+                key,
+                operation: KeyOperation::Set,
+                field_values,
+            });
+        }
+        out
     }};
 
     (false, self) => {
@@ -181,7 +181,30 @@ macro_rules! impl_consumertable {
     };
 }
 
-impl_consumertable! { ConsumerStateTable[true] SubscriberStateTable[true] ZmqConsumerStateTable[false] }
+impl_consumertable! { ConsumerStateTable[true] ZmqConsumerStateTable[false] }
+
+// Custom implementation for SubscriberStateTable to handle rehydration differently
+impl ConsumerTable for SubscriberStateTable {
+    async fn read_data(&mut self) {
+        SubscriberStateTable::read_data_async(self)
+            .await
+            .expect("SubscriberStateTable::read_data_async io error");
+    }
+
+    async fn pops(&mut self) -> Vec<KeyOpFieldValues> {
+        SubscriberStateTable::pops_async(self)
+            .await
+            .expect("SubscriberStateTable::pops_async threw an exception")
+    }
+
+    async fn rehydrate(&mut self) -> Vec<KeyOpFieldValues> {
+        // Custom rehydration for SubscriberStateTable:
+        // The constructor already populated m_buffer with initial snapshot,
+        // so we just drain it here to get the rehydration data.
+        // This also prevents the stale buffer from being mixed with live updates.
+        self.pops().await
+    }
+}
 
 #[cfg(test)]
 mod test {
