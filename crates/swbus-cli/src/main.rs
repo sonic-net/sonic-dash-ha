@@ -262,7 +262,6 @@ mod tests {
     #[test]
     fn test_get_swbus_config() {
         let slot = 1;
-        let npu_ipv4 = "10.0.1.0";
         let _ = Redis::start_config_db();
 
         // Mock the config database with a sample configuration

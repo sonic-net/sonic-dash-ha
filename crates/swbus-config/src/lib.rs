@@ -174,6 +174,7 @@ fn peer_config_from_dpu_entry(
         "swbusd_port is not found in dpu {key} is not found"
     )))?;
 
+    // dual stack is not supported. Either all ipv4 or all ipv6.
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4 {
         let npu_ipv4 = npu_ipv4
             .parse::<Ipv4Addr>()
@@ -183,9 +184,7 @@ fn peer_config_from_dpu_entry(
             endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), swbusd_port),
             conn_type: ConnectionType::InCluster,
         });
-    }
-
-    if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
+    } else if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
         let npu_ipv6 = npu_ipv6
             .parse::<Ipv6Addr>()
             .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {npu_ipv6}")))?;
