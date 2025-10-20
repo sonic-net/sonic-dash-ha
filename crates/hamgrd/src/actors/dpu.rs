@@ -475,7 +475,7 @@ impl DpuActor {
             return Ok(());
         };
 
-        let swss_key = format!("{}:{}", "".to_string(), dpu.pa_ipv4.clone());
+        let swss_key = format!("{}:{}", "", dpu.pa_ipv4.clone());
         let entry = NeighResolveTable {
             mac: "00:00:00:00:00:00".to_string(),
         };
