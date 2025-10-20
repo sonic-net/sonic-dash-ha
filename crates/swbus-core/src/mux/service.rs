@@ -177,10 +177,9 @@ impl SwbusService for SwbusServiceHost {
         // Send server service path in response metadata
         let mut response = Response::new(Box::pin(out_stream) as Self::StreamMessagesStream);
         let server_service_path = self.mux.as_ref().unwrap().get_my_service_path().to_string();
-        response.metadata_mut().insert(
-            SWBUS_SERVER_SERVICE_PATH,
-            server_service_path.parse().unwrap(),
-        );
+        response
+            .metadata_mut()
+            .insert(SWBUS_SERVER_SERVICE_PATH, server_service_path.parse().unwrap());
 
         Ok(response)
     }
