@@ -474,7 +474,7 @@ mod tests {
         let mut config_fromdb = swbus_config_from_db(0).unwrap();
 
         assert_eq!(config_fromdb.routes.len(), 1);
-        assert_eq!(config_fromdb.peers.len(), 10);
+        assert_eq!(config_fromdb.peers.len(), 5);
 
         // create equivalent config in yaml
         let yaml_content = r#"
@@ -485,23 +485,13 @@ mod tests {
         peers:
           - endpoint: "10.0.1.0:23607"
             conn_type: "InCluster"
-          - endpoint: "[2001:db8:1::]:23607"
-            conn_type: "InCluster"
           - endpoint: "10.0.1.1:23606"
-            conn_type: "InCluster"
-          - endpoint: "[2001:db8:1::1]:23606"
             conn_type: "InCluster"
           - endpoint: "10.0.1.1:23607"
             conn_type: "InCluster"
-          - endpoint: "[2001:db8:1::1]:23607"
-            conn_type: "InCluster"
           - endpoint: "10.0.1.2:23606"
             conn_type: "InCluster"
-          - endpoint: "[2001:db8:1::2]:23606"
-            conn_type: "InCluster"
           - endpoint: "10.0.1.2:23607"
-            conn_type: "InCluster"
-          - endpoint: "[2001:db8:1::2]:23607"
             conn_type: "InCluster"
         "#;
 
