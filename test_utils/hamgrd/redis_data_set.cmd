@@ -2,6 +2,7 @@ select 4
 hset DEVICE_METADATA|localhost region region-a cluster cluster-a
 HSET "LOOPBACK_INTERFACE|Loopback0|127.0.0.1/32" "NULL" "NULL"
 hset LOOPBACK_INTERFACE|Loopback0 NULL NULL
+HSET "INTERFACE|Ethernet0|18.0.202.0/31" "NULL" "NULL"
 HSET "DPU|switch0_dpu0" "dpu_id" "0"
 HSET "DPU|switch0_dpu0" "gnmi_port" "50051"
 HSET "DPU|switch0_dpu0" "local_port" "8080"
