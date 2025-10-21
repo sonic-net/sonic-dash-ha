@@ -2144,7 +2144,7 @@ dependencies = [
 [[package]]
 name = "swss-common"
 version = "0.1.0"
-source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#1484a851dbfdd4b122c361cd7ea03eca0afe5d63"
+source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#7407a2e6060f9e8c0423e5886b96f1146dbca315"
 dependencies = [
  "bindgen",
  "getset",
@@ -2173,12 +2173,13 @@ dependencies = [
  "swss-common-testing",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
 name = "swss-common-testing"
 version = "0.1.0"
-source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#1484a851dbfdd4b122c361cd7ea03eca0afe5d63"
+source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#7407a2e6060f9e8c0423e5886b96f1146dbca315"
 dependencies = [
  "lazy_static",
  "rand",

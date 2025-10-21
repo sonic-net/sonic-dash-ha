@@ -43,7 +43,6 @@ pub struct Dpu {
     pub vip_ipv6: Option<String>,
     pub pa_ipv4: String,
     pub pa_ipv6: Option<String>,
-    pub local_nexthop_ip: String,
     pub dpu_id: u32,
     pub vdpu_id: Option<String>,
     pub orchagent_zmq_port: u16,
@@ -486,6 +485,14 @@ pub fn get_dpu_config_from_db(dpu_id: u32) -> Result<Dpu> {
     Err(anyhow::anyhow!("DPU entry not found for slot {}", dpu_id))
 }
 
+#[skip_serializing_none]
+#[serde_as]
+#[derive(Default, Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "NEIGH_RESOLVE_TABLE", key_separator = ":", db_name = "APPL_DB")]
+pub struct NeighResolveTable {
+    pub mac: String,
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -500,7 +507,6 @@ mod test {
             "operation": "Set",
             "field_values": {
                 "pa_ipv4": "1.2.3.4",
-                "local_nexthop_ip": "2.2.2.5",
                 "dpu_id": "1",
                 "orchagent_zmq_port": "8100",
                 "swbus_port": "23606",
@@ -552,7 +558,6 @@ mod test {
             pa_ipv4: "1.2.3.6".to_string(),
             vip_ipv4: Some("4.5.6.6".to_string()),
             pa_ipv6: None,
-            local_nexthop_ip: "2.2.2.5".to_string(),
             dpu_id: 6,
             orchagent_zmq_port: 8100,
             swbus_port: 23612,
@@ -571,7 +576,6 @@ mod test {
         for d in 6..8 {
             let dpu_fvs = vec![
                 ("pa_ipv4".to_string(), Ipv4Addr::new(1, 2, 3, d).to_string()),
-                ("local_nexthop_ip".to_string(), Ipv4Addr::new(2, 2, 2, 5).to_string()),
                 ("vip_ipv4".to_string(), Ipv4Addr::new(4, 5, 6, d).to_string()),
                 ("dpu_id".to_string(), d.to_string()),
                 ("orchagent_zmq_port".to_string(), "8100".to_string()),
