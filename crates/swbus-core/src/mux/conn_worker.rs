@@ -36,6 +36,10 @@ where
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Self {
+        assert!(
+            info.remote_service_path().is_some(),
+            "remote_service_path must be set before creating SwbusConnWorker"
+        );
         Self {
             info,
             shutdown_ct,
@@ -59,7 +63,7 @@ where
         self.unregister_from_mux()?;
         if result.is_err() {
             info!("Reporting connection lost.");
-            self.conn_store.conn_lost(self.info.clone());
+            self.conn_store.conn_lost(&self.info);
         }
         result
     }
@@ -270,7 +274,7 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
+        let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
@@ -307,7 +311,7 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
+        let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
@@ -334,7 +338,7 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
+        let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,
             "127.0.0.1:8080".parse().unwrap(),
             ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),

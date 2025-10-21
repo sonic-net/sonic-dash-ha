@@ -31,8 +31,6 @@ pub struct RouteConfig {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct PeerConfig {
-    #[serde(deserialize_with = "deserialize_service_path")]
-    pub id: ServicePath,
     pub endpoint: SocketAddr,
     pub conn_type: ConnectionType,
 }
@@ -126,37 +124,29 @@ pub struct ConfigDBDeviceMetadataEntry {
     #[serde(rename = "type")]
     pub device_type: Option<String>,
     pub sub_type: Option<String>,
+    pub hostname: Option<String>,
 }
 
 #[instrument]
-fn route_config_from_dpu_entry(dpu_entry: &ConfigDBDPUEntry, region: &str, cluster: &str) -> Result<Vec<RouteConfig>> {
+fn route_config_from_dpu_entry(
+    dpu_entry: &ConfigDBDPUEntry,
+    region: &str,
+    cluster: &str,
+    hostname: &str,
+) -> Vec<RouteConfig> {
     let mut routes = Vec::new();
     let dpu_id = dpu_entry.dpu_id;
 
     debug!("Collecting routes for local dpu{}", dpu_id);
 
-    if let Some(npu_ipv4) = dpu_entry.npu_ipv4.as_ref() {
-        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv4}-dpu{dpu_id}"), "", "", "", "");
-        routes.push(RouteConfig {
-            key: sp,
-            scope: RouteScope::InCluster,
-        });
-    }
-
-    if let Some(npu_ipv6) = dpu_entry.npu_ipv6.as_ref() {
-        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv6}-dpu{dpu_id}"), "", "", "", "");
-        routes.push(RouteConfig {
-            key: sp,
-            scope: RouteScope::InCluster,
-        });
-    }
-
-    if routes.is_empty() {
-        SwbusConfigError::InvalidConfig(format!("No valid routes found in local dpu{dpu_id}"));
-    }
+    let sp = ServicePath::with_node(region, cluster, &format!("{hostname}-dpu{dpu_id}"), "", "", "", "");
+    routes.push(RouteConfig {
+        key: sp,
+        scope: RouteScope::InCluster,
+    });
 
     debug!("Routes collected: {:?}", &routes);
-    Ok(routes)
+    routes
 }
 
 #[instrument]
@@ -184,29 +174,22 @@ fn peer_config_from_dpu_entry(
         "swbusd_port is not found in dpu {key} is not found"
     )))?;
 
-    let dpu_id = dpu_entry.dpu_id;
-
+    // dual stack is not supported. Either all ipv4 or all ipv6.
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4 {
         let npu_ipv4 = npu_ipv4
             .parse::<Ipv4Addr>()
             .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv4 address: {npu_ipv4}")))?;
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv4}-dpu{dpu_id}"), "", "", "", "");
         peers.push(PeerConfig {
-            id: sp,
             endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), swbusd_port),
             conn_type: ConnectionType::InCluster,
         });
-    }
-
-    if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
+    } else if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
         let npu_ipv6 = npu_ipv6
             .parse::<Ipv6Addr>()
             .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {npu_ipv6}")))?;
 
-        let sp = ServicePath::with_node(region, cluster, &format!("{npu_ipv6}-dpu{dpu_id}"), "", "", "", "");
         peers.push(PeerConfig {
-            id: sp,
             endpoint: SocketAddr::new(IpAddr::V6(npu_ipv6), swbusd_port),
             conn_type: ConnectionType::InCluster,
         });
@@ -221,7 +204,7 @@ fn peer_config_from_dpu_entry(
 }
 
 #[instrument]
-fn get_device_info() -> Result<(String, String)> {
+fn get_device_info() -> Result<(String, String, String)> {
     let db = DbConnector::new_named(CONFIG_DB, false, 0).map_err(|e| ("connecting to config_db".into(), e))?;
     let table = Table::new(db, "DEVICE_METADATA").map_err(|e| ("opening DEVICE_METADATA table".into(), e))?;
 
@@ -235,9 +218,12 @@ fn get_device_info() -> Result<(String, String)> {
         "cluster not found in DEVICE_METADATA table".into(),
     ))?;
 
-    debug!("Region: {}, Cluster: {}", region, cluster);
+    let hostname = metadata.hostname.ok_or(SwbusConfigError::InvalidConfig(
+        "hostname not found in DEVICE_METADATA table".into(),
+    ))?;
+    debug!("Region: {}, Cluster: {}, Hostname: {}", region, cluster, hostname);
 
-    Ok((region, cluster))
+    Ok((region, cluster, hostname))
 }
 
 #[instrument]
@@ -288,7 +274,7 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
     let mut myroutes: Option<Vec<RouteConfig>> = None;
     let mut myendpoint: Option<SocketAddr> = None;
 
-    let (region, cluster) = get_device_info()?;
+    let (region, cluster, hostname) = get_device_info()?;
 
     // Get the Loopback0 address
     let (my_ipv4, my_ipv6) = get_loopback_address(0)?;
@@ -314,10 +300,7 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
                 "swbusd_port is not found in dpu{dpu_id} is not found"
             )))?;
 
-            myroutes = Some(route_config_from_dpu_entry(&dpu, &region, &cluster).map_err(|e| {
-                error!("Failed to collect routes for dpu{dpu_id}: {e}");
-                e
-            })?);
+            myroutes = Some(route_config_from_dpu_entry(&dpu, &region, &cluster, &hostname));
 
             if let Some(npu_ipv4) = dpu.npu_ipv4 {
                 myendpoint = Some(SocketAddr::new(std::net::IpAddr::V4(npu_ipv4), swbusd_port));
@@ -405,6 +388,7 @@ pub mod test_utils {
             cluster: Some("cluster-a".to_string()),
             device_type: Some("SpineRouter".to_string()),
             sub_type: Some("SmartSwitch".to_string()),
+            hostname: Some("host1".to_string()),
         };
         to_table(&metadata, &table, "localhost").unwrap();
 
@@ -489,47 +473,25 @@ mod tests {
 
         let mut config_fromdb = swbus_config_from_db(0).unwrap();
 
-        assert_eq!(config_fromdb.routes.len(), 2);
-        assert_eq!(config_fromdb.peers.len(), 10);
+        assert_eq!(config_fromdb.routes.len(), 1);
+        assert_eq!(config_fromdb.peers.len(), 5);
 
         // create equivalent config in yaml
         let yaml_content = r#"
         endpoint: "10.0.1.0:23606"
         routes:
-          - key: "region-a.cluster-a.10.0.1.0-dpu0"
-            scope: "InCluster"
-          - key: "region-a.cluster-a.2001:db8:1::-dpu0"
+          - key: "region-a.cluster-a.host1-dpu0"
             scope: "InCluster"
         peers:
-          - id: "region-a.cluster-a.10.0.1.0-dpu1"
-            endpoint: "10.0.1.0:23607"
+          - endpoint: "10.0.1.0:23607"
             conn_type: "InCluster"
-          - id: "region-a.cluster-a.2001:db8:1::-dpu1"
-            endpoint: "[2001:db8:1::]:23607"
+          - endpoint: "10.0.1.1:23606"
             conn_type: "InCluster"
-          - id: "region-a.cluster-a.10.0.1.1-dpu0"
-            endpoint: "10.0.1.1:23606"
+          - endpoint: "10.0.1.1:23607"
             conn_type: "InCluster"
-          - id: "region-a.cluster-a.2001:db8:1::1-dpu0"
-            endpoint: "[2001:db8:1::1]:23606"
+          - endpoint: "10.0.1.2:23606"
             conn_type: "InCluster"
-          - id: "region-a.cluster-a.10.0.1.1-dpu1"
-            endpoint: "10.0.1.1:23607"
-            conn_type: "InCluster"
-          - id: "region-a.cluster-a.2001:db8:1::1-dpu1"
-            endpoint: "[2001:db8:1::1]:23607"
-            conn_type: "InCluster"
-          - id: "region-a.cluster-a.10.0.1.2-dpu0"
-            endpoint: "10.0.1.2:23606"
-            conn_type: "InCluster"
-          - id: "region-a.cluster-a.2001:db8:1::2-dpu0"
-            endpoint: "[2001:db8:1::2]:23606"
-            conn_type: "InCluster"
-          - id: "region-a.cluster-a.10.0.1.2-dpu1"
-            endpoint: "10.0.1.2:23607"
-            conn_type: "InCluster"
-          - id: "region-a.cluster-a.2001:db8:1::2-dpu1"
-            endpoint: "[2001:db8:1::2]:23607"
+          - endpoint: "10.0.1.2:23607"
             conn_type: "InCluster"
         "#;
 
@@ -543,9 +505,9 @@ mod tests {
         expected.npu_ipv6 = Some(Ipv6Addr::from_str("2001:db8:1::").unwrap());
         // sort before compare
         config_fromdb.routes.sort_by(|a, b| a.key.cmp(&b.key));
-        config_fromdb.peers.sort_by(|a, b| a.id.cmp(&b.id));
+        config_fromdb.peers.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
         expected.routes.sort_by(|a, b| a.key.cmp(&b.key));
-        expected.peers.sort_by(|a, b| a.id.cmp(&b.id));
+        expected.peers.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
         assert_eq!(config_fromdb, expected);
 
         cleanup_configdb_for_test();
@@ -559,11 +521,9 @@ mod tests {
           - key: "region-a.cluster-a.10.0.0.1-dpu0"
             scope: "InCluster"
         peers:
-          - id: "region-a.cluster-a.10.0.0.2-dpu0"
-            endpoint: "10.0.0.2:8000"
+          - endpoint: "10.0.0.2:8000"
             conn_type: "InCluster"
-          - id: "region-a.cluster-a.10.0.0.3-dpu0"
-            endpoint: "10.0.0.3:8000"
+          - endpoint: "10.0.0.3:8000"
             conn_type: "InCluster"
         "#;
 
@@ -591,18 +551,10 @@ mod tests {
         assert_eq!(config.routes[0].scope, RouteScope::InCluster);
 
         assert_eq!(
-            config.peers[0].id,
-            ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap()
-        );
-        assert_eq!(
             config.peers[0].endpoint,
             "10.0.0.2:8000".parse().expect("not expecting error")
         );
         assert_eq!(config.peers[0].conn_type, ConnectionType::InCluster);
-        assert_eq!(
-            config.peers[1].id,
-            ServicePath::from_string("region-a.cluster-a.10.0.0.3-dpu0").unwrap()
-        );
         assert_eq!(
             config.peers[1].endpoint,
             "10.0.0.3:8000".parse().expect("not expecting error")

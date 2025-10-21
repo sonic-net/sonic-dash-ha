@@ -262,7 +262,6 @@ mod tests {
     #[test]
     fn test_get_swbus_config() {
         let slot = 1;
-        let npu_ipv4 = "10.0.1.0";
         let _ = Redis::start_config_db();
 
         // Mock the config database with a sample configuration
@@ -271,15 +270,7 @@ mod tests {
         std::env::set_var("DEV", format!("dpu{slot}"));
         let config = get_swbus_config(None).unwrap();
         assert_eq!(config.endpoint.to_string(), format!("{}:{}", "10.0.1.0", 23606 + slot));
-        let expected_sp = ServicePath::with_node(
-            "region-a",
-            "cluster-a",
-            &format!("{npu_ipv4}-dpu{slot}"),
-            "",
-            "",
-            "",
-            "",
-        );
+        let expected_sp = ServicePath::with_node("region-a", "cluster-a", &format!("host1-dpu{slot}"), "", "", "", "");
         assert!(config
             .routes
             .iter()
