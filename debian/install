@@ -1,3 +1,4 @@
 target/release/hamgrd usr/bin
 target/release/swbusd usr/bin
 target/release/swbus-cli usr/bin
+scripts/wait_for_loopback.py usr/bin
