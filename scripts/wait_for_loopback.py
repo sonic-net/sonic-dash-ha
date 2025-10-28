@@ -3,23 +3,23 @@
 """
     wait_for_loopback.py
 
-    Script to wait for LOOPBACK_INTERFACE to be programmed in APPL_DB.
+    Script to wait for LOOPBACK_INTERFACE to be configured.
 
-    This script polls APPL_DB to check if the LOOPBACK_INTERFACE interface
-    has been programmed. It will continue polling until the interface is found
+    This script polls the loopback interface using ip and ip -6 commands
+    to check if the interface exists and has IP addresses assigned.
+    It will continue polling until the interface is found with addresses
     or a maximum number of retries is reached.
 """
 
 import sys
 import time
 import syslog
-from swsscommon import swsscommon
+import subprocess
 
 # Configuration
 LOOPBACK_INTERFACE = "Loopback0"
 MAX_RETRIES = 300  # Maximum number of retries
 POLL_INTERVAL = 1  # Poll interval in seconds
-REDIS_TIMEOUT_MS = 0
 
 
 def log_info(msg):
@@ -39,23 +39,49 @@ def log_debug(msg):
 
 def check_loopback_interface():
     """
-    Check if LOOPBACK_INTERFACE interface is programmed in APPL_DB.
+    Check if LOOPBACK_INTERFACE interface is configured with IP addresses.
 
     Returns:
-        bool: True if LOOPBACK_INTERFACE interface exists in APPL_DB, False otherwise.
+        bool: True if LOOPBACK_INTERFACE interface exists and has IP addresses, False otherwise.
     """
     try:
-        # Connect to APPL_DB
-        appl_db = swsscommon.DBConnector("APPL_DB", REDIS_TIMEOUT_MS, False)
-        intf_table = swsscommon.Table(appl_db, "INTF_TABLE")
-        keys = intf_table.getKeys()
+        # Check IPv4 addresses
+        result_ipv4 = subprocess.run(
+            ["ip", "-4", "addr", "show", LOOPBACK_INTERFACE],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
 
-        # Check for LOOPBACK_INTERFACE
-        for key in keys:
-            if key.startswith(LOOPBACK_INTERFACE):
-                log_debug(f"Found key: {key}")
-                if key == LOOPBACK_INTERFACE or "|" in key:
-                    return True
+        # Check IPv6 addresses
+        result_ipv6 = subprocess.run(
+            ["ip", "-6", "addr", "show", LOOPBACK_INTERFACE],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        # Check if interface exists (return code 0)
+        if result_ipv4.returncode != 0 and result_ipv6.returncode != 0:
+            log_debug(f"{LOOPBACK_INTERFACE} interface not found")
+            return False
+
+        # Check if there are any IP addresses configured
+        has_ipv4 = "inet " in result_ipv4.stdout
+        has_ipv6 = "inet6 " in result_ipv6.stdout
+
+        if has_ipv4 or has_ipv6:
+            if has_ipv4:
+                log_debug(f"Found IPv4 addresses on {LOOPBACK_INTERFACE}")
+            if has_ipv6:
+                log_debug(f"Found IPv6 addresses on {LOOPBACK_INTERFACE}")
+            return True
+        else:
+            log_debug(f"{LOOPBACK_INTERFACE} interface exists but has no IP addresses")
+            return False
+
+    except subprocess.TimeoutExpired:
+        log_err(f"Timeout checking {LOOPBACK_INTERFACE} interface")
         return False
     except Exception as e:
         log_err(f"Error checking loopback interface: {e}")
@@ -79,9 +105,6 @@ def wait_for_loopback():
             return 0
 
         retry_count += 1
-
-        if retry_count % 10 == 0:
-            log_info(f"Waiting for {LOOPBACK_INTERFACE}... (attempt {retry_count}/{MAX_RETRIES})")
 
         time.sleep(POLL_INTERVAL)
 
