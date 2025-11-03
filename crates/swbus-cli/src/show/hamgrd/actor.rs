@@ -227,7 +227,7 @@ impl InternalStateDisplay {
         ];
         let table_meta = Table::new(table_meta).with(Style::ascii().remove_frame()).to_string();
 
-        let committed_fvs = state
+        let mut committed_fvs = state
             .backup_fvs
             .iter()
             .map(|(key, value)| KeyValue {
@@ -235,6 +235,8 @@ impl InternalStateDisplay {
                 value: value.to_string_lossy().into_owned(),
             })
             .collect::<Vec<KeyValue>>();
+
+        committed_fvs.sort_by(|a, b| a.attribute.cmp(&b.attribute));
 
         let committed_fvs = Table::new(committed_fvs)
             .with(Style::ascii().remove_frame())
@@ -272,11 +274,14 @@ impl ShowCmdHandler for ShowActorCmd {
         let state: ActorStateDump = serde_json::from_str(result).unwrap();
 
         // convert to table for display
-        let incoming_state_display = state
+        let mut incoming_state_display: Vec<IncomingStateDisplay> = state
             .incoming
             .iter()
             .map(IncomingStateDisplay::from_incoming_state)
             .collect::<Vec<IncomingStateDisplay>>();
+
+        incoming_state_display.sort_by(|a, b| a.key.cmp(&b.key));
+
         let incoming_state_table = Table::new(incoming_state_display)
             .with(Panel::header("Incoming State"))
             .with(Modify::list(Rows::first(), Alignment::center()))
@@ -286,11 +291,14 @@ impl ShowCmdHandler for ShowActorCmd {
         info!("{}", incoming_state_table);
 
         // convert to table for display
-        let internal_state_display = state
+        let mut internal_state_display = state
             .internal
             .iter()
             .map(InternalStateDisplay::from_internal_state)
             .collect::<Vec<InternalStateDisplay>>();
+
+        internal_state_display.sort_by(|a, b| a.key.cmp(&b.key));
+
         let internal_state_table = Table::new(internal_state_display)
             .with(Panel::header("Internal State"))
             .with(Modify::list(Rows::first(), Alignment::center()))
@@ -300,12 +308,15 @@ impl ShowCmdHandler for ShowActorCmd {
         info!("{}", internal_state_table);
 
         // convert to table for display
-        let outgoing_sent_state_display = state
+        let mut outgoing_sent_state_display = state
             .outgoing
             .outgoing_sent
             .iter()
             .map(OutgoingSentStateDisplay::from_outgoing_state)
             .collect::<Vec<OutgoingSentStateDisplay>>();
+
+        outgoing_sent_state_display.sort_by(|a, b| a.key.cmp(&b.key));
+
         let outgoing_sent_state_table = Table::new(outgoing_sent_state_display)
             .with(Panel::header("Outgoing Sent Message State"))
             .with(Modify::list(Rows::first(), Alignment::center()))
