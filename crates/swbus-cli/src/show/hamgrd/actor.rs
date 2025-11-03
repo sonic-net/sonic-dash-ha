@@ -44,6 +44,8 @@ fn unix_secs_to_string(unix_secs: u64) -> String {
 
 impl IncomingStateDisplay {
     fn from_incoming_state((key, state): (&String, &IncomingTableEntry)) -> Self {
+        let formatted_value = Self::format_message_value(&state.msg.data);
+
         let details = vec![
             KeyValue {
                 attribute: "source".to_string(),
@@ -63,7 +65,7 @@ impl IncomingStateDisplay {
             },
             KeyValue {
                 attribute: "message/value".to_string(),
-                value: to_string_pretty(&state.msg.data).unwrap_or("INV".to_string()),
+                value: formatted_value,
             },
             KeyValue {
                 attribute: "created-time".to_string(),
@@ -87,6 +89,25 @@ impl IncomingStateDisplay {
             key: key.clone(),
             details: table,
         }
+    }
+
+    fn format_message_value(data: &serde_json::Value) -> String {
+        let formatted = Self::try_format_protobuf_json(data);
+        formatted.unwrap_or_else(|| to_string_pretty(data).unwrap_or_else(|_| "INV".to_string()))
+    }
+
+    fn try_format_protobuf_json(data: &serde_json::Value) -> Option<String> {
+        let obj = data.as_object()?;
+        let field_values = obj.get("field_values")?.as_object()?;
+        let json_str = field_values.get("json")?.as_str()?;
+
+        let parsed = serde_json::from_str::<serde_json::Value>(json_str).ok()?;
+
+        let mut new_obj = obj.clone();
+        let new_field_values = new_obj.get_mut("field_values")?.as_object_mut()?;
+        new_field_values.insert("json".to_string(), parsed);
+
+        to_string_pretty(&new_obj).ok()
     }
 }
 
