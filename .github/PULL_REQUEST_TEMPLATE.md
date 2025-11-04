@@ -9,10 +9,9 @@ https://github.com/Azure/SONiC/blob/gh-pages/CONTRIBUTING.md
 
 Please also provide the following information in this pull request:
 -->
+**What I did**
 
 **Why I did it**
-
-**What I did**
 
 **How I verified it**
 
