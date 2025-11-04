@@ -62,7 +62,7 @@ impl SwbusConn {
 // Client-side connection factory and task entry
 impl SwbusConn {
     pub async fn connect(
-        conn_info: Arc<SwbusConnInfo>,
+        conn_info: &SwbusConnInfo,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
@@ -85,16 +85,16 @@ impl SwbusConn {
     }
 
     async fn start_client_worker_task(
-        conn_info: Arc<SwbusConnInfo>,
+        conn_info: &SwbusConnInfo,
         mut client: SwbusServiceClient<Channel>,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
         let (send_queue_tx, send_queue_rx) = mpsc::channel(16);
-        let mut conn = SwbusConn::new(&conn_info, send_queue_tx);
 
-        let request_stream = ReceiverStream::new(send_queue_rx)
-            .map(|result| result.expect("Not expecting grpc client adding messages with error status"));
+        let request_stream = ReceiverStream::new(send_queue_rx).map(|result: Result<SwbusMessage, Status>| {
+            result.expect("Not expecting grpc client adding messages with error status")
+        });
 
         let mut stream_message_request = Request::new(request_stream);
 
@@ -111,8 +111,43 @@ impl SwbusConn {
             MetadataValue::from_str(conn_info.connection_type().as_str_name()).unwrap(),
         );
 
-        let incoming_stream = match client.stream_messages(stream_message_request).await {
-            Ok(response) => response.into_inner(),
+        let (incoming_stream, conn_info_for_worker) = match client.stream_messages(stream_message_request).await {
+            Ok(response) => {
+                // Extract server service path from response metadata and update remote_service_path
+                let server_service_path = match response.metadata().get(SWBUS_SERVER_SERVICE_PATH) {
+                    Some(path) => match ServicePath::from_string(path.to_str().unwrap()) {
+                        Ok(service_path) => {
+                            info!("Received server service path: {}", service_path.to_string());
+                            service_path
+                        }
+                        Err(e) => {
+                            error!("Failed to parse server service path: {:?}", e);
+                            return Err(SwbusError::connection(
+                                SwbusErrorCode::InvalidHeader,
+                                io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!("Invalid server service path: {:?}", e),
+                                ),
+                            ));
+                        }
+                    },
+                    None => {
+                        error!("Server service path not found in response metadata");
+                        return Err(SwbusError::connection(
+                            SwbusErrorCode::InvalidHeader,
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "Server service path not found in response metadata",
+                            ),
+                        ));
+                    }
+                };
+
+                // Update conn_info's remote_service_path with actual server service path
+                let updated_conn_info = Arc::new(conn_info.clone().with_remote_service_path(server_service_path));
+
+                (response.into_inner(), updated_conn_info)
+            }
             Err(e) => {
                 error!("Failed to establish message streaming: {}.", e);
                 return Err(SwbusError::connection(
@@ -121,8 +156,7 @@ impl SwbusConn {
                 ));
             }
         };
-
-        let conn_info_for_worker = conn.info().clone();
+        let mut conn = SwbusConn::new(&conn_info_for_worker, send_queue_tx);
         let shutdown_ct_for_worker = conn.shutdown_ct.clone();
 
         let worker_task = tokio::spawn(async move {

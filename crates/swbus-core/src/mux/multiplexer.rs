@@ -153,19 +153,35 @@ impl SwbusMultiplexer {
 
     /// get route from conn_info based on connection type. This is a direct route which means it is to a immediate nexthop (1 hop away).
     fn route_from_conn(&self, conn_info: &Arc<SwbusConnInfo>) -> String {
+        let remote_sp = conn_info
+            .remote_service_path()
+            .as_ref()
+            .expect("remote_service_path should be set");
         match conn_info.connection_type() {
             // direct route Global, InRegion, InCluster connection type is always to node level
             ConnectionType::Global | ConnectionType::InRegion | ConnectionType::InCluster => {
-                conn_info.remote_service_path().to_incluster_prefix()
+                remote_sp.to_incluster_prefix()
             }
             // both Client (for CLI) and InNode route by service prefix. IOW, service prefix uniquely
             // identify the endpoint to the client (CLI or hamgrd)
-            ConnectionType::InNode | ConnectionType::Client => conn_info.remote_service_path().to_service_prefix(),
+            ConnectionType::InNode | ConnectionType::Client => remote_sp.to_service_prefix(),
         }
     }
 
     pub(crate) fn register(&self, conn_info: &Arc<SwbusConnInfo>, proxy: SwbusConnProxy) {
         // Update the route table.
+        let remote_sp = conn_info
+            .remote_service_path()
+            .as_ref()
+            .expect("remote_service_path should be set");
+        if self.my_routes.contains_key(remote_sp) {
+            error!(
+                "Conflicting service path to my routes detected from connection: {}",
+                conn_info.id()
+            );
+            return;
+        }
+
         let direct_route = self.route_from_conn(conn_info);
 
         let nexthop = SwbusNextHop::new_remote(conn_info.clone(), proxy, 1);
@@ -284,7 +300,7 @@ impl SwbusMultiplexer {
             SwbusError::internal(
                 SwbusErrorCode::Fail,
                 format!(
-                    "Receive route announcement from {} but route to the connection {} is not found ",
+                    "Receive route announcement from {:?} but route to the connection {} is not found ",
                     conn_info.remote_service_path(),
                     direct_route
                 ),
@@ -302,7 +318,7 @@ impl SwbusMultiplexer {
             Err(SwbusError::internal(
                 SwbusErrorCode::Fail,
                 format!(
-                    "Receive route announcement from {} but nh of the route is not from same connection: {}",
+                    "Receive route announcement from {:?} but nh of the route is not from same connection: {}",
                     conn_info.remote_service_path(),
                     direct_route
                 ),
@@ -337,7 +353,7 @@ impl SwbusMultiplexer {
         conn_info: &Arc<SwbusConnInfo>,
     ) -> Result<()> {
         debug!(
-            "Begin processing route announcement from {}",
+            "Begin processing route announcement from {:?}",
             conn_info.remote_service_path()
         );
 
@@ -350,7 +366,7 @@ impl SwbusMultiplexer {
         for entry in routes.entries.into_iter() {
             if entry.service_path.is_none() {
                 error!(
-                    "Received route announcement with missing service path from {}",
+                    "Received route announcement with missing service path from {:?}",
                     conn_info.remote_service_path()
                 );
                 continue;
@@ -406,7 +422,7 @@ impl SwbusMultiplexer {
         }
         *old_routes = new_routes;
         debug!(
-            "Finished processing route announcement from {}",
+            "Finished processing route announcement from {:?}",
             conn_info.remote_service_path()
         );
         Ok(())
@@ -547,7 +563,7 @@ impl SwbusMultiplexer {
                         ),
                         hop_count: nh.hop_count(),
                         nh_id: nh.conn_info().as_ref().unwrap().id().to_string(),
-                        nh_service_path: Some(nh.conn_info().as_ref().unwrap().remote_service_path().clone()),
+                        nh_service_path: nh.conn_info().as_ref().unwrap().remote_service_path().clone(),
                         route_scope: ServicePath::from_string(entry.key()).unwrap().route_scope() as i32,
                     })
                     .collect::<Vec<RouteEntry>>()
@@ -680,7 +696,7 @@ pub mod test_utils {
         sp: &str,
         nh_endpoint: &str,
     ) -> (SwbusConn, mpsc::Receiver<Result<SwbusMessage, Status>>) {
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
+        let conn_info = Arc::new(SwbusConnInfo::new_server(
             conn_type,
             nh_endpoint.parse().unwrap(),
             ServicePath::from_string(sp).unwrap(),
@@ -701,7 +717,7 @@ pub mod test_utils {
                 service_path: Some(ServicePath::from_string(route_key).unwrap()),
                 hop_count,
                 nh_id: conn.info().id().to_string(),
-                nh_service_path: Some(conn.info().remote_service_path().clone()),
+                nh_service_path: conn.info().remote_service_path().clone(),
                 route_scope: ServicePath::from_string(route_key).unwrap().route_scope() as i32,
             })
         } else {
@@ -1312,7 +1328,7 @@ mod tests {
         add_route(&mux, "region-a.cluster-a.10.0.0.1-dpu0", 1, &conn1).unwrap();
 
         // add the same route with a different connection
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
+        let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,
             "127.0.0.1:8081".parse().unwrap(),
             ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
@@ -1500,5 +1516,31 @@ mod tests {
             ))
         );
         assert!(!mux.connections.contains(conn1.info()));
+    }
+
+    #[test]
+    fn test_register_with_conflict_sp() {
+        // create mux
+        // create a mux with my routes and add a dummy route announcer
+        // create a mux with 2 my-routes
+        let my_route1 = RouteConfig {
+            key: ServicePath::from_string("region-a.cluster-a.node0").unwrap(),
+            scope: RouteScope::InCluster,
+        };
+        let mut mux = SwbusMultiplexer::new(vec![my_route1.clone()]);
+        let (route_announce_task_tx, _) = mpsc::channel(16);
+        mux.set_route_announcer(route_announce_task_tx, CancellationToken::new());
+        let mux = Arc::new(mux);
+
+        // register a connection
+        let (conn1, _) = new_conn_for_test(ConnectionType::InCluster, "region-a.cluster-a.node0");
+        mux.register(conn1.info(), conn1.new_proxy());
+        let route_key = mux.route_from_conn(conn1.info());
+        // make the conflicting route is not added
+        if let Some(nh_set) = mux.routes.get(&route_key) {
+            assert!(!nh_set
+                .iter()
+                .any(|nh| nh.nh_type() == NextHopType::Remote && nh.conn_info().as_ref().unwrap() == conn1.info()));
+        };
     }
 }

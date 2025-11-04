@@ -29,7 +29,7 @@ impl std::fmt::Display for RouteAnnounceTask {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "trigger: {:?}, conn_info: {}",
+            "trigger: {:?}, conn_info: {:?}",
             self.trigger,
             self.conn_info.remote_service_path()
         )
@@ -88,7 +88,7 @@ impl RouteAnnouncer {
                 .await
                 .map_err(|e| {
                     error!(
-                        "Failed to send route announcement to {}: {}",
+                        "Failed to send route announcement to {:?}: {}",
                         conn_info.remote_service_path(),
                         e
                     );
@@ -98,7 +98,11 @@ impl RouteAnnouncer {
 
     #[instrument(name = "send_route_announcement", level = "debug", skip_all)]
     async fn send_route_announcement(&self, conn_info: &SwbusConnInfo, routes: &RouteEntries) -> Result<()> {
-        let dest_sp = conn_info.remote_service_path().clone();
+        let dest_sp = conn_info
+            .remote_service_path()
+            .as_ref()
+            .expect("remote_service_path should be set")
+            .clone();
         let mut msg = SwbusMessage {
             header: Some(SwbusMessageHeader::new(
                 self.mux.get_my_service_path().clone(),
@@ -110,7 +114,7 @@ impl RouteAnnouncer {
         // count itself as 1 hop. The message is only meant for direct neighbors
         msg.header.as_mut().unwrap().ttl = 2;
         debug!(
-            "Sending route announcement to {}, conn_info {:?}, message {:?}",
+            "Sending route announcement to {:?}, conn_info {:?}, message {:?}",
             conn_info.remote_service_path(),
             conn_info,
             &msg

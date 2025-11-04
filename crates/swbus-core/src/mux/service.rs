@@ -173,6 +173,14 @@ impl SwbusService for SwbusServiceHost {
         .await;
         self.conn_store.as_ref().unwrap().conn_established(conn);
         let out_stream = ReceiverStream::new(out_rx);
-        Ok(Response::new(Box::pin(out_stream) as Self::StreamMessagesStream))
+
+        // Send server service path in response metadata
+        let mut response = Response::new(Box::pin(out_stream) as Self::StreamMessagesStream);
+        let server_service_path = self.mux.as_ref().unwrap().get_my_service_path().to_string();
+        response
+            .metadata_mut()
+            .insert(SWBUS_SERVER_SERVICE_PATH, server_service_path.parse().unwrap());
+
+        Ok(response)
     }
 }

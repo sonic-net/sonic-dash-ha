@@ -7,6 +7,8 @@ use crate::swbus::request_response::ResponseBody;
 
 /// Service path attribute in gRPC request meta data
 pub const SWBUS_CLIENT_SERVICE_PATH: &str = "x-swbus-service-path";
+/// Service path attribute in gRPC response meta data
+pub const SWBUS_SERVER_SERVICE_PATH: &str = "x-swbus-server-service-path";
 /// Service path scope of the connection
 pub const SWBUS_CONNECTION_TYPE: &str = "x-swbus-connection-type";
 

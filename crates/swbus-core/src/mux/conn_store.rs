@@ -17,7 +17,7 @@ enum ConnTracker {
 
 pub struct SwbusConnStore {
     mux: Arc<SwbusMultiplexer>,
-    connections: DashMap<Arc<SwbusConnInfo>, ConnTracker>,
+    connections: DashMap<String, ConnTracker>,
 }
 
 impl SwbusConnStore {
@@ -29,8 +29,7 @@ impl SwbusConnStore {
     }
 
     #[instrument(skip(self, conn_info), fields(conn_id=conn_info.id()))]
-    fn start_connect_task(self: &Arc<SwbusConnStore>, conn_info: Arc<SwbusConnInfo>, reconnect: bool) {
-        let conn_info_clone = conn_info.clone();
+    fn start_connect_task(self: &Arc<SwbusConnStore>, conn_info: &SwbusConnInfo, reconnect: bool) {
         info!("Starting connection task to the peer");
         let retry_interval = match reconnect {
             true => Duration::from_millis(1),
@@ -42,13 +41,14 @@ impl SwbusConnStore {
 
         let token = CancellationToken::new();
         let child_token = token.clone();
+        let conn_info_clone = conn_info.clone();
         tokio::spawn(
             async move {
                 loop {
                     if child_token.is_cancelled() {
                         return;
                     }
-                    match SwbusConn::connect(conn_info.clone(), mux_clone.clone(), conn_store.clone()).await {
+                    match SwbusConn::connect(&conn_info_clone, mux_clone.clone(), conn_store.clone()).await {
                         Ok(conn) => {
                             info!("Successfully connect to the peer");
                             // register the new connection and update the route table
@@ -63,21 +63,18 @@ impl SwbusConnStore {
             }
             .instrument(current_span.clone()),
         );
-        self.connections.insert(conn_info_clone, ConnTracker::Task(token));
+        self.connections
+            .insert(conn_info.id().to_string(), ConnTracker::Task(token));
     }
 
     pub fn add_peer(self: &Arc<SwbusConnStore>, peer: PeerConfig) {
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
-            peer.conn_type,
-            peer.endpoint,
-            peer.id.clone(),
-        ));
-        self.start_connect_task(conn_info, false);
+        let conn_info = SwbusConnInfo::new_client(peer.conn_type, peer.endpoint);
+        self.start_connect_task(&conn_info, false);
     }
 
-    pub fn conn_lost(self: &Arc<SwbusConnStore>, conn_info: Arc<SwbusConnInfo>) {
+    pub fn conn_lost(self: &Arc<SwbusConnStore>, conn_info: &SwbusConnInfo) {
         // First, we remove the connection from the connection table.
-        self.connections.remove(&conn_info);
+        self.connections.remove(conn_info.id());
 
         // If connection is client mode, we start a new connection task.
         if conn_info.mode() == SwbusConnMode::Client {
@@ -88,7 +85,7 @@ impl SwbusConnStore {
     pub fn conn_established(&self, conn: SwbusConn) {
         self.mux.register(conn.info(), conn.new_proxy());
         self.connections
-            .insert(conn.info().clone(), ConnTracker::SwbusConn(conn));
+            .insert(conn.info().id().to_string(), ConnTracker::SwbusConn(conn));
     }
 
     pub async fn shutdown(&self) {
@@ -124,7 +121,6 @@ mod tests {
         let peer_config = PeerConfig {
             conn_type: ConnectionType::InNode,
             endpoint: "127.0.0.1:8080".to_string().parse().unwrap(),
-            id: ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap(),
         };
         let route_config = RouteConfig {
             key: ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap(),
@@ -137,7 +133,7 @@ mod tests {
         conn_store.add_peer(peer_config);
 
         assert!(conn_store.connections.iter().any(|entry| {
-            entry.key().id() == "swbs-to://127.0.0.1:8080" && matches!(entry.value(), ConnTracker::Task(_))
+            entry.key() == "swbs-to://127.0.0.1:8080" && matches!(entry.value(), ConnTracker::Task(_))
         }));
     }
 
@@ -150,15 +146,11 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
-            ConnectionType::InCluster,
-            "127.0.0.1:8080".parse().unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-        ));
-        conn_store.conn_lost(conn_info.clone());
+        let conn_info = SwbusConnInfo::new_client(ConnectionType::InCluster, "127.0.0.1:8080".parse().unwrap());
+        conn_store.conn_lost(&conn_info);
 
         assert!(conn_store.connections.iter().any(|entry| {
-            entry.key().id() == "swbs-to://127.0.0.1:8080" && matches!(entry.value(), ConnTracker::Task(_))
+            entry.key() == "swbs-to://127.0.0.1:8080" && matches!(entry.value(), ConnTracker::Task(_))
         }));
     }
 
@@ -172,11 +164,10 @@ mod tests {
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
         let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
 
-        let conn_info = Arc::new(SwbusConnInfo::new_client(
-            ConnectionType::InCluster,
-            "127.0.0.1:8080".parse().unwrap(),
-            ServicePath::from_string("regiona.clustera.10.0.0.2-dpu0").unwrap(),
-        ));
+        let mut conn_info = SwbusConnInfo::new_client(ConnectionType::InCluster, "127.0.0.1:8080".parse().unwrap());
+        conn_info =
+            conn_info.with_remote_service_path(ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap());
+        let conn_info = Arc::new(conn_info);
         let (send_queue_tx, _) = mpsc::channel(16);
         let conn = SwbusConn::new(&conn_info, send_queue_tx);
         conn_store.conn_established(conn);
@@ -184,6 +175,6 @@ mod tests {
         assert!(conn_store
             .connections
             .iter()
-            .any(|entry| entry.key().id() == conn_info.id() && matches!(entry.value(), ConnTracker::SwbusConn(_))));
+            .any(|entry| entry.key() == conn_info.id() && matches!(entry.value(), ConnTracker::SwbusConn(_))));
     }
 }
