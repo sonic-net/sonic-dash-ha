@@ -138,8 +138,8 @@ mod tests {
     use swbus_core::mux::service::SwbusServiceHost;
     use swbus_proto::swbus::*;
     use tokio::sync::mpsc::{self, Receiver, Sender};
-    use tokio::sync::oneshot;
     use tokio::time::{self, timeout, Duration, Instant};
+    use tokio_util::sync::CancellationToken;
 
     fn make_swbusd_config() -> SwbusConfig {
         // generate a random port
@@ -148,7 +148,7 @@ mod tests {
 
         let config = format!(
             r#"
-        endpoint: "127.0.0.1:{port}"
+        endpoints: ["127.0.0.1:{port}"]
         routes:
           - key: "region-a.cluster-a.10.0.1.0-dpu0"
             scope: "InCluster"
@@ -158,14 +158,14 @@ mod tests {
         serde_yaml::from_str(&config).unwrap()
     }
 
-    fn start_standalone_swbusd(swbus_cfg: SwbusConfig) -> oneshot::Sender<()> {
+    fn start_standalone_swbusd(swbus_cfg: SwbusConfig) -> CancellationToken {
         // start a standalone swbusd
-        let mut service_host = SwbusServiceHost::new(&swbus_cfg.endpoint);
-        let shutdown_handle = service_host.take_shutdown_sender().unwrap();
+        let service_host = SwbusServiceHost::new(swbus_cfg.endpoints.clone());
+        let shutdown_ct = service_host.get_shutdown_token();
         tokio::spawn(async move {
             let _ = service_host.start(swbus_cfg).await;
         });
-        shutdown_handle
+        shutdown_ct
     }
 
     async fn wait_runtime_until<'a, F, Fut>(
@@ -185,7 +185,7 @@ mod tests {
                 return Ok(());
             }
             if start.elapsed() > Duration::from_secs(timeout as u64) {
-                return Err("swbusd is not connected".to_string());
+                return Err("timed out waiting for the condition to match".to_string());
             }
             time::sleep(Duration::from_millis(100)).await;
         }
@@ -211,7 +211,7 @@ mod tests {
         sp.service_type = "swbus-edge".to_string();
         sp.service_id = "test".to_string();
         let mut runtime = SwbusEdgeRuntime::new(
-            format!("http://{}", swbus_config.endpoint),
+            format!("http://{}", swbus_config.endpoints.first().unwrap()),
             sp.clone(),
             ConnectionType::InNode,
         );
@@ -225,17 +225,17 @@ mod tests {
             .expect("swbusd is not connected");
 
         // shut swbusd and wait until connection is lost
-        shut_hdl.send(()).expect("Failed to send shutdown signal");
+        shut_hdl.cancel();
         wait_runtime_until(runtime.clone(), |x| async move { !x.swbusd_connected().await }, 10)
             .await
-            .expect("swbusd is still connected");
+            .expect("swbusd connection did not drop after shutdown");
 
         // restart swbusd and wait until reconnected
         let shut_hdl = start_standalone_swbusd(swbus_config.clone());
         wait_runtime_until(runtime.clone(), |x| async move { x.swbusd_connected().await }, 10)
             .await
             .expect("swbusd is not reconnected");
-        shut_hdl.send(()).expect("Failed to send shutdown signal");
+        shut_hdl.cancel();
     }
 
     #[tokio::test]
@@ -249,8 +249,11 @@ mod tests {
 
         sp.service_type = "swbus-edge".to_string();
         sp.service_id = "test".to_string();
-        let mut runtime =
-            SwbusEdgeRuntime::new(format!("http://{}", swbus_config.endpoint), sp, ConnectionType::InNode);
+        let mut runtime = SwbusEdgeRuntime::new(
+            format!("http://{}", swbus_config.endpoints.first().unwrap()),
+            sp,
+            ConnectionType::InNode,
+        );
         runtime.start().await.unwrap();
 
         let base_sp = swbus_config.routes[0].key.to_swbusd_service_path().to_longest_path();

@@ -15,6 +15,7 @@ workspace = true
 # Async framework
 tokio.workspace = true
 tokio-stream.workspace = true
+tokio-util.workspace = true
 
 # gRPC
 tonic.workspace = true

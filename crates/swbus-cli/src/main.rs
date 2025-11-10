@@ -159,7 +159,7 @@ async fn main() {
     sp.service_type = "swbus-cli".to_string();
     sp.service_id = Uuid::new_v4().to_string();
     let mut runtime = SwbusEdgeRuntime::new(
-        format!("http://{}", swbus_config.endpoint),
+        format!("http://{}", swbus_config.endpoints.first().unwrap()),
         sp.clone(),
         ConnectionType::Client,
     );
@@ -269,7 +269,10 @@ mod tests {
 
         std::env::set_var("DEV", format!("dpu{slot}"));
         let config = get_swbus_config(None).unwrap();
-        assert_eq!(config.endpoint.to_string(), format!("{}:{}", "10.0.1.0", 23606 + slot));
+        assert_eq!(
+            config.endpoints.first().unwrap().to_string(),
+            format!("{}:{}", "10.0.1.0", 23606 + slot)
+        );
         let expected_sp = ServicePath::with_node("region-a", "cluster-a", &format!("host1-dpu{slot}"), "", "", "", "");
         assert!(config
             .routes

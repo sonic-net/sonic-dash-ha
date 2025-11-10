@@ -2108,6 +2108,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tonic",
  "tracing",
 ]

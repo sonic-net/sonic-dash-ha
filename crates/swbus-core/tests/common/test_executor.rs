@@ -97,7 +97,7 @@ impl TopoRuntime {
                 .unwrap_or_else(|| panic!("Failed to find topo swbusd {}", client.swbusd));
             self.start_client(
                 name,
-                &server.endpoint,
+                &server.endpoints.first().unwrap(),
                 ServicePath::from_string(&client.client_sp).unwrap(),
             )
             .await;
@@ -107,7 +107,7 @@ impl TopoRuntime {
     }
 
     async fn start_server(&mut self, name: &str, route_config: &SwbusConfig) {
-        let service_host = SwbusServiceHost::new(&route_config.endpoint);
+        let service_host = SwbusServiceHost::new(route_config.endpoints.clone());
         let config_clone = route_config.clone();
         let server_task = tokio::spawn(async move {
             service_host.start(config_clone).await.unwrap();
@@ -115,7 +115,7 @@ impl TopoRuntime {
 
         self.server_jobs.push(server_task);
 
-        println!("Server {} started at {}", name, &route_config.endpoint);
+        println!("Server {} started at {:?}", name, route_config.endpoints);
     }
 
     async fn start_client(&mut self, name: &str, node_addr: &SocketAddr, client_sp: ServicePath) {

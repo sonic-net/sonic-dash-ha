@@ -11,10 +11,7 @@ use swbus_config::SwbusConfig;
 use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_server::{SwbusService, SwbusServiceServer};
 use swbus_proto::swbus::*;
-use tokio::sync::{
-    mpsc,
-    oneshot::{self, Receiver, Sender},
-};
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::Stream;
 use tokio_util::sync::CancellationToken;
@@ -22,41 +19,49 @@ use tonic::{transport::Server, Request, Response, Status, Streaming};
 use tracing::*;
 
 pub struct SwbusServiceHost {
-    swbus_server_addr: SocketAddr,
+    swbus_server_addrs: Vec<SocketAddr>,
     mux: Option<Arc<SwbusMultiplexer>>,
     conn_store: Option<Arc<SwbusConnStore>>,
-    shutdown_tx: Option<Sender<()>>,
-    shutdown_rx: Option<Receiver<()>>,
+    shutdown_ct: CancellationToken,
 }
 
 type SwbusMessageResult<T> = Result<Response<T>, Status>;
 type SwbusMessageStream = Pin<Box<dyn Stream<Item = Result<SwbusMessage, Status>> + Send>>;
 
+// Separate implementation struct to allow cloning for multiple servers
+struct SwbusServiceImpl {
+    mux: Arc<SwbusMultiplexer>,
+    conn_store: Arc<SwbusConnStore>,
+}
+
 impl SwbusServiceHost {
-    pub fn new(swbus_server_addr: &SocketAddr) -> Self {
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+    pub fn new(swbus_server_addrs: Vec<SocketAddr>) -> Self {
         Self {
-            swbus_server_addr: *swbus_server_addr,
+            swbus_server_addrs,
             mux: None,
             conn_store: None,
-            shutdown_tx: Some(shutdown_tx),
-            shutdown_rx: Some(shutdown_rx),
+            shutdown_ct: CancellationToken::new(),
         }
     }
 
-    pub fn take_shutdown_sender(&mut self) -> Option<Sender<()>> {
-        self.shutdown_tx.take()
+    pub fn get_shutdown_token(&self) -> CancellationToken {
+        self.shutdown_ct.clone()
     }
 
-    pub async fn shutdown(&mut self) {
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-        }
+    pub async fn shutdown(&self) {
+        info!("SwbusServiceServer shutting down");
+        self.shutdown_ct.cancel();
     }
 
     pub async fn start(mut self, config: SwbusConfig) -> Result<()> {
-        debug!("SwbusServiceServer starting at {}", self.swbus_server_addr);
-        let addr = self.swbus_server_addr;
+        if self.swbus_server_addrs.is_empty() {
+            return Err(SwbusError::input(
+                SwbusErrorCode::InvalidArgs,
+                "No server addresses provided.".to_string(),
+            ));
+        }
+
+        debug!("SwbusServiceServer starting at {:?}", self.swbus_server_addrs);
 
         if config.routes.is_empty() {
             return Err(SwbusError::input(
@@ -90,29 +95,54 @@ impl SwbusServiceHost {
         self.mux = Some(mux);
         let conn_store_clone = conn_store.clone();
         self.conn_store = Some(conn_store);
-        let shutdown_rx = self.shutdown_rx.take().unwrap();
 
-        Server::builder()
-            .add_service(SwbusServiceServer::new(self))
-            .serve_with_shutdown(addr, async {
-                shutdown_rx.await.ok();
-                info!("SwbusServiceServer received shutdown signal");
-                conn_store_clone.shutdown().await;
-            })
-            .await
-            .map_err(|e| {
-                SwbusError::connection(
-                    SwbusErrorCode::ConnectionError,
-                    io::Error::other(format!("Failed to listen at {addr}: {e}")),
-                )
-            })?;
-        debug!("SwbusServiceServer terminated");
+        // Start multiple servers, one for each address
+        let mut server_handles = Vec::new();
+        let addrs = self.swbus_server_addrs.clone();
+
+        for addr in addrs.into_iter() {
+            let service = SwbusServiceServer::new(SwbusServiceImpl {
+                mux: self.mux.clone().unwrap(),
+                conn_store: self.conn_store.clone().unwrap(),
+            });
+
+            let shutdown_ct_for_server = self.shutdown_ct.clone();
+            let conn_store_clone = conn_store_clone.clone();
+            let server_handle = tokio::spawn(async move {
+                info!("Starting SwbusServiceServer on {}", addr);
+                Server::builder()
+                    .add_service(service)
+                    .serve_with_shutdown(addr, async move {
+                        shutdown_ct_for_server.cancelled().await;
+                        info!("SwbusServiceServer on {} shutting down", addr);
+                        conn_store_clone.shutdown().await;
+                    })
+                    .await
+                    .map_err(|e| {
+                        SwbusError::connection(
+                            SwbusErrorCode::ConnectionError,
+                            io::Error::other(format!("Failed to listen at {addr}: {e}")),
+                        )
+                    })
+            });
+
+            server_handles.push(server_handle);
+        }
+
+        // Wait for all servers to complete
+        for handle in server_handles {
+            handle
+                .await
+                .map_err(|e| SwbusError::internal(SwbusErrorCode::Fail, format!("Server task panicked: {e}")))??;
+        }
+        debug!("All SwbusServiceServers terminated");
+
         Ok(())
     }
 }
 
 #[tonic::async_trait]
-impl SwbusService for SwbusServiceHost {
+impl SwbusService for SwbusServiceImpl {
     type StreamMessagesStream = SwbusMessageStream;
 
     #[instrument(name="connection_received", level="info", skip_all, fields(addr=%request.remote_addr().unwrap()))]
@@ -163,20 +193,15 @@ impl SwbusService for SwbusServiceHost {
         let (out_tx, out_rx) = mpsc::channel(16);
 
         let conn_info = Arc::new(SwbusConnInfo::new_server(conn_type, client_addr, service_path));
-        let conn = SwbusConn::from_incoming_stream(
-            conn_info,
-            in_stream,
-            out_tx,
-            self.mux.as_ref().unwrap().clone(),
-            self.conn_store.as_ref().unwrap().clone(),
-        )
-        .await;
-        self.conn_store.as_ref().unwrap().conn_established(conn);
+        let conn =
+            SwbusConn::from_incoming_stream(conn_info, in_stream, out_tx, self.mux.clone(), self.conn_store.clone())
+                .await;
+        self.conn_store.conn_established(conn);
         let out_stream = ReceiverStream::new(out_rx);
 
         // Send server service path in response metadata
         let mut response = Response::new(Box::pin(out_stream) as Self::StreamMessagesStream);
-        let server_service_path = self.mux.as_ref().unwrap().get_my_service_path().to_string();
+        let server_service_path = self.mux.get_my_service_path().to_string();
         response
             .metadata_mut()
             .insert(SWBUS_SERVER_SERVICE_PATH, server_service_path.parse().unwrap());

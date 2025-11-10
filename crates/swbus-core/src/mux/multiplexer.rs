@@ -381,6 +381,8 @@ impl SwbusMultiplexer {
 
         // get old routes, or create an empty one, and hold lock on the entry
         let mut old_routes = self.routes_by_conn.entry(conn_info.clone()).or_default();
+        debug!("Old routes from conn {:?}: {:?}", conn_info.id(), *old_routes);
+        debug!("New routes from conn {:?}: {:?}", conn_info.id(), new_routes);
         let routes_to_remove: BTreeSet<RouteEntry> = old_routes.difference(&new_routes).cloned().collect();
         let routes_to_add: BTreeSet<RouteEntry> = new_routes.difference(&old_routes).cloned().collect();
 

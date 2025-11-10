@@ -15,7 +15,7 @@ const CONFIG_DB: &str = "CONFIG_DB";
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct SwbusConfig {
-    pub endpoint: SocketAddr,
+    pub endpoints: Vec<SocketAddr>,
     pub routes: Vec<RouteConfig>,
     pub peers: Vec<PeerConfig>,
     pub npu_ipv4: Option<Ipv4Addr>,
@@ -174,7 +174,6 @@ fn peer_config_from_dpu_entry(
         "swbusd_port is not found in dpu {key} is not found"
     )))?;
 
-    // dual stack is not supported. Either all ipv4 or all ipv6.
     if let Some(npu_ipv4) = dpu_entry.npu_ipv4 {
         let npu_ipv4 = npu_ipv4
             .parse::<Ipv4Addr>()
@@ -184,7 +183,9 @@ fn peer_config_from_dpu_entry(
             endpoint: SocketAddr::new(IpAddr::V4(npu_ipv4), swbusd_port),
             conn_type: ConnectionType::InCluster,
         });
-    } else if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
+    }
+
+    if let Some(npu_ipv6) = dpu_entry.npu_ipv6 {
         let npu_ipv6 = npu_ipv6
             .parse::<Ipv6Addr>()
             .map_err(|_| SwbusConfigError::InvalidConfig(format!("Invalid IPv6 address: {npu_ipv6}")))?;
@@ -272,7 +273,7 @@ fn get_loopback_address(lb_index: u32) -> Result<(Option<Ipv4Addr>, Option<Ipv6A
 pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
     let mut peers = Vec::new();
     let mut myroutes: Option<Vec<RouteConfig>> = None;
-    let mut myendpoint: Option<SocketAddr> = None;
+    let mut myendpoints: Vec<SocketAddr> = Vec::new();
 
     let (region, cluster, hostname) = get_device_info()?;
 
@@ -303,9 +304,10 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
             myroutes = Some(route_config_from_dpu_entry(&dpu, &region, &cluster, &hostname));
 
             if let Some(npu_ipv4) = dpu.npu_ipv4 {
-                myendpoint = Some(SocketAddr::new(std::net::IpAddr::V4(npu_ipv4), swbusd_port));
-            } else if let Some(npu_ipv6) = dpu.npu_ipv6 {
-                myendpoint = Some(SocketAddr::new(std::net::IpAddr::V6(npu_ipv6), swbusd_port));
+                myendpoints.push(SocketAddr::new(std::net::IpAddr::V4(npu_ipv4), swbusd_port));
+            }
+            if let Some(npu_ipv6) = dpu.npu_ipv6 {
+                myendpoints.push(SocketAddr::new(std::net::IpAddr::V6(npu_ipv6), swbusd_port));
             }
             continue;
         }
@@ -344,7 +346,7 @@ pub fn swbus_config_from_db(dpu_id: u32) -> Result<SwbusConfig> {
     info!("successfully load swbus config from configdb for dpu {}", dpu_id);
 
     Ok(SwbusConfig {
-        endpoint: myendpoint.unwrap(),
+        endpoints: myendpoints,
         routes: myroutes.unwrap(),
         peers,
         npu_ipv4: my_ipv4,
@@ -359,14 +361,17 @@ pub fn swbus_config_from_yaml(yaml_file: &str) -> Result<SwbusConfig> {
     // Parse the YAML data
     let mut swbus_config: SwbusConfig = serde_yaml::from_reader(reader)
         .map_err(|e| SwbusConfigError::InvalidConfig(format!("Failed to parse YAML file: {e}")))?;
-    let ip = swbus_config.endpoint.ip();
 
-    match ip {
-        IpAddr::V4(ipv4) => {
-            swbus_config.npu_ipv4 = Some(ipv4);
-        }
-        IpAddr::V6(ipv6) => {
-            swbus_config.npu_ipv6 = Some(ipv6);
+    let ips = swbus_config.endpoints.iter().map(|addr| addr.ip()).collect::<Vec<_>>();
+
+    for ip in ips {
+        match ip {
+            IpAddr::V4(ipv4) => {
+                swbus_config.npu_ipv4 = Some(ipv4);
+            }
+            IpAddr::V6(ipv6) => {
+                swbus_config.npu_ipv6 = Some(ipv6);
+            }
         }
     }
 
@@ -474,24 +479,34 @@ mod tests {
         let mut config_fromdb = swbus_config_from_db(0).unwrap();
 
         assert_eq!(config_fromdb.routes.len(), 1);
-        assert_eq!(config_fromdb.peers.len(), 5);
+        assert_eq!(config_fromdb.peers.len(), 10);
 
         // create equivalent config in yaml
         let yaml_content = r#"
-        endpoint: "10.0.1.0:23606"
+        endpoints: ["10.0.1.0:23606", "[2001:db8:1::]:23606"]
         routes:
           - key: "region-a.cluster-a.host1-dpu0"
             scope: "InCluster"
         peers:
           - endpoint: "10.0.1.0:23607"
             conn_type: "InCluster"
+          - endpoint: "[2001:db8:1::]:23607"
+            conn_type: "InCluster"
           - endpoint: "10.0.1.1:23606"
+            conn_type: "InCluster"
+          - endpoint: "[2001:db8:1::1]:23606"
             conn_type: "InCluster"
           - endpoint: "10.0.1.1:23607"
             conn_type: "InCluster"
+          - endpoint: "[2001:db8:1::1]:23607"
+            conn_type: "InCluster"
           - endpoint: "10.0.1.2:23606"
             conn_type: "InCluster"
+          - endpoint: "[2001:db8:1::2]:23606"
+            conn_type: "InCluster"
           - endpoint: "10.0.1.2:23607"
+            conn_type: "InCluster"
+          - endpoint: "[2001:db8:1::2]:23607"
             conn_type: "InCluster"
         "#;
 
@@ -505,9 +520,10 @@ mod tests {
         expected.npu_ipv6 = Some(Ipv6Addr::from_str("2001:db8:1::").unwrap());
         // sort before compare
         config_fromdb.routes.sort_by(|a, b| a.key.cmp(&b.key));
-        config_fromdb.peers.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
+        config_fromdb.peers.sort_by_key(|p| p.endpoint.to_string());
         expected.routes.sort_by(|a, b| a.key.cmp(&b.key));
-        expected.peers.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
+        expected.peers.sort_by_key(|p| p.endpoint.to_string());
+
         assert_eq!(config_fromdb, expected);
 
         cleanup_configdb_for_test();
@@ -516,14 +532,16 @@ mod tests {
     #[test]
     fn test_load_from_yaml() {
         let yaml_content = r#"
-        endpoint: 10.0.0.1:8000
+        endpoints: ["10.0.0.1:8000"]
         routes:
           - key: "region-a.cluster-a.10.0.0.1-dpu0"
             scope: "InCluster"
         peers:
-          - endpoint: "10.0.0.2:8000"
+          - id: "region-a.cluster-a.10.0.0.2-dpu0"
+            endpoint: "10.0.0.2:8000"
             conn_type: "InCluster"
-          - endpoint: "10.0.0.3:8000"
+          - id: "region-a.cluster-a.10.0.0.3-dpu0"
+            endpoint: "10.0.0.3:8000"
             conn_type: "InCluster"
         "#;
 

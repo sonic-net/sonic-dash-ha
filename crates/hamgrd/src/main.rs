@@ -68,9 +68,9 @@ async fn main() {
 
     let runtime_data = RuntimeData::new(args.slot_id, swbus_config.npu_ipv4, swbus_config.npu_ipv6);
 
-    // Setup swbus and actor runtime
+    // Setup swbus and actor runtime to the first endpoint of swbusd
     let mut swbus_edge = SwbusEdgeRuntime::new(
-        format!("http://{}", swbus_config.endpoint),
+        format!("http://{}", swbus_config.endpoints.first().unwrap()),
         swbus_sp.clone(),
         ConnectionType::InNode,
     );
