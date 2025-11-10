@@ -2,7 +2,7 @@
     "description": "Simple topo with 2 swbusd and 1 client: client <-> swbusd1 <-> swbusd2",
     "servers": {
         "swbusd1": {
-            "endpoint": "127.0.0.1:60001",
+            "endpoints": ["127.0.0.1:60001"],
             "routes": [
                 {
                     "key": "region-a.cluster-a.10.0.0.1-dpu0",
@@ -17,7 +17,7 @@
             ]
         },
         "swbusd2": {
-            "endpoint": "127.0.0.1:60002",
+            "endpoints": ["127.0.0.1:60002"],
             "routes": [
                 {
                     "key": "region-a.cluster-a.10.0.0.2-dpu0",

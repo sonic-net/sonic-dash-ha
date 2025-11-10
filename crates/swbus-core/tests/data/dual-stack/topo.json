@@ -1,5 +1,5 @@
 {
-    "description": "Simple topo with 4 swbusd including 2 gateways and 1 client: client <-> swbusd_cluster-a.node1 <-> swbusd_cluster-a.gw <-> swbusd_cluster-b.gw <-> swbusd_cluster-b.node1",
+    "description": "Simple topo with 3 swbusd including 1 gateways and 1 client: client <-> swbusd_cluster-a.node1 <-> swbusd_cluster-a.gw <-> swbusd_cluster-b.node1. cluster-a runs ipv4 and cluster-b runs ipv6. cluster-a.gw supports both ipv4 and ipv6",
     "servers": {
         "swbusd_cluster-a.node1": {
             "endpoints": ["127.0.0.1:60001"],
@@ -17,7 +17,7 @@
             ]
         },
         "swbusd_cluster-a.gw": {
-            "endpoints": ["127.0.0.1:60002"],
+            "endpoints": ["127.0.0.1:60002", "[::1]:60002"],
             "routes": [
                 {
                     "key": "region-a.cluster-a.gw",
@@ -30,13 +30,13 @@
             ],
             "peers": [
                 {
-                    "endpoint": "127.0.0.1:60003",
-                    "conn_type": "InRegion"
+                    "endpoint": "127.0.0.1:60001",
+                    "conn_type": "InCluster"
                 }
             ]
         },
         "swbusd_cluster-b.gw": {
-            "endpoints": ["127.0.0.1:60003"],
+            "endpoints": ["[::1]:60003"],
             "routes": [
                 {
                     "key": "region-a.cluster-b.gw",
@@ -49,17 +49,17 @@
             ],
             "peers": [
                 {
-                    "endpoint": "127.0.0.1:60002",
+                    "endpoint": "[::1]:60002",
                     "conn_type": "InRegion"
                 },
                 {
-                    "endpoint": "127.0.0.1:60004",
+                    "endpoint": "[::1]:60004",
                     "conn_type": "InCluster"
                 }
             ]
         },
         "swbusd_cluster-b.node1": {
-            "endpoints": ["127.0.0.1:60004"],
+            "endpoints": ["[::1]:60004"],
             "routes": [
                 {
                     "key": "region-a.cluster-b.node1",
@@ -68,7 +68,7 @@
             ],
             "peers": [
                 {
-                    "endpoint": "127.0.0.1:60003",
+                    "endpoint": "[::1]:60003",
                     "conn_type": "InCluster"
                 }
             ]

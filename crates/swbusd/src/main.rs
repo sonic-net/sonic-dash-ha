@@ -33,6 +33,6 @@ async fn main() {
         }
     };
 
-    let server = SwbusServiceHost::new(&swbusd_config.endpoint);
+    let server = SwbusServiceHost::new(swbusd_config.endpoints.clone());
     server.start(swbusd_config).await.unwrap();
 }
