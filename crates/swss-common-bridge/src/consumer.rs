@@ -135,7 +135,11 @@ pub trait ConsumerTable: Send + 'static {
 
 macro_rules! rehydrate_body {
     (true, $self:ident) => {{
-        let db = $self.db_connector_mut().clone_async().await;
+        let db = $self
+            .db_connector_mut()
+            .clone_timeout_async(15000)
+            .await
+            .expect("Failed to clone db connection");
         let mut tbl = Table::new_async(db, $self.table_name()).await.expect("Table::new");
         let keys = tbl.get_keys_async().await.expect("Table::get_keys");
 
