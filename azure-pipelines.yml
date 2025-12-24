@@ -20,6 +20,9 @@ stages:
     displayName: "amd64/ubuntu-22.04"
     pool:
       vmImage: 'ubuntu-22.04'
+    
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
 
     steps:
     - checkout: self
@@ -31,7 +34,7 @@ stages:
         # dash-ha build deps
         sudo apt-get update
         sudo apt-get install -y curl protobuf-compiler redis
-        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        # curl https://sh.rustup.rs -sSf | sh -s -- -y
       displayName: 'Install dash-ha dependencies'
 
     - task: DownloadPipelineArtifact@2
