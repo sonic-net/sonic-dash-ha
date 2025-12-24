@@ -74,7 +74,7 @@ stages:
         set -exuo pipefail
         export DEBIAN_FRONTEND=noninteractive
         sudo apt-get update
-        sudo apt-get install -y libboost-dev libboost-serialization-dev libhiredis-dev libzmq3-dev
+        sudo apt-get install -y libboost1.83-dev libboost-serialization1.83-dev libhiredis-dev libzmq3-dev
         pushd download
         sudo dpkg -i $(find common -type f -name '*.deb')
         sudo dpkg --ignore-depends=libboost-serialization1.74.0 -i $(find swsscommon -type f -name '*.deb')
