@@ -469,7 +469,7 @@ impl HaScopeActor {
     }
 }
 
-// Implements messages handlers for HaScopeActor
+// Implements messages handlers for HaScopeActor (DPU-driven mode))
 impl HaScopeActor {
     /// Handles updates to the DASH_HA_SCOPE_CONFIG_TABLE.
     /// Updates the actor's internal config and performs any necessary initialization or subscriptions.
@@ -636,6 +636,11 @@ impl HaScopeActor {
     }
 }
 
+// Implements messages handlers for HaScopeActor (NPU-driven mode))
+impl HaScopeActor {
+    // TODO: implement handlers per message type
+}
+
 impl Actor for HaScopeActor {
     #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-scope/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
@@ -650,15 +655,25 @@ impl Actor for HaScopeActor {
             return Ok(());
         }
 
-        if VDpuActorState::is_my_msg(key) {
-            return self.handle_vdpu_state_update(state, context).await;
+        let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
+            return Ok(());
+        };
+
+        if dash_ha_scope_config.owner == HaOwner::Dpu as i32 {
+            // this is a dpu driven ha scope.
+            if VDpuActorState::is_my_msg(key) {
+                return self.handle_vdpu_state_update(state, context).await;
+            }
+            if HaSetActorState::is_my_msg(key) {
+                return self.handle_haset_state_update(state);
+            }
+            if key.starts_with(DpuDashHaScopeState::table_name()) {
+                // dpu ha scope state update
+                return self.handle_dpu_ha_scope_state_update(state);
+            }
         }
-        if HaSetActorState::is_my_msg(key) {
-            return self.handle_haset_state_update(state);
-        }
-        if key.starts_with(DpuDashHaScopeState::table_name()) {
-            // dpu ha scope state update
-            return self.handle_dpu_ha_scope_state_update(state);
+        else {
+            // TODO: implement npu driven ha scope handling
         }
 
         Ok(())
