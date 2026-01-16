@@ -322,6 +322,8 @@ pub struct VnetRouteTunnelTable {
     pub rx_monitor_timer: Option<u32>,
     pub tx_monitor_timer: Option<u32>,
     pub check_directly_connected: Option<bool>,
+    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
+    pub pinned_state: Option<Vec<String>>,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations>
