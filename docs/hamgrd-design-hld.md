@@ -62,7 +62,7 @@ Symmetrically to the creation mechanism, which creates an actor when the corresp
 
 **Database Tables**:
  - DpuActors are created for each `DPU` entry and `REMOTE_DPU` entry in `CONFIG_DB`.
- - In a cluster with 8 smartswitches and 8 DPUs per switch, there are 64 DPUs altogther. From database configuration perspective, in any switch, there are 8 DPU in config_db,which for the local DPUs in the switch, and 48 REMOTE_DPU.
+ - In a cluster with 8 smartswitches and 8 DPUs per switch, there are 64 DPUs altogther. From database configuration perspective, in any switch, there are 8 DPU in config_db, which for the local DPUs in the switch, and 48 REMOTE_DPU.
 
 **Creation Trigger**:
 - New entries in `DPU` or `REMOTE_DPU` tables
@@ -73,11 +73,12 @@ Symmetrically to the creation mechanism, which creates an actor when the corresp
 - Removes BFD sessions from DPU_APPL_DB/BFD_SESSION_TABLE
 
 **Key Responsibilities**:
-- Monitor DPU health status (midplane, control plane, data plane)
-- Track BFD (Bidirectional Forwarding Detection) session states
+- Distinguish between managed (local) and unmanaged (remote) DPUs. Only one DpuActor in each hamgrd manages the DPU that the hamgrd is bound to. That DpuActor is managed.
+- Monitor DPU health status (midplane, control plane, data plane) and send update to the corresponding VDpuActor
+- Track BFD (Bidirectional Forwarding Detection) session states and send update to the corresponding VDpuActor
 - Manage NPU (Network Processing Unit) IP addressing
-- If the actor is for the locally managed DPU, it also subscribes to REMOTE_DPU consumer-bridge, from which, it collects remote switches' npu_ip that are in the same cluster. - If the actor is for the locally managed DPU, create BFD sessions in DPU_APPL_DB/BFD_SESSION_TABLE to all switches in the cluster using the switches' npu_ip collected in the above step.
-- Distinguish between managed (local) and unmanaged (remote) DPUs
+- If the actor is for the locally managed DPU, it also subscribes to REMOTE_DPU consumer-bridge, from which, it collects remote switches' npu_ip that are in the same cluster.
+- If the actor is for the locally managed DPU, create BFD sessions in DPU_APPL_DB/BFD_SESSION_TABLE to all switches in the cluster using the switches' npu_ip collected in the above step. The BFD sessions are only parameters to DPU swss. The latter will create software BFD sessions using the parameters when DPU HA is activated successfully or enters standalone state.
 - Send `DpuActorState` to actors (`VDpuActor`) registering for state update when it receives update from `DPU_STATE` or `DASH_BFD_PROBE_STATE`.
 
 **Message Processing**:
@@ -89,21 +90,6 @@ Symmetrically to the creation mechanism, which creates an actor when the corresp
 | `DPU_STATE` update | PMON state changes | Calculates DPU health based on midplane/control/data plane states |
 | `DASH_BFD_PROBE_STATE` | BFD session status | Updates BFD connectivity status |
 | `DASH_HA_GLOBAL_CONFIG` | Global HA configuration | Updates HA-related settings |
-
-**State Calculation**:
-```rust
-fn calculate_dpu_state(&self, incoming: &Incoming) -> (bool, Option<DpuState>, Option<DashBfdProbeState>) {
-    // DPU is considered UP if:
-    // 1. PMON reports all planes (midplane, control, data) as UP
-    // 2. At least one BFD session (v4 or v6) is UP
-    let pmon_dpu_up = dpu_state.dpu_midplane_link_state == Up
-        && dpu_state.dpu_control_plane_state == Up
-        && dpu_state.dpu_data_plane_state == Up;
-    let bfd_dpu_up = !bfd_probe_state.v4_bfd_up_sessions.is_empty()
-        || !bfd_probe_state.v6_bfd_up_sessions.is_empty();
-    pmon_dpu_up && bfd_dpu_up
-}
-```
 
 **Actor Interactions**:
 - **Consumer Bridge**: Receives update from `DASH_HA_GLOBAL_CONFIG`
@@ -171,10 +157,11 @@ fn calculate_dpu_state(&self, incoming: &Incoming) -> (bool, Option<DpuState>, O
 **Key Responsibilities**:
 - Wait until it receives VDPU states from all `VDpuActor` in the HA pair
 - Coordinate HA relationships between VDPU pairs
-- Generate `DASH_HA_SET_TABLE` entries for DPU consumption
+- Generate `DASH_HA_SET_TABLE` entries for DPU consumption if one of the DPUs in the set is locally managed.
 - Monitor VDPU states and determine primary/backup roles
-- Interface with global HA configuration
-- Create VxLAN VNET routes to the switches of DPUs in the HA-SET but set monitoring IP to DPUs' PA address. This means VxLAN tunnels are to the switches but BFD sessions are between the local switch and remote DPUs
+- Receiving global HA configuration, which are used to create `DASH_HA_SET_TABLE` entries and VNET route entries.
+- Create VxLAN VNET routes to the switches of DPUs in the HA-SET but set monitoring IP to DPUs' PA address. This means VxLAN tunnels are to the switches but BFD sessions are between the local switch and remote DPUs.
+- Based on pinned_vdpu_bfd_probe_states in `DASH_HA_SET_CONFIG`, set pinned_state in VNET route tunnel table entry. It handles update to `DASH_HA_SET_CONFIG` with change to pinned_vdpu_bfd_probe_states.
 
 **Message Processing**:
 
@@ -200,7 +187,7 @@ fn prepare_dash_ha_set_table_data(&self, vdpus: &[VDpuStateExt]) -> Result<Optio
 - **Consumer Bridge**: Receives update from `DASH_HA_GLOBAL_CONFIG`
 - **Inbound**: Receives `VDpuActorState` from VDpuActors
 - **Outbound**: Sends `HaSetActorState` to registered HaScopeActors
-- **Producer Bridge**: Updates `DASH_HA_SET_TABLE` in DPU databases
+- **Producer Bridge**: Updates `DASH_HA_SET_TABLE` in `DPU_APPL_DB`
 - **Database**: Update `VNET_ROUTE_TUNNEL_TABLE` in `APPL_DB`
 
 ### 3.4 HaScopeActor
@@ -219,12 +206,25 @@ fn prepare_dash_ha_set_table_data(&self, vdpus: &[VDpuStateExt]) -> Result<Optio
 - Clean-up tasks: delete the corresponding entry from `DASH_HA_SCOPE_TABLE`
 
 **Key Responsibilities**:
-- Implement HA state machine logic
-- Relay role transition request from SDN controller to DPU via `DASH_HA_SCOPE_TABLE`
+- Implement HA state machine logic. Relay role transition request from SDN controller to DPU via `DASH_HA_SCOPE_TABLE`.
+
+| DASH_HA_SCOPE_CONFIG Attribute| DASH_HA_SCOPE_TABLE Attribute | Description |
+|-------------------------------|-------------------------------|-------------|
+| `disabled` | `disabled` | Set to false to start HA |
+| `desired_ha_state` | `ha_role` | dead, unspecified, active, standby, standalone |
+| `approved_pending_operation_ids` | `flow_reconcile_requested`<br/>`activate_role_requested`| match against `pending_operation_ids` in NPU `DASH_HA_SCOPE_STATE` to find operation type |
+
+- Monitor `DASH_HA_SCOPE_STATE_TABLE` in `DPU_STATE_DB` and generates pending operations and set in NPU `DASH_HA_SCOPE_STATE` via `pending_operation_ids` and `pending_operation_types`
+  - `pending_operation_ids` and `pending_operation_types` are comma separated lists with same length. operation_id and type are matched under the same index.
+  - When `activate_role_pending` turns true in `DPU_STATE_DB`/`DASH_HA_SCOPE_STATE_TABLE`, generates a GUID and adds it to pending_operation_ids along with `activate_role` to pending_operation_types
+  - When `brainsplit_recover_pending` turns true in `DPU_STATE_DB`/`DASH_HA_SCOPE_STATE_TABLE`, generates a GUID and adds it to pending_operation_ids along with `brainsplit_recover` to pending_operation_types
+  - When `flow_reconcile_pending` turns true in `DPU_STATE_DB`/`DASH_HA_SCOPE_STATE_TABLE`, generates a GUID and adds it to pending_operation_ids along with `flow_reconcile` to pending_operation_types
+  - When receive `approved_pending_operation_ids` in `DASH_HA_SCOPE_CONFIG`, remove the corresponding pending operations from NPU `DASH_HA_SCOPE_STATE`
+  - Pass the corresponding approved operations to DPU via `DPU_APPL_DB`/`DASH_HA_SCOPE_TABLE`
 - Aggregate state upate from multiple sources and report to SDN controller via NPU `DASH_HA_SCOPE_STATE`
   - `VDpuActorState`: including DPU_STATE and BFD_PROBE_STATE
   - `HaSetActorState`: ha-set configuration
-  - `DASH_HA_SCOPE_STATE` (DPU): HA state and requests reported by DPU
+  - `DASH_HA_SCOPE_STATE_TABLE` (DPU): HA state and requests reported by DPU
 
 **Message Processing**:
 
@@ -233,11 +233,11 @@ fn prepare_dash_ha_set_table_data(&self, vdpus: &[VDpuStateExt]) -> Result<Optio
 | `DASH_HA_SCOPE_CONFIG` update | HA Scope configuration | Updates scope parameters, initializes state machine |
 | `HaSetActorState` update | HA Set state changes | Updates HA set association |
 | `VDpuActorState` update | VDPU state changes | Monitors associated VDPU health |
-| `DASH_HA_SCOPE_STATE` (DPU) | DPU scope state | Tracks DPU-side HA state machine |
+| `DASH_HA_SCOPE_STATE_TABLE` (DPU) | DPU scope state | Tracks DPU-side HA state machine |
 | `DASH_HA_SCOPE_STATE` (NPU) | NPU scope state | Reporting HA state to external entities, e.g. SDN controller |
 
 **Actor Interactions**:
-- **Consumer Bridge**: Receives `DASH_HA_SCOPE_STATE` in `DPU_STATE_DB`
+- **Consumer Bridge**: Receives `DASH_HA_SCOPE_STATE_TABLE` in `DPU_STATE_DB`
 - **Producer Bridge**: Updates `DASH_HA_SCOPE_TABLE` in `DPU_APPL_DB`
 - **Producer Bridge**: Updates `DASH_HA_SCOPE_STATE` in `STATE_DB` in NPU
 - **Inbound**: Receives `HaSetActorState` and `VDpuActorState`
@@ -280,11 +280,12 @@ graph TB
         DPU_DB[(CONFIG_DB<br/>DPU)]
         REMOTE_DPU_DB[(CONFIG_DB<br/>REMOTE_DPU)]
         VDPU_DB[(CONFIG_DB<br/>VDPU)]
-        HASET_DB[(CONFIG_DB<br/>DASH_HA_SET_CONFIG)]
-        SCOPE_DB[(CONFIG_DB<br/>DASH_HA_SCOPE_CONFIG)]
+        HASET_DB[(APPL_DB<br/>DASH_HA_SET_CONFIG)]
+        SCOPE_DB[(APPL_DB<br/>DASH_HA_SCOPE_CONFIG)]
         GLOBAL_HA_DB[(CONFIG_DB<br/>DASH_HA_GLOBAL_CONFIG)]
         STATE_DPU[(CHASSIS_STATE_DB<br/>DPU_STATE)]
         STATE_BFD[(DPU_STATE_DB<br/>DASH_BFD_PROBE_STATE)]
+        STATE_SCOPE[(DPU_STATE_DB<br/>DASH_HA_SCOPE_STATE_TABLE)]
     end
 
     subgraph "Actors"
@@ -298,12 +299,15 @@ graph TB
         ZMQ_BFD[ZMQ Producer<br/>BFD_SESSION_TABLE]
         ZMQ_HASET[ZMQ Producer<br/>DASH_HA_SET_TABLE]
         ZMQ_SCOPE[ZMQ Producer<br/>DASH_HA_SCOPE_TABLE]
+        ZMQ_VNET[Producer<br/>VNET_ROUTE_TUNNEL_TABLE]
     end
 
     subgraph "Output Tables"
-        OUT_BFD[(BFD_SESSION_TABLE<br/>DPU_APPL_DB)]
-        OUT_HASET[(DASH_HA_SET_TABLE<br/>DPU_APPL_DB)]
-        OUT_SCOPE[(DASH_HA_SCOPE_TABLE<br/>DPU_APPL_DB)]
+        OUT_BFD[(DPU_APPL_DB<br/>BFD_SESSION_TABLE)]
+        OUT_HASET[(DPU_APPL_DB<br/>DASH_HA_SET_TABLE)]
+        OUT_SCOPE[(DPU_APPL_DB<br/>DASH_HA_SCOPE_TABLE)]
+        OUT_VNET[(APPL_DB<br/>VNET_ROUTE_TUNNEL_TABLE)]
+        OUT_SCOPE_STATE[(STATE_DB<br/>DASH_HA_SCOPE_STATE)]
     end
 
     %% Database to Actor connections
@@ -314,6 +318,7 @@ graph TB
     SCOPE_DB -.->|Config Changes| SCOPE
     GLOBAL_HA_DB -.->|Global HA Config| DPU
     GLOBAL_HA_DB -.->|Global HA Config| HASET
+    STATE_SCOPE -.->|State Updates| SCOPE
 
     STATE_DPU -.->|State Updates| DPU
     STATE_BFD -.->|BFD Updates| DPU
@@ -334,10 +339,13 @@ graph TB
     DPU -->|BFD Config| ZMQ_BFD
     HASET -->|HA Set Config| ZMQ_HASET
     SCOPE -->|HA Scope Config| ZMQ_SCOPE
+    HASET -->|VNET Route Config| ZMQ_VNET
+    SCOPE -->|NPU HA Scope State| OUT_SCOPE_STATE
 
     ZMQ_BFD --> OUT_BFD
     ZMQ_HASET --> OUT_HASET
     ZMQ_SCOPE --> OUT_SCOPE
+    ZMQ_VNET --> OUT_VNET
 
     %% Styling
     classDef actor fill:#e1f5fe,stroke:#01579b,stroke-width:2px
@@ -346,7 +354,7 @@ graph TB
     classDef output fill:#fff3e0,stroke:#e65100,stroke-width:2px
 
     class DPU,VDPU,HASET,SCOPE actor
-    class DPU_DB,REMOTE_DPU_DB,VDPU_DB,HASET_DB,SCOPE_DB,GLOBAL_HA_DB,STATE_DPU,STATE_BFD database
+    class DPU_DB,REMOTE_DPU_DB,VDPU_DB,HASET_DB,SCOPE_DB,GLOBAL_HA_DB,STATE_DPU,STATE_BFD,STATE_SCOPE database
     class ZMQ_BFD,ZMQ_HASET,ZMQ_SCOPE producer
     class OUT_BFD,OUT_HASET,OUT_SCOPE output
 ```
@@ -385,19 +393,15 @@ Actor Lifecycle:
 - State changes trigger notifications to all registered observers
 - Enables loose coupling between actor layers
 
-### 7.2 State Machine Pattern
-- HaScopeActor implements complex HA state machine
-- States: Active, Standby, Switchover, Recovery
-- Transitions based on health, policy, and external triggers
-
-### 7.3 Bridge Pattern
+### 7.2 Bridge Pattern
 - ConsumerBridge: Database → Actor message flow
 - ProducerBridge: Actor → Database message flow
-- ZMQ bridges enable inter-process communication
+- ZMQ bridges are used to communicate with DPU processes
 
-### 7.4 Factory Pattern
+### 7.3 Factory Pattern
 - ActorCreator dynamically spawns actors based on database changes
 - Consistent creation pattern across all actor types
+- Actor is terminated when the corresponding database entry is deleted. All the database entries it has produced are deleted as well.
 
 ## 8. Error Handling and Resilience
 
