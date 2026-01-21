@@ -19,6 +19,7 @@ use tracing::{debug, error, info, instrument};
 pub struct HaSetActor {
     id: String,
     dash_ha_set_config: Option<HaSetConfig>,
+    dp_channel_is_alive: bool,
     bridges: Vec<ConsumerBridge>,
 }
 
@@ -27,6 +28,7 @@ impl DbBasedActor for HaSetActor {
         let actor = HaSetActor {
             id: key,
             dash_ha_set_config: None,
+            dp_channel_is_alive: false,
             bridges: Vec::new(),
         };
         Ok(actor)
@@ -122,7 +124,26 @@ impl HaSetActor {
         Ok(Some(dash_ha_set))
     }
 
-    fn update_dash_ha_set_table(
+    fn get_dpu_ha_set_state(&self, incoming: &Incoming) -> Option<DpuDashHaSetState> {
+        let msg = incoming.get(DpuDashHaSetState::table_name())?;
+        let kfv = match msg.deserialize_data::<KeyOpFieldValues>() {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to deserialize DASH_HA_SET_STATE KeyOpFieldValues: {}", e);
+                return None;
+            }
+        };
+
+        match swss_serde::from_field_values(&kfv.field_values) {
+            Ok(state) => Some(state),
+            Err(e) => {
+                error!("Failed to deserialize DASH_HA_SET_STATE from field values: {}", e);
+                None
+            }
+        }
+    }
+
+    fn update_dash_ha_set_state(
         &self,
         vdpus: &[VDpuStateExt],
         incoming: &Incoming,
@@ -141,7 +162,8 @@ impl HaSetActor {
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
 
-        let msg = HaSetActorState::new_actor_msg(true, &self.id, dash_ha_set).unwrap();
+        let up = if self.dp_channel_is_alive { true } else { false };
+        let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set).unwrap();
         let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
         for actor_sp in peer_actors {
             outgoing.send(actor_sp, msg.clone());
@@ -396,13 +418,23 @@ impl HaSetActor {
                 )
                 .await?,
             );
+
+            self.bridges.push(
+                spawn_consumer_bridge_for_actor::<DpuDashHaSetState>(
+                    context.get_edge_runtime().clone(),
+                    Self::name(),
+                    Some(&self.id),
+                    true,
+                )
+                .await?,
+            );
         }
 
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
         };
 
-        self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
+        self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
 
         Ok(())
     }
@@ -413,7 +445,7 @@ impl HaSetActor {
             return Ok(());
         };
         // global config update affects Vxlan tunnel and dash-ha-set in DPU
-        self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
+        self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
         self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         Ok(())
     }
@@ -424,7 +456,7 @@ impl HaSetActor {
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
         };
-        self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
+        self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
         self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         Ok(())
     }
@@ -492,6 +524,11 @@ impl Actor for HaSetActor {
             return self.handle_dash_ha_global_config(state).await;
         } else if ActorRegistration::is_my_msg(key, RegistrationType::HaSetState) {
             return self.handle_haset_state_registration(state, key).await;
+        } else if key.starts_with(DpuDashHaSetState::table_name()) {
+            let Some(ha_set_state) = self.get_dpu_ha_set_state(incoming) else {
+                return Ok();
+            };
+            self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive;
         }
         Ok(())
     }
