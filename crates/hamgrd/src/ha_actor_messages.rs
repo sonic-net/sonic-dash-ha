@@ -172,6 +172,9 @@ pub enum RegistrationType {
     DPUState,
     VDPUState,
     HaSetState,
+    VoteRequest,
+    VoteReply,
+    BulkSyncUpdate
 }
 
 impl ActorRegistration {
@@ -208,5 +211,115 @@ impl ActorRegistration {
 
     pub fn is_my_msg(key: &str, reg_type: RegistrationType) -> bool {
         key.starts_with(Self::msg_key_prefix(reg_type))
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct VoteRequest {
+    // routing info
+    pub dst_actor_id: String,
+
+    // state of the source HA scope
+    pub term: int,
+    pub state: String,
+    pub desired_state: String,
+}
+
+impl VoteRequest {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, my_term: int, my_state: &str, my_desired_state: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self {
+            dst_actor_id: dst_id.to_string(),
+            term: my_term,
+            state: my_state.to_string(),
+            desired_state: my_desired_state.to_string()
+        })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "VoteRequest|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct VoteReply {
+    // routing info
+    pub dst_actor_id: String,
+
+    // response as a string
+    pub response: String,
+}
+
+impl VoteReply {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, response: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self {
+            dst_actor_id: dst_id.to_string(),
+            response: response.to_string()
+        })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "VoteReply|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct BulkSyncUpdate {
+    // routing info
+    pub dst_actor_id: String,
+
+    // message meta
+    pub seq: int,
+    pub finished: bool,
+    pub ack: bool
+}
+
+impl BulkSyncUpdate {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, seq: int, finished: bool, ack: bool) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self {
+            dst_actor_id: dst_id.to_string(),
+            seq: seq,
+            finished: finished,
+            ack: ack
+        })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "BulkSyncUpdate|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
     }
 }
