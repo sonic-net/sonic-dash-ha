@@ -375,6 +375,23 @@ pub struct DpuDashHaScopeState {
     pub brainsplit_recover_pending: bool,
 }
 
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2341-ha-set-state>
+#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[sonicdb(
+    table_name = "DASH_HA_SET_STATE_TABLE",
+    key_separator = "|",
+    db_name = "DPU_STATE_DB",
+    is_dpu = "true"
+)]
+pub struct DpuDashHaSetState {
+    // HA set ID
+    pub ha_set_id: String,
+    // The last update time of this state in milliseconds.
+    pub last_updated_time: i64,
+    // Data plane channel is alive or not.
+    pub dp_channel_is_alive: bool
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[skip_serializing_none]
 #[serde_as]
@@ -395,7 +412,6 @@ pub struct NpuDashHaScopeState {
     // The IP address of the peer DPU.
     pub peer_ip: String,
 
-    // The state of the HA state machine. This is the state in NPU hamgrd.
     // The state of the HA state machine. This is the state in NPU hamgrd.
     pub local_ha_state: Option<String>,
     // The time when local target HA state is set.
