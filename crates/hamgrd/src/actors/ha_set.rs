@@ -224,6 +224,11 @@ impl HaSetActor {
             return Ok(());
         }
 
+        let pinned_state = self
+            .dash_ha_set_config
+            .as_ref()
+            .map(|cfg| cfg.pinned_vdpu_bfd_probe_states.clone());
+
         // update vnet route tunnel table
         let vnet_route = VnetRouteTunnelTable {
             endpoint,
@@ -233,6 +238,7 @@ impl HaSetActor {
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(check_directly_connected),
+            pinned_state,
         };
         let fvs = swss_serde::to_field_values(&vnet_route)?;
 
@@ -404,6 +410,14 @@ impl HaSetActor {
 
         self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
 
+        if !first_time {
+            // on config update, also update vnet route tunnel table
+            let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
+                return Ok(());
+            };
+
+            self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
+        }
         Ok(())
     }
 
@@ -545,6 +559,10 @@ mod test {
 
         let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
         let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
+        let mut ha_set_cfg_bfd_pinned = ha_set_cfg.clone();
+        ha_set_cfg_bfd_pinned.pinned_vdpu_bfd_probe_states = vec!["down".to_string(), "up".to_string()];
+        let ha_set_cfg_fvs_bfd_pinned = protobuf_struct_to_kfv(&ha_set_cfg_bfd_pinned);
+
         let dpu0 = make_local_dpu_actor_state(0, 0, true, None, None);
         let dpu1 = make_remote_dpu_actor_state(1, 0);
         let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
@@ -569,8 +587,27 @@ mod test {
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(true),
+            pinned_state: Some(ha_set_cfg.pinned_vdpu_bfd_probe_states.clone()),
         };
         let expected_vnet_route = swss_serde::to_field_values(&expected_vnet_route).unwrap();
+
+        let expected_vnet_route_bfd_pinned = VnetRouteTunnelTable {
+            endpoint: vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.npu_ipv4.clone(),
+            ],
+            endpoint_monitor: Some(vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.pa_ipv4.clone(),
+            ]),
+            monitoring: Some("custom_bfd".into()),
+            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
+            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            check_directly_connected: Some(true),
+            pinned_state: Some(ha_set_cfg_bfd_pinned.pinned_vdpu_bfd_probe_states.clone()),
+        };
+        let expected_vnet_route_bfd_pinned = swss_serde::to_field_values(&expected_vnet_route_bfd_pinned).unwrap();
 
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
@@ -606,6 +643,22 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route},
                     addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+
+            // simulate pinned_vdpu_bfd_probe_states update. vdpu register and DashHaSetTable update will be triggered but no change
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs_bfd_pinned },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj },
+                    addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                      "operation": "Set", "field_values": expected_vnet_route_bfd_pinned},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
@@ -641,6 +694,10 @@ mod test {
 
         let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(2, 0);
         let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
+        let mut ha_set_cfg_bfd_pinned = ha_set_cfg.clone();
+        ha_set_cfg_bfd_pinned.pinned_vdpu_bfd_probe_states = vec!["down".to_string(), "up".to_string()];
+        let ha_set_cfg_fvs_bfd_pinned = protobuf_struct_to_kfv(&ha_set_cfg_bfd_pinned);
+
         let dpu0 = make_remote_dpu_actor_state(2, 0);
         let dpu1 = make_remote_dpu_actor_state(3, 0);
         let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
@@ -662,8 +719,27 @@ mod test {
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(false),
+            pinned_state: Some(ha_set_cfg.pinned_vdpu_bfd_probe_states.clone()),
         };
         let expected_vnet_route = swss_serde::to_field_values(&expected_vnet_route).unwrap();
+
+        let expected_vnet_route_bfd_pinned = VnetRouteTunnelTable {
+            endpoint: vec![
+                vdpu0_state_obj.dpu.npu_ipv4.clone(),
+                vdpu1_state_obj.dpu.npu_ipv4.clone(),
+            ],
+            endpoint_monitor: Some(vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.pa_ipv4.clone(),
+            ]),
+            monitoring: Some("custom_bfd".into()),
+            primary: Some(vec![vdpu0_state_obj.dpu.npu_ipv4.clone()]),
+            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            check_directly_connected: Some(false),
+            pinned_state: Some(ha_set_cfg_bfd_pinned.pinned_vdpu_bfd_probe_states.clone()),
+        };
+        let expected_vnet_route_bfd_pinned = swss_serde::to_field_values(&expected_vnet_route_bfd_pinned).unwrap();
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
@@ -690,6 +766,17 @@ mod test {
             // Verify that the VnetRouteTunnelTable was updated
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+
+            // simulate pinned_vdpu_bfd_probe_states update
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs_bfd_pinned },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                      "operation": "Set", "field_values": expected_vnet_route_bfd_pinned},
                     addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
 
             // simulate delete of ha-set entry
