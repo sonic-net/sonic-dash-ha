@@ -138,11 +138,12 @@ impl VDpuActorState {
 pub struct HaSetActorState {
     pub up: bool,
     pub ha_set: DashHaSetTable,
+    pub vdpu_ids: Vec<String>
 }
 
 impl HaSetActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up: true, ha_set })
+    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable, vdpu_ids: &Vec<String>) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { up: true, ha_set: ha_set, vdpu_ids: vdpu_ids.clone() })
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -187,6 +188,9 @@ impl ActorRegistration {
             RegistrationType::DPUState => "DPUStateRegister|",
             RegistrationType::VDPUState => "VDPUStateRegister|",
             RegistrationType::HaSetState => "HaSetStateRegister|",
+            RegistrationType::BulkSyncUpdate => "BulkSyncUpdateRegister|",
+            RegistrationType::VoteRequest => "VoteRequestRegister|",
+            RegistrationType::VoteReply => "VoteReplyRegister|"
         }
     }
 

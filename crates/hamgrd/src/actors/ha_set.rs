@@ -1,4 +1,4 @@
-use crate::actors::vdpu::VDpuActor;
+use crate::actors::vdpu::{self, VDpuActor};
 use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
@@ -163,7 +163,8 @@ impl HaSetActor {
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
 
         let up = if self.dp_channel_is_alive { true } else { false };
-        let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set).unwrap();
+        let vdpu_ids = if self.dash_ha_set_config.is_none() { Vec::new() } else { self.dash_ha_set_config.vdpu_ids };
+        let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, vdpu_ids).unwrap();
         let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
         for actor_sp in peer_actors {
             outgoing.send(actor_sp, msg.clone());
@@ -476,7 +477,9 @@ impl HaSetActor {
                 return Ok(());
             };
 
-            let msg = HaSetActorState::new_actor_msg(true, &self.id, dash_ha_set).unwrap();
+            let up = if self.dp_channel_is_alive { true } else { false };
+            let vdpu_ids: Vec<String> = if self.dash_ha_set_config.is_none() { Vec::new() } else { self.dash_ha_set_config.vdpu_ids };
+            let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, vdpu_ids).unwrap();
 
             outgoing.send(entry.source.clone(), msg);
         }
