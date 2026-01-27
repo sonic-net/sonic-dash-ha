@@ -312,7 +312,7 @@ impl DpuActor {
             Some(prev) if prev && !pmon_up => remove = true,
             Some(prev) if !prev && pmon_up => add = true,
             None if !pmon_up => remove = true,
-            None if pmon_up => add = has_global_cfg,
+            None if pmon_up => add = true,
             _ => {}
         }
         self.last_pmon_up = Some(pmon_up);
