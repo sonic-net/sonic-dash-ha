@@ -1,7 +1,7 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
-    BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuState, NeighResolveTable,
-    RemoteDpu,
+    now_in_millis, BfdSessionTable, DashBfdProbeState, DashDpuResetInfo, DashHaGlobalConfig, Dpu, DpuPmonStateType,
+    DpuState, NeighResolveTable, RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use crate::ServicePath;
@@ -9,11 +9,12 @@ use anyhow::{anyhow, Result};
 use sonic_common::SonicDbTable;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use swbus_actor::state::internal::Internal;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
 use swbus_edge::SwbusEdgeRuntime;
-use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable};
+use swss_common::{KeyOpFieldValues, KeyOperation, SubscriberStateTable, Table};
 use swss_common_bridge::consumer::ConsumerBridge;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument};
 
 use super::spawn_consumer_bridge_for_actor_with_selector;
 
@@ -145,24 +146,31 @@ impl DpuActor {
         if let Err(e) = self.update_bfd_sessions(state, true) {
             error!("Failed to cleanup BFD sessions: {}", e);
         }
+        let (internal, _incoming, _outgoing) = state.get_all();
+        self.delete_reset_info(internal);
     }
 
     async fn handle_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
+        let (internal, incoming, outgoing) = state.get_all();
         let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dpu: Dpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
+
+        // First, read the incoming message to check operation and parse DPU data
         if dpu_kfv.operation == KeyOperation::Del {
             self.do_cleanup(context, state);
             context.stop();
             return Ok(());
         }
 
-        let dpu: Dpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
-        let npu_ipv4: String = crate::get_npu_ipv4(context.get_edge_runtime())
-            .ok_or_else(|| anyhow!("npu_ipv4 taken from Loopback0 must be available"))?
-            .to_string();
-        let npu_ipv6: Option<String> = crate::get_npu_ipv6(context.get_edge_runtime()).map(|ip| ip.to_string());
-        let dpu_id = dpu.dpu_id;
-        let is_managed = dpu.dpu_id == crate::get_slot_id(context.get_edge_runtime());
+        let (dpu, dpu_id, is_managed, npu_ipv4, npu_ipv6) = {
+            let npu_ipv4: String = crate::get_npu_ipv4(context.get_edge_runtime())
+                .ok_or_else(|| anyhow!("npu_ipv4 taken from Loopback0 must be available"))?
+                .to_string();
+            let npu_ipv6: Option<String> = crate::get_npu_ipv6(context.get_edge_runtime()).map(|ip| ip.to_string());
+            let dpu_id = dpu.dpu_id;
+            let is_managed = dpu.dpu_id == crate::get_slot_id(context.get_edge_runtime());
+            (dpu, dpu_id, is_managed, npu_ipv4, npu_ipv6)
+        };
 
         let first_time = self.dpu.is_none();
         self.dpu = Some(DpuData::LocalDpu {
@@ -232,6 +240,11 @@ impl DpuActor {
                     )
                     .await?,
                 );
+
+                // Initialize the internal table for DASH_DPU_RESET_INFO
+                if let Err(e) = self.initialize_reset_info_table(internal).await {
+                    error!("Failed to initialize DASH_DPU_RESET_INFO table: {}", e);
+                }
             }
         } else {
             debug!(
@@ -318,6 +331,11 @@ impl DpuActor {
         self.last_pmon_up = Some(pmon_up);
 
         if remove {
+            // Update reset info when pmon goes down. hamgrd doesn't clear reset_status.
+            // It's handled by an external process.
+            if let Err(e) = self.write_reset_info(state) {
+                error!("Failed to write DASH_DPU_RESET_INFO: {}", e);
+            }
             self.update_bfd_sessions(state, true)?;
         } else if add {
             if has_global_cfg {
@@ -557,6 +575,56 @@ impl DpuActor {
 
         Ok(())
     }
+
+    /// Initialize the internal table entry for DASH_DPU_RESET_INFO in STATE_DB.
+    /// This only creates the entry; no data is written until a reset is detected.
+    async fn initialize_reset_info_table(&self, internal: &mut Internal) -> Result<()> {
+        let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
+            return Ok(());
+        };
+
+        let swss_key = format!("DPU{}", dpu.dpu_id);
+        if !internal.has_entry(DashDpuResetInfo::table_name(), &swss_key) {
+            let db = crate::db_for_table::<DashDpuResetInfo>().await?;
+            let table = Table::new_async(db, DashDpuResetInfo::table_name()).await?;
+            internal.add(DashDpuResetInfo::table_name(), table, swss_key).await;
+        }
+        Ok(())
+    }
+
+    /// Write reset info to the internal table when a pmon down transition is detected.
+    /// Never clears reset_status - that's handled by an external process.
+    fn write_reset_info(&self, state: &mut State) -> Result<()> {
+        let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
+            return Ok(());
+        };
+
+        info!(
+            "DPU{} reset detected: pmon_up transitioned from true to false",
+            dpu.dpu_id
+        );
+
+        let reset_info = DashDpuResetInfo {
+            reset_status: true,
+            timestamp: now_in_millis(),
+            dpu_id: self.id.clone(),
+            vdpu_id: dpu.vdpu_id.clone(),
+        };
+
+        let fvs = swss_serde::to_field_values(&reset_info)?;
+        let internal = state.internal();
+        internal.get_mut(DashDpuResetInfo::table_name()).clone_from(&fvs);
+
+        Ok(())
+    }
+
+    /// Delete the reset info table entry during cleanup.
+    fn delete_reset_info(&self, internal: &mut Internal) {
+        if !self.is_local_managed() {
+            return;
+        }
+        internal.delete(DashDpuResetInfo::table_name());
+    }
 }
 
 impl Actor for DpuActor {
@@ -604,7 +672,8 @@ mod test {
         test::{self, *},
     };
     use crate::db_structs::{
-        BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuState, NeighResolveTable, RemoteDpu,
+        BfdSessionTable, DashBfdProbeState, DashDpuResetInfo, DashHaGlobalConfig, Dpu, DpuState, NeighResolveTable,
+        RemoteDpu,
     };
     use crate::ha_actor_messages::DpuActorState;
     use sonic_common::SonicDbTable;
@@ -655,6 +724,15 @@ mod test {
         };
         let bfd_fvs = serde_json::to_value(to_field_values(&bfd).unwrap()).unwrap();
 
+        // Expected reset info when pmon goes down (dpu_id=0 for switch0_dpu0)
+        let expected_reset_info = DashDpuResetInfo {
+            reset_status: true,
+            timestamp: 0, // Will be excluded from comparison
+            dpu_id: "switch0_dpu0".to_string(),
+            vdpu_id: Some("vdpu0".to_string()),
+        };
+        let expected_reset_info_fvs = serde_json::to_value(to_field_values(&expected_reset_info).unwrap()).unwrap();
+
         let dpu_actor = DpuActor {
             id: dpu_actor_state_wo_bfd.dpu_name.clone(),
             dpu: None,
@@ -703,6 +781,8 @@ mod test {
             recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Del", "field_values": {}},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_pmon_down_state, addr: runtime.sp("vdpu", "test-vdpu") },
+            // Check that DASH_DPU_RESET_INFO was written with reset_status=true
+            chkdb! { type: DashDpuResetInfo, key: "DPU0", data: expected_reset_info_fvs, exclude: "timestamp" },
             send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
             recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
