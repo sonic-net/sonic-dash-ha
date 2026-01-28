@@ -441,7 +441,7 @@ impl DpuActor {
             return Ok(());
         }
         if !remove && self.last_pmon_up == Some(false) {
-            debug!("DPU pmon is down. Skip BFD session creation");
+            debug!("DPU midplane or control plane is down. Skip BFD session creation");
             return Ok(());
         }
         let (_internal, incoming, outgoing) = state.get_all();
@@ -504,7 +504,7 @@ impl DpuActor {
         let remote_dpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
 
         if self.last_pmon_up == Some(false) {
-            debug!("DPU pmon is down. Skip BFD session creation for remote DPU");
+            debug!("DPU midplane or control plane is down. Skip BFD session creation for remote DPU");
             return Ok(());
         }
 
