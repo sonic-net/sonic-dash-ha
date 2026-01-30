@@ -381,8 +381,8 @@ pub struct DpuDashHaScopeState {
 /// Key format: DPU{dpu_id} (e.g., DPU0, DPU1, ..., DPU7)
 #[skip_serializing_none]
 #[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
-#[sonicdb(table_name = "DASH_DPU_RESET_INFO", key_separator = "|", db_name = "STATE_DB")]
-pub struct DashDpuResetInfo {
+#[sonicdb(table_name = "DPU_RESET_INFO", key_separator = "|", db_name = "STATE_DB")]
+pub struct DpuResetInfo {
     /// Reset status: true means DPU has reset (midplane or control plane went down)
     pub reset_status: bool,
     /// Timestamp in milliseconds when reset was detected

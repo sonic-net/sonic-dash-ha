@@ -1,6 +1,6 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
-    now_in_millis, BfdSessionTable, DashBfdProbeState, DashDpuResetInfo, DashHaGlobalConfig, Dpu, DpuPmonStateType,
+    now_in_millis, BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuResetInfo,
     DpuState, NeighResolveTable, RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
@@ -584,10 +584,10 @@ impl DpuActor {
         };
 
         let swss_key = format!("DPU{}", dpu.dpu_id);
-        if !internal.has_entry(DashDpuResetInfo::table_name(), &swss_key) {
-            let db = crate::db_for_table::<DashDpuResetInfo>().await?;
-            let table = Table::new_async(db, DashDpuResetInfo::table_name()).await?;
-            internal.add(DashDpuResetInfo::table_name(), table, swss_key).await;
+        if !internal.has_entry(DpuResetInfo::table_name(), &swss_key) {
+            let db = crate::db_for_table::<DpuResetInfo>().await?;
+            let table = Table::new_async(db, DpuResetInfo::table_name()).await?;
+            internal.add(DpuResetInfo::table_name(), table, swss_key).await;
         }
         Ok(())
     }
@@ -604,7 +604,7 @@ impl DpuActor {
             dpu.dpu_id
         );
 
-        let reset_info = DashDpuResetInfo {
+        let reset_info = DpuResetInfo {
             reset_status: true,
             timestamp: now_in_millis(),
             dpu_id: self.id.clone(),
@@ -613,7 +613,7 @@ impl DpuActor {
 
         let fvs = swss_serde::to_field_values(&reset_info)?;
         let internal = state.internal();
-        internal.get_mut(DashDpuResetInfo::table_name()).clone_from(&fvs);
+        internal.get_mut(DpuResetInfo::table_name()).clone_from(&fvs);
 
         Ok(())
     }
@@ -623,7 +623,7 @@ impl DpuActor {
         if !self.is_local_managed() {
             return;
         }
-        internal.delete(DashDpuResetInfo::table_name());
+        internal.delete(DpuResetInfo::table_name());
     }
 }
 
@@ -672,7 +672,7 @@ mod test {
         test::{self, *},
     };
     use crate::db_structs::{
-        BfdSessionTable, DashBfdProbeState, DashDpuResetInfo, DashHaGlobalConfig, Dpu, DpuState, NeighResolveTable,
+        BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuResetInfo, DpuState, NeighResolveTable,
         RemoteDpu,
     };
     use crate::ha_actor_messages::DpuActorState;
@@ -725,7 +725,7 @@ mod test {
         let bfd_fvs = serde_json::to_value(to_field_values(&bfd).unwrap()).unwrap();
 
         // Expected reset info when pmon goes down (dpu_id=0 for switch0_dpu0)
-        let expected_reset_info = DashDpuResetInfo {
+        let expected_reset_info = DpuResetInfo {
             reset_status: true,
             timestamp: 0, // Will be excluded from comparison
             dpu_id: "switch0_dpu0".to_string(),
@@ -782,7 +782,7 @@ mod test {
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_pmon_down_state, addr: runtime.sp("vdpu", "test-vdpu") },
             // Check that DASH_DPU_RESET_INFO was written with reset_status=true
-            chkdb! { type: DashDpuResetInfo, key: "DPU0", data: expected_reset_info_fvs, exclude: "timestamp" },
+            chkdb! { type: DpuResetInfo, key: "DPU0", data: expected_reset_info_fvs, exclude: "timestamp" },
             send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
             recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
