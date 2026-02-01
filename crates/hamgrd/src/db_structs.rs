@@ -377,6 +377,22 @@ pub struct DpuDashHaScopeState {
     pub brainsplit_recover_pending: bool,
 }
 
+/// DPU Reset Information written to STATE_DB.
+/// Key format: DPU{dpu_id} (e.g., DPU0, DPU1, ..., DPU7)
+#[skip_serializing_none]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[sonicdb(table_name = "DPU_RESET_INFO", key_separator = "|", db_name = "STATE_DB")]
+pub struct DpuResetInfo {
+    /// Reset status: true means DPU has reset (midplane or control plane went down)
+    pub reset_status: bool,
+    /// Timestamp in milliseconds when reset was detected
+    pub timestamp: i64,
+    /// DPU id as the key used in DPU table
+    pub dpu_id: String,
+    /// vDPU ID
+    pub vdpu_id: Option<String>,
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[skip_serializing_none]
 #[serde_as]
