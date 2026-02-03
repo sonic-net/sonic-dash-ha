@@ -175,7 +175,8 @@ pub enum RegistrationType {
     HaSetState,
     VoteRequest,
     VoteReply,
-    BulkSyncUpdate
+    BulkSyncUpdate,
+    HAStateChanged
 }
 
 impl ActorRegistration {
@@ -317,6 +318,42 @@ impl BulkSyncUpdate {
 
     pub fn msg_key_prefix() -> &'static str {
         "BulkSyncUpdate|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct HAStateChanged {
+    // routing info
+    pub dst_actor_id: String,
+
+    // state transition
+    pub prev_state: String,
+    pub new_state: String,
+}
+
+impl HAStateChanged {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, prev_state: &str, new_state: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self {
+            dst_actor_id: dst_id.to_string(),
+            prev_state: prev_state.to_string(),
+            new_state: new_state.to_string(),
+        })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "HAStateChanged|"
     }
 
     pub fn msg_key(my_id: &str) -> String {
