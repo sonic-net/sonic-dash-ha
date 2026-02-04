@@ -428,6 +428,8 @@ pub struct NpuDashHaScopeState {
     pub local_acked_term: Option<String>,
     // The state of the HA state machine in peer DPU.
     pub peer_ha_state: Option<String>, /*todo: we don't know peer dpu state */
+    // The timestamp of the update of peer_ha_state
+    pub peer_ha_state_last_updated_time_in_ms: Option<i64>,
     // The current term in peer DPU.
     pub peer_term: Option<String>,
 
