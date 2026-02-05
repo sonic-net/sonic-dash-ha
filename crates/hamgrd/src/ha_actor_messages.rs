@@ -359,3 +359,32 @@ impl HAStateChanged {
         key.starts_with(Self::msg_key_prefix())
     }
 }
+
+pub struct SelfNotification {
+    // notifications of ha_events happening in the background
+    pub ha_event: String
+}
+
+impl SelfNotification {
+    pub fn new_actor_msg(my_id: &str, ha_event: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self {
+            ha_event: ha_event
+        })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "SelfNotification|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
