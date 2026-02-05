@@ -1,12 +1,12 @@
 use crate::actors::{DbBasedActor, ha_set, spawn_consumer_bridge_for_actor};
 use crate::db_structs::*;
-use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState, VoteRequest, VoteReply, BulkSyncUpdate};
+use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState, VoteRequest, VoteReply, BulkSyncUpdate, HAStateChanged};
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
-use sonic_dash_api_proto::types::{HaOwner, HaState};
+use sonic_dash_api_proto::types::{HaOwner, HaState, HaRole};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use swbus_actor::{
@@ -24,10 +24,12 @@ const MAX_RETRIES: u32 = 3;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum HaEvent {
     None,
+    Launch,
+    PeerConnected,
     PeerLost,
+    PeerStateChanged,
     LocalFailure,
     BulkSyncCompleted,
-    BulkSyncCompletedAck,
     VoteCompleted
 }
 
@@ -35,10 +37,12 @@ impl HaEvent {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::None => "No-op",
+            Self::Launch => "Launch",
+            Self::PeerConnected => "PeerConnected",
             Self::PeerLost => "PeerLost",
+            Self::PeerStateChanged => "PeerStateChanged",
             Self::LocalFailure => "LocalFailure",
             Self::BulkSyncCompleted => "BulkSyncCompleted",
-            Self::BulkSyncCompletedAck => "BulkSyncCompletedAck",
             Self::VoteCompleted => "VoteCompleted",
         }
     }
@@ -46,10 +50,12 @@ impl HaEvent {
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "No-op" => Some(Self::None),
+            "Launch" => Some(Self::Launch),
+            "PeerConnected" => Some(Self::PeerConnected),
             "PeerLost" => Some(Self::PeerLost),
+            "PeerStateChanged" => Some(Self::PeerStateChanged),
             "LocalFailure" => Some(Self::LocalFailure),
             "BulkSyncCompleted" => Some(Self::BulkSyncCompleted),
-            "BulkSyncCompletedAck" => Some(Self::BulkSyncCompletedAck),
             "VoteCompleted" => Some(Self::VoteCompleted),
             _ => None,
         }
@@ -130,6 +136,31 @@ impl DesiredHaState {
     }
 }
 
+impl HaRole {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            HaRole::HaRoleUnspecified => "unspecified",
+            HaRole::HaRoleDead => "dead",
+            HaRole::HaRoleActive => "active",
+            HaRole::HaRoleStandby => "standby",
+            HaRole::HaRoleStandalone => "standalone",
+            HaRole::HaRoleSwitchingToActive => "switching_to_active",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "unspecified" => Some(Self::HaRoleUnspecified),
+            "dead" => Some(Self::HaRoleDead),
+            "active" => Some(Self::HaRoleActive),
+            "standby" => Some(Self::HaRoleStandby),
+            "standalone" => Some(Self::HaRoleStandalone),
+            "switching_to_active" => Some(Self::HaRoleSwitchingToActive),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum TargetState {
     Active,
@@ -149,59 +180,6 @@ impl TargetState {
     }
 }
 
-impl From<DesiredHaState> for TargetState {
-    fn from(value: DesiredHaState) -> Self {
-        match value {
-            DesiredHaState::Active => TargetState::Active,
-            DesiredHaState::Dead => TargetState::Dead,
-            _ => TargetState::Standby,
-        }
-    }
-}
-
-struct NpuContextData {
-    vdpu: VDpuActorState,
-    haset: HaSetActorState,
-    dpu_state: Option<DpuDashHaScopeState>,
-    config_disabled: bool,
-}
-
-impl NpuContextData {
-    fn ready_for_connections(&self) -> bool {
-        self.haset.up && self.vdpu.dpu.is_managed
-    }
-
-    fn connected(&self) -> bool {
-        self.haset.up && self.vdpu.up
-    }
-
-    fn local_healthy(&self) -> bool {
-        if !self.vdpu.up {
-            return false;
-        }
-        let Some(state) = self.vdpu.dpu.dpu_pmon_state.as_ref() else {
-            return true;
-        };
-        matches!(state.dpu_control_plane_state, DpuPmonStateType::Up)
-            && matches!(state.dpu_data_plane_state, DpuPmonStateType::Up)
-            && matches!(state.dpu_midplane_link_state, DpuPmonStateType::Up)
-    }
-
-    fn remote_alive(&self) -> bool {
-        let Some(bfd) = self.vdpu.dpu.dpu_bfd_state.as_ref() else {
-            return true;
-        };
-        !(bfd.v4_bfd_up_sessions.is_empty() && bfd.v6_bfd_up_sessions.is_empty())
-    }
-
-    fn dpu_ack_matches(&self, expected: &str) -> bool {
-        self.dpu_state
-            .as_ref()
-            .map(|state| state.ha_state.eq_ignore_ascii_case(expected))
-            .unwrap_or(false)
-    }
-}
-
 pub struct HaScopeActor {
     id: String,
     ha_scope_id: String,
@@ -214,7 +192,9 @@ pub struct HaScopeActor {
     // target state that HAmgrd should transition to upon HA events
     target_ha_scope_sate: Option<TargetState>,
     // retry count used for voting
-    retry_count: int
+    retry_count: int,
+    // is peer connected?
+    peer_connected: bool
 }
 
 impl DbBasedActor for HaScopeActor {
@@ -229,7 +209,8 @@ impl DbBasedActor for HaScopeActor {
                 bridges: Vec::new(),
                 dpu_ha_scope_state: None,
                 target_ha_scope_sate: None,
-                retry_count: 0
+                retry_count: 0,
+                peer_connected: false
             })
         } else {
             Err(anyhow::anyhow!("Invalid key format for HA scope actor: {}", key))
@@ -414,7 +395,7 @@ impl HaScopeActor {
         Ok(())
     }
 
-    /// Register BulkSyncUpdate/VoteRequest/VoteReply from (peer) HaScopeActor
+    /// Register BulkSyncUpdate/VoteRequest/VoteReply/HAStateChanged from (peer) HaScopeActor
     fn register_to_hascope_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         if self.peer_vdpu_id.is_none() {
             // Haven't received the remote peer vDPU info yet
@@ -422,13 +403,7 @@ impl HaScopeActor {
         }
         let peer_actor_id = format!("{}{}{}", self.peer_vdpu_id, HaScopeConfig::key_separator(), self.ha_scope_id);
 
-        let msg = ActorRegistration::new_actor_msg(active, RegistrationType::BulkSyncUpdate, &self.id)?;
-        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
-
-        let msg = ActorRegistration::new_actor_msg(active, RegistrationType::VoteRequest, &self.id)?;
-        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
-
-        let msg = ActorRegistration::new_actor_msg(active, RegistrationType::VoteReply, &self.id)?;
+        let msg = ActorRegistration::new_actor_msg(active, RegistrationType::HAStateChanged, &self.id)?;
         outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
     }
 
@@ -876,11 +851,28 @@ impl HaScopeActor {
 
 // Implements messages handlers for HaScopeActor (NPU-driven mode))
 impl HaScopeActor {
-    fn is_npu_driven(&self) -> bool {
-        matches!(
-            self.dash_ha_scope_config.as_ref().map(|cfg| cfg.owner),
-            Some(owner) if owner == HaOwner::Npu as i32
-        )
+
+    /// Handles registration messages from peer HA Scope actor
+    /// Respond with HAStateChanged when itself is ready
+    async fn handle_ha_scope_registration(&mut self, state: &mut State) -> Result<HaEvent, String> {
+        let (internal, incoming, outgoing) = state.get_all();
+        let entry = incoming
+            .get_entry(key)
+            .ok_or_else(|| anyhow!("Entry not found for key: {}", key))?;
+        let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
+        if active {
+            let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
+                info!("Cannot respond to the peer until STATE_DB/DASH_HA_SCOPE_STATE is populated with basic information",);
+                return Ok(HaEvent::None);
+            };
+
+            let msg = HAStateChanged::new_actor_msg(self.id, "",
+            npu_ha_scope_state.local_ha_term,
+            npu_ha_scope_state.local_ha_state_last_updated_time_in_ms,
+            npu_ha_scope_state.local_target_term);
+            outgoing.send(entry.source.clone(), msg);
+        }
+        return Ok(HaEvent::None);
     }
 
     /// Handles VDPU state update messages for this HA scope.
@@ -914,6 +906,8 @@ impl HaScopeActor {
             return Ok(HaEvent::None);
         }
 
+        let mut first_time = if self.peer_vdpu_id.is_none() { true } else { false };
+
         let Some(ha_set) = self.get_haset(incoming);
         let peer_vdpu_id = self.get_remote_vdpu_id(ha_set);
         if self.peer_vdpu_id.is_none() || self.peer_vdpu_id != peer_vdpu_id {
@@ -928,9 +922,14 @@ impl HaScopeActor {
             self.register_to_hascope_actor(outgoing, true)
         }
 
-        match ha_set.up {
-            true => Ok(HaEvent::None),
-            false => Ok(HaEvent::PeerLost)
+        if first_time {
+            Ok(HaEvent::Launch);
+        }
+        else {
+            match ha_set.up {
+                true => Ok(HaEvent::None),
+                false => Ok(HaEvent::PeerLost)
+            }
         }
     }
 
@@ -940,23 +939,46 @@ impl HaScopeActor {
     fn handle_bulk_sync_update(&mut self, state: &mut State, key: &String) -> Result<HaEvent, String> {
         let (internal, incoming, outgoing) = state.get_all();
         let update = self.decode_hascope_actor_message(&incoming, key);
-        let source_actor_id = key.strip_prefix(BulkSyncUpdate::msg_key_prefix()).unwrap();
 
-        if self.target_ha_scope_sate == TargetState::Active {
-            if update.finished && update.ack && (self.dpu_ha_scope_state.ha_term == update.seq) {
-                // peer acknowledged the completion of the bulk sync corresponding to the current term
-                return Ok(HaEvent::BulkSyncCompletedAck);
-            }
-        }
-        else if self.target_ha_scope_sate == TargetState::Standby {
+        if self.target_ha_scope_sate == TargetState::Standby {
             if update.finished {
-                // ack bulksync completion
-                let msg = BulkSyncUpdate::new_actor_msg(self.id, source_actor_id, update.seq, true, true);
-                outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), source_actor_id), msg);
                 return Ok(HaEvent::BulkSyncCompleted);
             }
         }
         return Ok(HaEvent::None);
+    }
+
+    /// Handle HA state changed messages for this HA scope
+    /// Store the new HA state of peer in Npu
+    fn handle_ha_state_change(&mut self, state: &mut State, key: &String) -> Result<HaEvent, String> {
+        let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
+            return Err("DASH HA scope config is initialized yet!");
+        };
+
+        let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
+            info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
+            return Ok(HaEvent::None);
+        };
+        let (internal, incoming, outgoing) = state.get_all();
+        let change = self.decode_hascope_actor_message(&incoming, key);
+
+        npu_ha_scope_state.peer_ha_state = change.peer_ha_state;
+        npu_ha_scope_state.peer_ha_state_last_updated_time_in_ms = change.timestamp;
+        npu_ha_scope_state.peer_term = change.term;
+
+        // Push Update to DB
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
+        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+
+        if self.peer_connected {
+            return Ok(HaEvent::PeerStateChanged);
+        }
+        else {
+            // we treat the first HaStateChanged message from the peer as a confirmation of connection
+            self.peer_connected = true;
+            return Ok(HaEvent::PeerConnected);
+        }
+        
     }
 
     /// Handle vote request messages for this HA scope
@@ -966,7 +988,7 @@ impl HaScopeActor {
         let source_actor_id = key.strip_prefix(VoteRequest::msg_key_prefix()).unwrap();
         let (internal, incoming, outgoing) = state.get_all();
         let request = self.decode_hascope_actor_message(&incoming, key);
-        let my_state = HaState::from_str(self.dpu_ha_scope_state.ha_state);
+        let my_state = self.current_npu_ha_state(state);
         let my_desired_state = self.dash_ha_scope_config.desired_ha_state;
 
         if my_desired_state == DesiredHaState::DesiredHaStateStandalone {
@@ -1044,10 +1066,18 @@ impl HaScopeActor {
         return Ok(HaEvent::VoteCompleted);
     }
 
-    fn current_npu_state(&self, state: &mut State) -> HaState {
+    fn current_npu_ha_state(&self, state: &mut State) -> HaState {
         let internal = state.internal();
         self.get_npu_ha_scope_state(&*internal)
             .and_then(|scope| scope.local_ha_state)
+            .and_then(|s| HaState::from_str(&s))
+            .unwrap_or(HaState::HaStateDead)
+    }
+
+    fn current_npu_peer_ha_state(&self, state: &mut State) -> HaState {
+        let internal = state.internal();
+        self.get_npu_ha_scope_state(&*internal)
+            .and_then(|scope| scope.peer_ha_state)
             .and_then(|s| HaState::from_str(&s))
             .unwrap_or(HaState::HaStateDead)
     }
@@ -1076,53 +1106,42 @@ impl HaScopeActor {
         Ok(())
     }
 
-    fn drive_npu_state_machine(&mut self, state: &mut State) -> Result<()> {
-        if !self.is_npu_driven() {
-            return Ok(());
-        }
-
+    fn drive_npu_state_machine(&mut self, state: &mut State, event: &HaEvent) -> Result<()> {
         let Some(config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
         };
 
-        let mut current_state = self.current_npu_state(state);
+        let mut current_state = self.current_npu_ha_state(state);
 
         if config.disabled {
-            self.operation_tracker.clear();
             if current_state != HaState::HaStateDead {
                 self.set_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
+
+                // Update DPU APPL_DB
+                self.update_dpu_ha_scope_table(state);
             }
             return Ok(());
         }
 
-        let Some(ctx) = self.build_npu_context(state) else {
-            return Ok(());
-        };
+        let desired_state = DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::Unspecified);
+        let target_state = TargetState::from(self.target_ha_scope_sate);
 
-        self.update_npu_ha_scope_state_base(state)?;
-        self.apply_pending_state_side_effects(state, current_state)?;
-
-        let desired = DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::Unspecified);
-        let target = TargetState::from(desired);
-
-        loop {
-            match self.next_state(&ctx, target, current_state) {
-                Some((next_state, reason)) if next_state != current_state => {
-                    self.set_local_ha_state(state, next_state, reason)?;
-                    current_state = next_state;
-                    self.apply_pending_state_side_effects(state, current_state)?;
-                }
-                _ => break,
+        match self.next_state(state, target_state, current_state, event) {
+            Some((next_state, reason)) if next_state != current_state => {
+                self.set_local_ha_state(state, next_state, reason)?;
+                current_state = next_state;
+                self.apply_pending_state_side_effects(state, current_state)?;
             }
+            _ => {
+                // no state transition case
+                ;
+            },
         }
 
         Ok(())
     }
 
     fn apply_pending_state_side_effects(&mut self, state: &mut State, current_state: HaState) -> Result<()> {
-        if !self.is_npu_driven() {
-            return Ok(());
-        }
 
         match current_state {
             HaState::HaStatePendingActiveRoleActivation
@@ -1136,23 +1155,18 @@ impl HaScopeActor {
 
     fn next_state(
         &mut self,
-        ctx: &NpuContextData,
-        target: TargetState,
-        current_state: HaState,
+        state: &mut State,
+        target_state: &TargetState,
+        current_state: &HaState,
+        event: &HaEvent
     ) -> Option<(HaState, &'static str)> {
-        if ctx.config_disabled {
-            return if current_state == HaState::HaStateDead {
-                None
-            } else {
-                Some((HaState::HaStateDead, "admin disabled"))
-            };
-        }
-
-        if target == TargetState::Dead {
+        if *target_state == TargetState::Dead {
             return match current_state {
                 HaState::HaStateDead => None,
                 HaState::HaStateDestroying => {
-                    if !ctx.connected() || ctx.dpu_ack_matches(TargetState::Dead.as_str()) {
+                    if self.dpu_ha_scope_state.ha_role == HaRole::HaRoleDead.as_str()
+                    {
+                        // When the DPU is in dead role, all traffic is drained
                         Some((HaState::HaStateDead, "destroy complete"))
                     } else {
                         None
@@ -1163,108 +1177,128 @@ impl HaScopeActor {
         }
 
         match current_state {
-            HaState::HaStateDead => ctx
-                .ready_for_connections()
-                .then_some((HaState::HaStateConnecting, "ha scope initializing")),
+            HaState::HaStateDead => {
+                // On launch
+                if event == HaEvent::Launch {
+                    Some((HaState::HaStateConnecting, "ha scope initializing"))
+                }
+                esle {
+                    None
+                }
+            },
             HaState::HaStateConnecting => {
-                if ctx.connected() {
+                // Go to Connected if successfully connected to the peer
+                // Go to Standalone if detecting problem on the peer and the local DPU is healthy
+                if event == HaEvent::PeerConnected {
                     Some((HaState::HaStateConnected, "links established"))
-                } else if ctx.ready_for_connections() && !ctx.local_healthy() {
-                    Some((HaState::HaStateStandalone, "local health degraded while connecting"))
+                } else if false {
+                    Some((HaState::HaStateStandalone, "Remote peer failure while connecting"))
                 } else {
                     None
                 }
             }
             HaState::HaStateConnected => {
-                if !ctx.connected() {
-                    Some((HaState::HaStateConnecting, "connection lost"))
-                } else {
-                    match target {
+                // On VoteCompleted, go to the target state
+                if event == HaEvent::VoteCompleted {
+                    match target_state {
                         TargetState::Active => Some((HaState::HaStateInitializingToActive, "target active role")),
                         TargetState::Standby => Some((HaState::HaStateInitializingToStandby, "target standby role")),
+                        TargetState::Standalone => Some((HaState::HaStateStandalone, "target standalone role")),
                         TargetState::Dead => None,
                     }
                 }
+                else {
+                    None
+                }
             }
             HaState::HaStateInitializingToActive => {
-                if !ctx.connected() {
-                    Some((HaState::HaStateConnecting, "lost connectivity while init active"))
-                } else if ctx.local_healthy() {
+                // On Peer moving to InitializingToStandby, go to PendingActiveRoleActivation
+                // Go to Standalone if detecting problem on the peer and the local DPU is healthy
+                // Go to Standby if detecting problem locally
+                if event == HaEvent::PeerStateChanged && self.current_npu_peer_ha_state(state) == HaState::HaStateInitializingToStandby {
                     Some((HaState::HaStatePendingActiveRoleActivation, "bulk sync complete"))
-                } else {
+                }
+                else if event == HaEvent::PeerLost {
+                    Some((HaState::HaStateStandalone, "Remote peer failure during bulk sync"))
+                }
+                else if event == HaEvent::LocalFailure {
                     Some((HaState::HaStateStandby, "local failure while init active"))
                 }
             }
-            HaState::HaStatePendingActiveRoleActivation => self
-                .operation_tracker
-                .take_ready(HaOperationKind::ActivateRole)
-                .then_some((HaState::HaStateActive, "SDN approved active role")),
+            HaState::HaStatePendingActiveRoleActivation => {
+                // On receiving approval from SDN controller, go to Active
+                None
+            }
             HaState::HaStateActive => {
                 if target == TargetState::Standby {
                     Some((HaState::HaStateSwitchingToStandby, "planned switchover to standby"))
-                } else if !ctx.remote_alive() {
+                } else if false {
                     Some((HaState::HaStateStandalone, "peer failure while active"))
-                } else if !ctx.local_healthy() {
+                } else if false {
                     Some((HaState::HaStateStandby, "local failure while active"))
                 } else {
                     None
                 }
             }
             HaState::HaStateSwitchingToStandby => {
-                if !ctx.remote_alive() {
+                if event == HaEvent::PeerLost {
                     Some((HaState::HaStateStandalone, "peer lost during switchover to standby"))
-                } else {
+                } event == HaEvent::PeerActive {
                     Some((HaState::HaStateStandby, "switchover to standby complete"))
                 }
             }
             HaState::HaStateStandby => {
                 if target == TargetState::Active {
                     Some((HaState::HaStateSwitchingToActive, "planned switchover to active"))
-                } else if !ctx.remote_alive() {
+                } else if event == HaEvent::PeerLost {
                     Some((HaState::HaStateStandalone, "peer failure while standby"))
                 } else {
                     None
                 }
             }
             HaState::HaStateSwitchingToActive => {
-                if !ctx.remote_alive() {
+                if event == HaEvent::PeerLost {
                     Some((HaState::HaStateStandalone, "peer lost during switchover to active"))
-                } else if self.operation_tracker.take_ready(HaOperationKind::ActivateRole) {
+                } else if event == HaEvent::PeerStandby {
                     Some((HaState::HaStateActive, "switchover to active complete"))
                 } else {
                     None
                 }
             }
             HaState::HaStateInitializingToStandby => {
-                if !ctx.connected() {
-                    Some((HaState::HaStateConnecting, "lost connectivity while init standby"))
-                } else if ctx.local_healthy() {
+                if event == HaEvent::BulkSyncCompleted {
                     Some((HaState::HaStatePendingStandbyRoleActivation, "bulk sync complete (standby)"))
+                } else if event == HaEvent::LocalFailure {
+                    Some((HaState::HaStateStandby, "local failure while init standby"))
                 } else {
-                    Some((HaState::HaStateStandalone, "local failure while init standby"))
+                    None
                 }
             }
-            HaState::HaStatePendingStandbyRoleActivation => self
-                .operation_tracker
-                .take_ready(HaOperationKind::ActivateRole)
-                .then_some((HaState::HaStateStandby, "SDN approved standby role")),
+            HaState::HaStatePendingStandbyRoleActivation =>  {
+                (HaState::HaStateStandby, "SDN approved standby role")
+            }
             HaState::HaStateStandalone => {
-                if ctx.remote_alive() {
-                    match target {
+                if event == HaEvent::PeerActive || event == HaEvent::PeerStandby {
+                    match target_state {
                         TargetState::Active => {
-                            Some((HaState::HaStateInitializingToActive, "peer recovered - target active"))
+                            Some((HaState::Active, "peer recovered - target active"))
                         }
                         TargetState::Standby => {
-                            Some((HaState::HaStateInitializingToStandby, "peer recovered - target standby"))
+                            Some((HaState::Standby, "peer recovered - target standby"))
                         }
-                        TargetState::Dead => None,
+                        TargetState::Standalone => {
+                            None
+                        }
+                        TargetState::Dead => {
+                            Some((HaState::HaStateDestroying, "planned shutdown"))
+                        }
                     }
                 } else {
                     None
                 }
             }
             HaState::HaStateDestroying => {
-                if !ctx.connected() || ctx.dpu_ack_matches(TargetState::Dead.as_str()) {
+                if true {
                     Some((HaState::HaStateDead, "resources drained"))
                 } else {
                     None
@@ -1274,50 +1308,25 @@ impl HaScopeActor {
     }
 
     fn set_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
-        self.update_npu_ha_scope_state_base(state)?;
         let internal = state.internal();
         let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
             return Ok(());
         };
+
         if npu_state.local_ha_state.as_deref() == Some(new_state.as_str()) {
+            // the HA scope is already in the new state;
             return Ok(());
         }
         npu_state.local_ha_state = Some(new_state.as_str().to_string());
         npu_state.local_ha_state_last_updated_time_in_ms = Some(now_in_millis());
         npu_state.local_ha_state_last_updated_reason = Some(reason.to_string());
-        if let Some(role) = self.desired_role_string() {
-            npu_state.local_target_asic_ha_state = Some(role.to_string());
-        }
+
         let fvs = swss_serde::to_field_values(&npu_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
         info!(scope=%self.id, state=%new_state, "HA scope transitioned: {}", reason);
         Ok(())
     }
 
-    fn desired_role_string(&self) -> Option<&'static str> {
-        let config = self.dash_ha_scope_config.as_ref()?;
-        let desired = DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::Unspecified);
-        Some(TargetState::from(desired).as_str())
-    }
-
-    fn build_npu_context(&self, state: &State) -> Option<NpuContextData> {
-        let incoming = state.incoming();
-        let vdpu = self.get_vdpu(incoming)?;
-        let haset = self.get_haset(incoming)?;
-        let dpu_state = self.get_dpu_ha_scope_state(incoming);
-        let config_disabled = self
-            .dash_ha_scope_config
-            .as_ref()
-            .map(|cfg| cfg.disabled)
-            .unwrap_or(false);
-
-        Some(NpuContextData {
-            vdpu,
-            haset,
-            dpu_state,
-            config_disabled,
-        })
-    }
 }
 
 impl Actor for HaScopeActor {
@@ -1398,6 +1407,29 @@ impl Actor for HaScopeActor {
                     }
                 }
             }
+            else if HAStateChanged::is_my_msg(key) {
+                match self.handle_ha_state_change(state, key) {
+                    Ok(incoming_event) => {
+                        event = incoming_event;
+                    }
+                    Err(e) => {
+                        error!("Invalid HA State Change!")
+                    }
+                }
+            }
+            else if ActorRegistration::is_my_msg(key, RegistrationType::HAStateChanged) {
+                match self.handle_ha_scope_registration(state) {
+                    Ok(incoming_event) => {
+                        event = incoming_event;
+                    }
+                    Err(e) => {
+                        error!("Invalid HA Scope Registration!")
+                    }
+                }
+            }
+
+            // drive the state machine based on the information gained from message processing
+            self.drive_npu_state_machine(state, &event);
         }
 
         Ok(())
