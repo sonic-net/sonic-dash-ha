@@ -173,9 +173,6 @@ pub enum RegistrationType {
     DPUState,
     VDPUState,
     HaSetState,
-    VoteRequest,
-    VoteReply,
-    BulkSyncUpdate,
     HAStateChanged
 }
 
@@ -189,9 +186,7 @@ impl ActorRegistration {
             RegistrationType::DPUState => "DPUStateRegister|",
             RegistrationType::VDPUState => "VDPUStateRegister|",
             RegistrationType::HaSetState => "HaSetStateRegister|",
-            RegistrationType::BulkSyncUpdate => "BulkSyncUpdateRegister|",
-            RegistrationType::VoteRequest => "VoteRequestRegister|",
-            RegistrationType::VoteReply => "VoteReplyRegister|"
+            RegistrationType::HAStateChanged => "HAStateChangedRegister|"
         }
     }
 
@@ -331,9 +326,6 @@ impl BulkSyncUpdate {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct HAStateChanged {
-    // routing info
-    pub dst_actor_id: String,
-
     // state transition
     pub prev_state: String,
     pub new_state: String,
@@ -342,9 +334,8 @@ pub struct HAStateChanged {
 }
 
 impl HAStateChanged {
-    pub fn new_actor_msg(my_id: &str, dst_id: &str, prev_state: &str, new_state: &str, ts: i64, term: &str) -> Result<ActorMessage> {
+    pub fn new_actor_msg(my_id: &str, prev_state: &str, new_state: &str, ts: i64, term: &str) -> Result<ActorMessage> {
         ActorMessage::new(Self::msg_key(my_id), &Self {
-            dst_actor_id: dst_id.to_string(),
             prev_state: prev_state.to_string(),
             new_state: new_state.to_string(),
             timestamp: ts,
