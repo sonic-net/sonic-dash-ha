@@ -17,7 +17,8 @@ use swbus_edge::swbus_proto::result::*;
 use swbus_edge::swbus_proto::swbus::{swbus_message::Body, DataRequest, ServicePath, SwbusErrorCode, SwbusMessage};
 use swbus_edge::SwbusEdgeRuntime;
 use swss_common::{
-    KeyOpFieldValues, KeyOperation, ProducerStateTable, SubscriberStateTable, ZmqClient, ZmqProducerStateTable,
+    ConsumerStateTable, KeyOpFieldValues, KeyOperation, ProducerStateTable, SubscriberStateTable, ZmqClient,
+    ZmqProducerStateTable,
 };
 use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_bridge};
 use tokio::sync::mpsc::{channel, Receiver};
@@ -45,22 +46,37 @@ pub trait DbBasedActor: Actor {
 
         tokio::task::spawn(ac.run());
 
-        let config_db = crate::db_for_table::<T>().await?;
-        let sst = SubscriberStateTable::new_async(config_db, T::table_name(), None, None).await?;
+        let db = crate::db_for_table::<T>().await?;
+
         let addr = crate::common_bridge_sp::<T>(&edge_runtime);
         let base_addr = edge_runtime.get_base_sp();
-        Ok(vec![ConsumerBridge::spawn::<T, _, _, _>(
-            edge_runtime.clone(),
-            addr,
-            sst,
-            move |kfv: &KeyOpFieldValues| {
-                let mut addr = base_addr.clone();
-                addr.resource_type = Self::name().to_owned();
-                addr.resource_id = kfv.key.clone();
-                (addr, T::table_name().to_owned())
-            },
-            |_| true,
-        )])
+        let dest_generator = move |kfv: &KeyOpFieldValues| {
+            let mut addr = base_addr.clone();
+            addr.resource_type = Self::name().to_owned();
+            addr.resource_id = kfv.key.clone();
+            (addr, T::table_name().to_owned())
+        };
+
+        // Use ConsumerStateTable for APPL_DB, SubscriberStateTable for other DBs (sonic conventions)
+        if T::db_name() == "APPL_DB" {
+            let cst = ConsumerStateTable::new(db, T::table_name(), None, None)?;
+            Ok(vec![ConsumerBridge::spawn::<T, _, _, _>(
+                edge_runtime.clone(),
+                addr,
+                cst,
+                dest_generator,
+                |_| true,
+            )])
+        } else {
+            let sst = SubscriberStateTable::new_async(db, T::table_name(), None, None).await?;
+            Ok(vec![ConsumerBridge::spawn::<T, _, _, _>(
+                edge_runtime.clone(),
+                addr,
+                sst,
+                dest_generator,
+                |_| true,
+            )])
+        }
     }
 }
 
