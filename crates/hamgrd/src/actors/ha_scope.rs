@@ -32,7 +32,11 @@ pub enum HaEvent {
     LocalFailure,
     BulkSyncCompleted,
     VoteCompleted,
-    PendingRoleActivationApproved
+    PendingRoleActivationApproved,
+    FlowReconciliationApproved,
+    SwitchoverApproved,
+    AdminStateChanged,
+    DesiredStateChanged,
 }
 
 impl HaEvent {
@@ -46,7 +50,11 @@ impl HaEvent {
             Self::LocalFailure => "LocalFailure",
             Self::BulkSyncCompleted => "BulkSyncCompleted",
             Self::VoteCompleted => "VoteCompleted",
-            Self::PendingRoleActivationApproved => "PendingRoleActivationApproved"
+            Self::PendingRoleActivationApproved => "PendingRoleActivationApproved",
+            Self::FlowReconciliationApproved => "FlowReconciliationApproved",
+            Self::SwitchoverApproved => "SwitchoverApproved",
+            Self::AdminStateChanged => "AdminStateChanged",
+            Self::DesiredStateChanged => "DesiredStateChanged"
         }
     }
 
@@ -61,6 +69,10 @@ impl HaEvent {
             "BulkSyncCompleted" => Some(Self::BulkSyncCompleted),
             "VoteCompleted" => Some(Self::VoteCompleted),
             "PendingRoleActivationApproved" => Some(Self::PendingRoleActivationApproved),
+            "FlowReconciliationApproved" => Some(Self::FlowReconciliationApproved),
+            "SwitchoverApproved" => Some(Self::SwitchoverApproved),
+            "AdminStateChanged" => Some(Self::AdminStateChanged),
+            "DesiredStateChanged" => Some(Self::DesiredStateChanged),
             _ => None,
         }
     }
@@ -193,8 +205,10 @@ pub struct HaScopeActor {
     bridges: Vec<ConsumerBridge>,
     // we need to keep track the previous dpu_ha_scope_state to detect state change
     dpu_ha_scope_state: Option<DpuDashHaScopeState>,
+    // current HA role of DPU
+    dpu_ha_role: Option<HaRole>,
     // target state that HAmgrd should transition to upon HA events
-    target_ha_scope_sate: Option<TargetState>,
+    target_ha_scope_state: Option<TargetState>,
     // retry count used for voting
     retry_count: int,
     // is peer connected?
@@ -212,7 +226,8 @@ impl DbBasedActor for HaScopeActor {
                 dash_ha_scope_config: None,
                 bridges: Vec::new(),
                 dpu_ha_scope_state: None,
-                target_ha_scope_sate: None,
+                dpu_ha_role: None,
+                target_ha_scope_state: None,
                 retry_count: 0,
                 peer_connected: false
             })
@@ -365,6 +380,13 @@ impl HaScopeActor {
         }
     }
 
+    fn get_peer_actor_id(&self) -> Option<String> {
+        if self.peer_vdpu_id.is_none() || self.ha_scope_id.is_none() {
+            return None;
+        }
+        return format!("{}{}{}", self.peer_vdpu_id, HaScopeConfig::key_separator(), self.ha_scope_id);
+    }
+
     fn vdpu_is_managed(&self, incoming: &Incoming) -> bool {
         let Some(vdpu) = self.get_vdpu(incoming) else {
             return false;
@@ -403,9 +425,10 @@ impl HaScopeActor {
     fn register_to_hascope_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         if self.peer_vdpu_id.is_none() {
             // Haven't received the remote peer vDPU info yet
+            info!("Haven't received peer vDPU info yet");
             return OK(());
         }
-        let peer_actor_id = format!("{}{}{}", self.peer_vdpu_id, HaScopeConfig::key_separator(), self.ha_scope_id);
+        let peer_actor_id = self.get_peer_actor_id();
 
         let msg = ActorRegistration::new_actor_msg(active, RegistrationType::HAStateChanged, &self.id)?;
         outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
@@ -444,6 +467,8 @@ impl HaScopeActor {
         Ok(())
     }
 
+    /// Update DPU HA Scope Table purely based on HA Scope & HA Set Config, no flex parameters
+    /// Used in DPU-driven mode 
     fn update_dpu_ha_scope_table(&self, state: &mut State) -> Result<()> {
         let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
@@ -522,6 +547,45 @@ impl HaScopeActor {
         Ok(())
     }
 
+    /// Update DPU HA Scope Table based on configurations and parameters
+    fn update_dpu_ha_scope_table_with_params(&self, state: &mut State, ha_role: String, flow_reconcile_requested: bool, activate_role_requested: bool) -> Result<()> {
+        let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
+            return Ok(());
+        };
+
+        let (internal, incoming, outgoing) = state.get_all();
+
+        let ha_set_id = self.get_haset_id().unwrap();
+        let Some(haset) = self.get_haset(incoming) else {
+            debug!(
+                "HA-SET {} has not been received. Skip DASH_HA_SCOPE_TABLE update",
+                &ha_set_id
+            );
+            return Ok(());
+        };
+
+        let dash_ha_scope = DashHaScopeTable {
+            version: dash_ha_scope_config.version.parse().unwrap(),
+            disabled: dash_ha_scope_config.disabled,
+            ha_set_id: dash_ha_scope_config.ha_set_id.clone(),
+            vip_v4: haset.ha_set.vip_v4.clone(),
+            vip_v6: haset.ha_set.vip_v6.clone(),
+            ha_role: ha_role,
+            flow_reconcile_requested,
+            activate_role_requested,
+        };
+
+        let fv = swss_serde::to_field_values(&dash_ha_scope)?;
+        let kfv = KeyOpFieldValues {
+            key: self.ha_scope_id.clone(),
+            operation: KeyOperation::Set,
+            field_values: fv,
+        };
+
+        let msg = ActorMessage::new(self.ha_scope_id.clone(), &kfv)?;
+        outgoing.send(outgoing.common_bridge_sp::<DashHaScopeTable>(), msg);
+    }
+
     fn update_npu_ha_scope_state_base(&self, state: &mut State) -> Result<()> {
         if self.dash_ha_scope_config.is_none() {
             return Ok(());
@@ -597,7 +661,7 @@ impl HaScopeActor {
         state: &mut State,
         new_operations: Vec<(String, String)>,
         approved_operations: Vec<String>,
-    ) -> Result<()> {
+    ) -> Result<Vec<String>> {
         info!(
             "Update pending operation list from DPU. New operations: {:?}, Approved operations: {:?}",
             new_operations, approved_operations
@@ -606,12 +670,14 @@ impl HaScopeActor {
 
         let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
             error!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
-            return Ok(());
+            return Ok(Vec::new());
         };
         let mut pending_operations = self.get_pending_operations(internal, Some(&npu_ha_scope_state))?;
         let old_pending_operations = pending_operations.clone();
 
+        let mut approved_types = Vec::new();
         for op_id in approved_operations {
+            approved_types.push(pending_operations.get(&op_id).clone());
             pending_operations.remove(&op_id);
         }
         for (op_id, op_type) in new_operations {
@@ -620,7 +686,7 @@ impl HaScopeActor {
 
         if old_pending_operations == pending_operations {
             // no change
-            return Ok(());
+            return Ok(approved_types);
         }
         let mut pending_operation_ids = Vec::new();
         let mut pending_operation_types = Vec::new();
@@ -636,7 +702,7 @@ impl HaScopeActor {
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
 
-        Ok(())
+        return Ok(approved_types);
     }
 
     fn update_npu_ha_scope_state_ha_state(&self, state: &mut State) -> Result<()> {
@@ -688,11 +754,11 @@ impl HaScopeActor {
 
 // Implements messages handlers for HaScopeActor (DPU-driven mode)
 impl HaScopeActor {
-    /// Handles updates to the DASH_HA_SCOPE_CONFIG_TABLE.
+    /// Handles updates to the DASH_HA_SCOPE_CONFIG_TABLE in the case of DPU-driven HA.
     /// Updates the actor's internal config and performs any necessary initialization or subscriptions.
     /// Update DPU DASH_HA_SCOPE_TABLE
     /// Update NPU DASH_HA_SCOPE_STATE if approved_pending_operation_ids is not empty
-    fn handle_dash_ha_scope_config_table_message(
+    fn handle_dash_ha_scope_config_table_message_dpu_driven(
         &mut self,
         state: &mut State,
         key: &str,
@@ -702,27 +768,10 @@ impl HaScopeActor {
 
         // Retrieve the config update from the incoming message
         let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
-
-        if kfv.operation == KeyOperation::Del {
-            // cleanup resources before stopping
-            if let Err(e) = self.do_cleanup(state) {
-                error!("Failed to cleanup HaScopeActor resources: {}", e);
-            }
-            context.stop();
-            return Ok(());
-        }
-        let first_time = self.dash_ha_scope_config.is_none();
         let dash_ha_scope_config: HaScopeConfig = decode_from_field_values(&kfv.field_values)?;
 
         // Update internal config
         self.dash_ha_scope_config = Some(dash_ha_scope_config);
-
-        if first_time {
-            // Subscribe to the vDPU Actor for state updates.
-            self.register_to_vdpu_actor(outgoing, true)?;
-            // Subscribe to the ha-set Actor for state updates.
-            self.register_to_haset_actor(outgoing, true)?;
-        }
 
         // this is not a ha_scope for the target vDPU. Skip
         if !self.vdpu_is_managed(incoming) {
@@ -855,9 +904,80 @@ impl HaScopeActor {
 
 // Implements messages handlers for HaScopeActor (NPU-driven mode))
 impl HaScopeActor {
+    /// Hanldes updates to the DASH_HA_SCOPE_CONFIG_TABLE in the case of NPU-driven HA.
+    fn handle_dash_ha_scope_config_table_message_npu_driven(
+        &mut self,
+        state: &mut State,
+        key: &str,
+        context: &mut Context,
+    )-> Result<HaEvent, String> {
+        let (_internal, incoming, outgoing) = state.get_all();
+
+        // Retrieve the config update from the incoming message
+        let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dash_ha_scope_config: HaScopeConfig = decode_from_field_values(&kfv.field_values)?;
+        let old_ha_scope_config = self.dash_ha_scope_config;
+
+        // Update internal config
+        self.dash_ha_scope_config = Some(dash_ha_scope_config);
+
+        // this is not a ha_scope for the target vDPU. Skip
+        if !self.vdpu_is_managed(incoming) {
+            return Ok(HaEvent::None);
+        }
+
+        // admin state change
+        if old_ha_scope_config.disabled != dash_ha_scope_config.disabled {
+            return Ok(HaEvent::AdminStateChanged);
+        }
+
+        // desired state change
+        if old_ha_scope_config.desired_ha_state != dash_ha_scope_config.desired_ha_state {
+            return Ok(HaEvent::DesiredStateChanged);
+        }
+
+        // update operation list if approved_pending_operation_ids is not empty
+        let approved_pending_operation_ids = self
+            .dash_ha_scope_config
+            .as_ref()
+            .unwrap()
+            .approved_pending_operation_ids
+            .clone();
+
+        if !approved_pending_operation_ids.is_empty() {
+            match self.update_npu_ha_scope_state_pending_operations(state, Vec::new(), approved_pending_operation_ids) {
+                Some(approved_operation_types) => {
+                    if approved_operation_types.len() > 1 {
+                        error!("Multiple operations are approved at the same time is not expected in NPU-driven mode")
+                    }
+
+                    match approved_operation_types[0] {
+                        "activate_role" => {
+                            Ok(HaEvent::PendingRoleActivationApproved)
+                        }
+                        "flow_reconcile" => {
+                            Ok(HaEvent::FlowReconciliationApproved)
+                        }
+                        "switchover" => {
+                            Ok(HaEvent::SwitchoverApproved)
+                        }
+                        _ => Ok(HaEvent::None)
+                    }
+                }
+                Err(e) => {
+                    error!("Encountered error when updating pending operatios!");
+                    return Ok(HaEvent::None);
+                }
+            }
+            
+            
+        }
+
+        return Ok(HaEvent::None);
+    }
 
     /// Handles registration messages from peer HA Scope actor
-    /// Respond with HAStateChanged when itself is ready
+    /// Respond with HAStateChanged when the actor-self is ready
     async fn handle_ha_scope_registration(&mut self, state: &mut State) -> Result<HaEvent, String> {
         let (internal, incoming, outgoing) = state.get_all();
         let entry = incoming
@@ -953,7 +1073,7 @@ impl HaScopeActor {
         let (internal, incoming, outgoing) = state.get_all();
         let update = self.decode_hascope_actor_message(&incoming, key);
 
-        if self.target_ha_scope_sate == TargetState::Standby {
+        if self.target_ha_scope_state == TargetState::Standby {
             if update.finished {
                 return Ok(HaEvent::BulkSyncCompleted);
             }
@@ -1061,13 +1181,13 @@ impl HaScopeActor {
 
         match reply.response {
             "BecomeActive" => {
-                self.target_ha_scope_sate = TargetState::Active;
+                self.target_ha_scope_state = TargetState::Active;
             }
             "BecomeStandby" => {
-                self.target_ha_scope_sate = TargetState::Standby;
+                self.target_ha_scope_state = TargetState::Standby;
             }
             "BecomeStandalone" => {
-                self.target_ha_scope_sate = TargetState::Standalone;
+                self.target_ha_scope_state = TargetState::Standalone;
             }
             "RetryLater" => {
                 // TODO: retry logic
@@ -1109,34 +1229,32 @@ impl HaScopeActor {
             .unwrap_or(HaState::HaStateDead)
     }
 
-    fn handle_sdn_operation_approvals(&mut self, state: &mut State, approved_ids: Vec<String>) -> Result<()> {
-        if approved_ids.is_empty() {
-            return Ok(());
-        }
-        self.update_npu_ha_scope_state_pending_operations(state, Vec::new(), approved_ids.clone())?;
-        if self.is_npu_driven() {
-            for op_id in approved_ids {
-                self.operation_tracker.mark_approved(&op_id);
+    fn apply_pending_state_side_effects(&mut self, state: &mut State, pending_state: HaState) -> Result<()> {
+        match pending_state {
+            HaState::HaStatePendingActiveRoleActivation|HaState::HaStatePendingStandbyRoleActivation => {
+                let mut operations: Vec<(String, String)> = Vec::new();
+                operations.push((Uuid::new_v4().to_string(), "activate_role".to_string()));
+                self.update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
+            }
+            HaState::HaStateStandalone => {
+                // TODO: Enter the being-standalone process
+            }
+            HaState::HaStateActive => {
+                // TODO: Do bulk sync
+
+                // Activate Active role on DPU
+                self.dpu_ha_role = HaRole::HaRoleActive;
+                self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
+            }
+            HaState::HaStateInitializingToStandby => {
+                // Activate Standby role on DPU
+                self.dpu_ha_role = HaRole::HaRoleStandby;
+                self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
+            }
+            HaState::HaStateSwitchingToActive => {
+                // TODO: Send SwitchOver to the peer
             }
         }
-        Ok(())
-    }
-
-    fn ensure_operation_requested(&mut self, state: &mut State, kind: HaOperationKind) -> Result<()> {
-        if let Some(op_id) = self.operation_tracker.request(kind) {
-            self.update_npu_ha_scope_state_pending_operations(
-                state,
-                vec![(op_id, kind.as_str().to_string())],
-                Vec::new(),
-            )?;
-        }
-        Ok(())
-    }
-
-    fn apply_pending_state_side_effects(&mut self, state: &mut State, current_state: HaState) -> Result<()> {
-        // TODO
-
-        Ok(())
     }
 
     fn drive_npu_state_machine(&mut self, state: &mut State, event: &HaEvent) -> Result<()> {
@@ -1146,24 +1264,34 @@ impl HaScopeActor {
 
         let mut current_state = self.current_npu_ha_state(state);
 
-        if config.disabled {
-            if current_state != HaState::HaStateDead {
-                self.set_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
-
-                // Update DPU APPL_DB
-                self.update_dpu_ha_scope_table(state);
+        if event == HaEvent::AdminStateChanged {
+            if config.disabled {
+                if current_state != HaState::HaStateDead {
+                    self.set_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
+                    self.dpu_ha_role = HaRole::HaRoleDead;
+                }
             }
+            else {
+                // TODO: ?
+            }
+            // Update DPU APPL_DB
+            self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
             return Ok(());
         }
 
         let desired_state = DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::Unspecified);
-        let target_state = TargetState::from(self.target_ha_scope_sate);
+        let target_state = TargetState::from(self.target_ha_scope_state);
 
         match self.next_state(state, target_state, current_state, event) {
             Some((next_state, reason)) if next_state != current_state => {
-                self.set_local_ha_state(state, next_state, reason)?;
-                current_state = next_state;
+                let pending_state = next_state;
                 self.apply_pending_state_side_effects(state, current_state)?;
+                self.set_local_ha_state(state, pending_state, reason)?;
+
+                // send out HAStateChanged message to the peer
+                let msg = HAStateChanged::new_actor_msg(self.id, current_state, pending_state, now_in_millis(), self.get_npu_ha_scope_state(state.internal()).local_acked_term);
+                let peer_actor_id = self.get_peer_actor_id();
+                outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
             }
             _ => {
                 // no state transition case
@@ -1391,23 +1519,39 @@ impl HaScopeActor {
 impl Actor for HaScopeActor {
     #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-scope/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
+        let mut dash_ha_scope_config = self.dash_ha_scope_config;
         if key == Self::table_name() {
-            if let Err(e) = self.handle_dash_ha_scope_config_table_message(state, key, context) {
-                error!("handle_dash_ha_scope_config_table_message failed: {e}");
+            // Retrieve the config update from the incoming message
+            let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+
+            if kfv.operation == KeyOperation::Del {
+                // cleanup resources before stopping
+                if let Err(e) = self.do_cleanup(state) {
+                    error!("Failed to cleanup HaScopeActor resources: {}", e);
+                }
+                context.stop();
+                return Ok(HaEvent::None);
             }
-            return Ok(());
+            let first_time = self.dash_ha_scope_config.is_none();
+            dash_ha_scope_config = Some(decode_from_field_values(&kfv.field_values)?);
+
+            if first_time {
+                // Subscribe to the vDPU Actor for state updates.
+                self.register_to_vdpu_actor(outgoing, true)?;
+                // Subscribe to the ha-set Actor for state updates.
+                self.register_to_haset_actor(outgoing, true)?;
+            }
         }
 
-        if self.dash_ha_scope_config.is_none() {
+        if dash_ha_scope_config.is_none() {
             return Ok(());
         }
-
-        let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
-            return Ok(());
-        };
 
         if dash_ha_scope_config.owner == HaOwner::Dpu as i32 {
             // this is a dpu driven ha scope.
+            if key == Self::table_name() {
+                return self.handle_dash_ha_scope_config_table_message_dpu_driven(state, key, context);
+            }
             if VDpuActorState::is_my_msg(key) {
                 return self.handle_vdpu_state_update(state, context).await;
             }
@@ -1422,7 +1566,17 @@ impl Actor for HaScopeActor {
         else {
             // Npu driven HA scope message handling, map messages to HaEvents
             let mut event: Option<HaEvent> = None;
-            if HaSetActorState::is_my_msg(key) {
+            if key == Self::table_name() {
+                match self.handle_dash_ha_scope_config_table_message_npu_driven(state, key, context) {
+                    Ok(incoming_event) => {
+                        event = incoming_event;
+                    }
+                    Err(e) => {
+                        error!("Error when processing HA Scope Config Table Update!")
+                    }
+                }
+            }
+            else if HaSetActorState::is_my_msg(key) {
                 match self.handle_haset_state_update_npu_driven_mode(state) {
                     Ok(incoming_event) => {
                         event = incoming_event;
