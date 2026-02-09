@@ -1,6 +1,6 @@
 use crate::actors::{DbBasedActor, ha_set, spawn_consumer_bridge_for_actor};
 use crate::db_structs::*;
-use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState, VoteRequest, VoteReply, BulkSyncUpdate, HAStateChanged, SelfNotification};
+use crate::ha_actor_messages::*;
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
 use sonic_common::SonicDbTable;
@@ -1014,6 +1014,29 @@ impl HaScopeActor {
             return Ok(HaEvent::None);
         }
 
+        if self.bridges.is_empty() {
+            // subscribe to dpu DASH_HA_SCOPE_STATE
+            self.bridges.push(
+                spawn_consumer_bridge_for_actor::<DpuDashHaScopeState>(
+                    context.get_edge_runtime().clone(),
+                    Self::name(),
+                    Some(&self.id),
+                    true,
+                )
+                .await?,
+            );
+            // subscribe to dpu DASH_FLOW_SYNC_SESSION_STATE
+            self.bridges.push(
+                spawn_consumer_bridge_for_actor::<DashFlowSyncSessionState>(
+                    context.get_edge_runtime().clone(),
+                    Self::name(),
+                    Some(&self.id),
+                    true,
+                )
+                .await?,
+            );
+        }
+
         match vdpu.up {
             true => Ok(HaEvent::None),
             false => Ok(HaEvent::LocalFailure)
@@ -1079,6 +1102,61 @@ impl HaScopeActor {
             }
         }
         return Ok(HaEvent::None);
+    }
+
+    /// Handle DashFlowSyncSessionState updates for this HA scope
+    /// Extract the session fields and update NPU HA scope state table
+    /// Return HaEvent::BulkSyncCompleted when state is "completed", otherwise HaEvent::None
+    fn handle_flow_sync_session_state_update(&mut self, state: &mut State, key: &String) -> Result<HaEvent, String> {
+        let (internal, incoming, outgoing) = state.get_all();
+
+        let msg = incoming.get(key);
+        let Some(msg) = msg else {
+            return Err("Failed to get DashFlowSyncSessionState message".to_string());
+        };
+
+        let kfv = match msg.deserialize_data::<KeyOpFieldValues>() {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to deserialize DashFlowSyncSessionState KeyOpFieldValues: {}", e);
+                return Err("Failed to deserialize DashFlowSyncSessionState".to_string());
+            }
+        };
+
+        let session_state: DashFlowSyncSessionState = match swss_serde::from_field_values(&kfv.field_values) {
+            Ok(state) => state,
+            Err(e) => {
+                error!("Failed to deserialize DashFlowSyncSessionState from field values: {}", e);
+                return Err("Failed to deserialize DashFlowSyncSessionState".to_string());
+            }
+        };
+
+        // Extract session_id from the key
+        let session_id = kfv.key.clone();
+        if session_id != self.get_npu_ha_scope_state(&internal).flow_sync_session_id {
+            // Not a bulk sync session owned by this HA scope
+            return Ok(HaEvent::None);
+        }
+
+        // Update NPU HA scope state table with flow sync session info
+        if let Err(e) = self.set_npu_flow_sync_session(
+            state,
+            &None,
+            &Some(session_state.state.clone()),
+            &Some(session_state.creation_time_in_ms),
+            &None,
+        ) {
+            error!("Failed to update NPU flow sync session state: {}", e);
+        }
+
+        // Return BulkSyncCompleted when state is "completed"
+        // Also send a notification to the peer
+        if session_state.state == "completed" {
+            self.send_bulk_sync_completed_to_peer(state);
+            return Ok(HaEvent::BulkSyncCompleted);
+        }
+
+        Ok(HaEvent::None)
     }
 
     /// Handle HA state changed messages for this HA scope
@@ -1229,7 +1307,7 @@ impl HaScopeActor {
             .unwrap_or(HaState::HaStateDead)
     }
 
-    fn apply_pending_state_side_effects(&mut self, state: &mut State, pending_state: HaState) -> Result<()> {
+    fn apply_pending_state_side_effects(&mut self, state: &mut State, current_state: &HaState, pending_state: &HaState) -> Result<()> {
         match pending_state {
             HaState::HaStatePendingActiveRoleActivation|HaState::HaStatePendingStandbyRoleActivation => {
                 let mut operations: Vec<(String, String)> = Vec::new();
@@ -1240,7 +1318,15 @@ impl HaScopeActor {
                 // TODO: Enter the being-standalone process
             }
             HaState::HaStateActive => {
-                // TODO: Do bulk sync
+                if current_state == HaState::HaStateStandalone {
+                    // If staring from Standalone, do bulk sync
+                    self.add_bulk_sync_session(state);
+                }
+                else if current_state == HaState::HaStatePendingActiveRoleActivation {
+                    // When starting from PendingActiveRoleActivation, no need to do bulk sync.
+                    // Send BulkSyncCompleted signal to the peer
+                    self.send_bulk_sync_completed_to_peer(state)?;
+                }
 
                 // Activate Active role on DPU
                 self.dpu_ha_role = HaRole::HaRoleActive;
@@ -1267,7 +1353,7 @@ impl HaScopeActor {
         if event == HaEvent::AdminStateChanged {
             if config.disabled {
                 if current_state != HaState::HaStateDead {
-                    self.set_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
+                    self.set_npu_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
                     self.dpu_ha_role = HaRole::HaRoleDead;
                 }
             }
@@ -1286,7 +1372,7 @@ impl HaScopeActor {
             Some((next_state, reason)) if next_state != current_state => {
                 let pending_state = next_state;
                 self.apply_pending_state_side_effects(state, current_state)?;
-                self.set_local_ha_state(state, pending_state, reason)?;
+                self.set_npu_local_ha_state(state, pending_state, reason)?;
 
                 // send out HAStateChanged message to the peer
                 let msg = HAStateChanged::new_actor_msg(self.id, current_state, pending_state, now_in_millis(), self.get_npu_ha_scope_state(state.internal()).local_acked_term);
@@ -1470,7 +1556,7 @@ impl HaScopeActor {
         }
     }
 
-    fn set_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
+    fn set_npu_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
         let internal = state.internal();
         let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
             return Ok(());
@@ -1490,6 +1576,41 @@ impl HaScopeActor {
         Ok(())
     }
 
+    fn set_npu_flow_sync_session(
+        &mut self,
+        state: &mut State,
+        flow_sync_session_id: &Option<String>,
+        flow_sync_session_state: &Option<String>,
+        flow_sync_session_start_time_in_ms: &Option<i64>,
+        flow_sync_session_target_server: &Option<String>
+    ) -> Result<()> {
+        let internal = state.internal();
+        let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
+            return Ok(());
+        };
+
+        if !flow_sync_session_id.is_none() {
+            npu_state.flow_sync_session_id = flow_sync_session_id.clone();
+        }
+        if !flow_sync_session_state.is_none() {
+            npu_state.flow_sync_session_state = flow_sync_session_state.clone();
+        }
+        if !flow_sync_session_start_time_in_ms.is_none() {
+            npu_state.flow_sync_session_start_time_in_ms = flow_sync_session_start_time_in_ms.clone();
+        }
+        if !flow_sync_session_target_server.is_none() {
+            npu_state.flow_sync_session_target_server = flow_sync_session_target_server.clone();
+        }
+
+        let fvs = swss_serde::to_field_values(&npu_state)?;
+        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+        info!("Update NPU HA Scope State Table with a new flow sync session: {} {} {} {}", flow_sync_session_id, flow_sync_session_state, flow_sync_session_start_time_in_ms, flow_sync_session_target_server);
+        Ok(())
+    }
+
+    /// Check if the peer HA scope is connected
+    /// If not, schedule an execution of the same function for later
+    /// Upon exceeding retry count threshold, send a PeerLost notification to the local HA scope actor
     async fn check_peer_connection_and_retry(&mut self, state: &mut State) {
         if !self.peer_connected {
             if self.retry_count < MAX_RETRIES {
@@ -1514,6 +1635,68 @@ impl HaScopeActor {
             self.retry_count = 0;
         }
     }
+
+    /// Send a BulkSyncUpdate message with finished=true to the peer HA scope actor
+    /// This signals to the peer that bulk sync is complete (e.g., when no actual sync is needed)
+    fn send_bulk_sync_completed_to_peer(&self, state: &mut State) -> Result<()> {
+        let outgoing = state.outgoing();
+
+        let Some(peer_actor_id) = self.get_peer_actor_id() else {
+            info!("Cannot send BulkSyncCompleted to peer: peer actor ID not available");
+            return Ok(());
+        };
+
+        let msg = BulkSyncUpdate::new_actor_msg(
+            &self.id,
+            &peer_actor_id,
+            true   // finished: true
+        )?;
+
+        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
+        info!("Sent BulkSyncCompleted to peer {}", peer_actor_id);
+
+        Ok(())
+    }
+
+    /// Add a new entry in DASH_FLOW_SYNC_SESSION_TABLE to start a bulk sync session
+    fn add_bulk_sync_session(&mut self, state: &mut State) -> Result<Option<String>> {
+        let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
+            return Ok(None);
+        };
+
+        let (internal, incoming, outgoing) = state.get_all();
+
+        let ha_set_id = self.get_haset_id().unwrap();
+        let Some(haset) = self.get_haset(incoming) else {
+            debug!(
+                "HA-SET {} has not been received. Cannot do bulk sync!",
+                &ha_set_id
+            );
+            return Ok(None);
+        };
+
+        let bulk_sync_session = DashFlowSyncSessionTable {
+            ha_set_id: ha_set_id.clone(),
+            target_server_ip: haset.ha_set.peer_ip,
+            target_server_port: haset.ha_set.cp_data_channel_port,
+        };
+
+        let session_id = Uuid::new_v4().to_string();
+        let fv = swss_serde::to_field_values(&bulk_sync_session)?;
+        let kfv = KeyOpFieldValues {
+            key: session_id,
+            operation: KeyOperation::Set,
+            field_values: fv,
+        };
+
+        let msg = ActorMessage::new(session_id, &kfv)?;
+        outgoing.send(outgoing.common_bridge_sp::<DashFlowSyncSessionTable>(), msg);
+
+        // update NPU HA scope state table
+        self.set_npu_flow_sync_session(state, &Some(session_id), &None, &Some(now_in_millis()), &Some(haset.ha_set.peer_ip));
+
+        return Ok(Some(session_id));
+    }
 }
 
 impl Actor for HaScopeActor {
@@ -1522,6 +1705,7 @@ impl Actor for HaScopeActor {
         let mut dash_ha_scope_config = self.dash_ha_scope_config;
         if key == Self::table_name() {
             // Retrieve the config update from the incoming message
+            // so that we can determin whether using DPU-driven mode or NPU-driven mode later
             let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
 
             if kfv.operation == KeyOperation::Del {
@@ -1603,6 +1787,16 @@ impl Actor for HaScopeActor {
                     }
                     Err(e) => {
                         error!("Invalid Bulk Sync Update!")
+                    }
+                }
+            }
+            else if key.starts_with(DashFlowSyncSessionState::table_name()) {
+                match self.handle_flow_sync_session_state_update(state, &key.to_string()) {
+                    Ok(incoming_event) => {
+                        event = incoming_event;
+                    }
+                    Err(e) => {
+                        error!("Invalid Flow Sync Session State Update: {}", e)
                     }
                 }
             }

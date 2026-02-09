@@ -292,18 +292,14 @@ pub struct BulkSyncUpdate {
     pub dst_actor_id: String,
 
     // message meta
-    pub seq: int,
-    pub finished: bool,
-    pub ack: bool
+    pub finished: bool
 }
 
 impl BulkSyncUpdate {
-    pub fn new_actor_msg(my_id: &str, dst_id: &str, seq: int, finished: bool, ack: bool) -> Result<ActorMessage> {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, finished: bool) -> Result<ActorMessage> {
         ActorMessage::new(Self::msg_key(my_id), &Self {
             dst_actor_id: dst_id.to_string(),
-            seq: seq,
-            finished: finished,
-            ack: ack
+            finished: finished
         })
     }
 
