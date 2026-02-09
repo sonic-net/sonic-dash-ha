@@ -306,6 +306,21 @@ pub struct DashHaSetTable {
     pub dp_channel_probe_fail_threshold: Option<u32>,
 }
 
+/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2313-flow-sync-sessions
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(
+    table_name = "DASH_FLOW_SYNC_SESSION_TABLE",
+    key_separator = ":",
+    db_name = "DPU_APPL_DB",
+    is_dpu = "true"
+)]
+pub struct DashFlowSyncSessionTable {
+    pub ha_set_id: String,
+    pub target_server_ip: String,
+    pub target_server_port: u16
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db>
 #[skip_serializing_none]
 #[serde_as]
