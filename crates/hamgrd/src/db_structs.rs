@@ -321,6 +321,21 @@ pub struct DashFlowSyncSessionTable {
     pub target_server_port: u16
 }
 
+/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2343-flow-sync-session-states
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(
+    table_name = "DASH_FLOW_SYNC_SESSION_STATE",
+    key_separator = "|",
+    db_name = "DPU_STATE_DB",
+    is_dpu = "true"
+)]
+pub struct DashFlowSyncSessionState {
+    pub state: String,
+    pub creation_time_in_ms: i64,
+    pub last_state_start_time_in_ms: i64
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db>
 #[skip_serializing_none]
 #[serde_as]
