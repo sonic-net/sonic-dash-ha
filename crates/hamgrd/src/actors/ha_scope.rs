@@ -421,7 +421,7 @@ impl HaScopeActor {
         Ok(())
     }
 
-    /// Register BulkSyncUpdate/VoteRequest/VoteReply/HAStateChanged from (peer) HaScopeActor
+    /// Register HAStateChanged from (peer) HaScopeActor
     fn register_to_hascope_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
         if self.peer_vdpu_id.is_none() {
             // Haven't received the remote peer vDPU info yet
@@ -1201,6 +1201,8 @@ impl HaScopeActor {
         let request = self.decode_hascope_actor_message(&incoming, key);
         let my_state = self.current_npu_ha_state(state);
         let my_desired_state = self.dash_ha_scope_config.desired_ha_state;
+        let my_term = self.get_npu_ha_scope_state(&internal).local_target_term.and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        let peer_term = request.term.and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
 
         if my_desired_state == DesiredHaState::DesiredHaStateStandalone {
             response = "RetryLater";
@@ -1220,10 +1222,10 @@ impl HaScopeActor {
                 response == "BecomeStandalone";
             }
         }
-        else if self.dpu_ha_scope_state.ha_term > request.term {
+        else if my_term > peer_term {
             response = "BecomeStandby";
         }
-        else if self.dpu_ha_scope_state.ha_term < request.term {
+        else if my_term < peer_term {
             response = "BecomeActive";
         }
         else if my_desired_state == DesiredHaState::DesiredHaStateActive && DesiredHaState::from_str(update.desired_state) == DesiredHaState::DesiredHaStateStandby {
@@ -1309,6 +1311,10 @@ impl HaScopeActor {
 
     fn apply_pending_state_side_effects(&mut self, state: &mut State, current_state: &HaState, pending_state: &HaState) -> Result<()> {
         match pending_state {
+            HaState::HaStateConnected => {
+                // Send VoteRequest to the peer to start primary election
+                self.send_vote_request_to_peer(state)?;
+            }
             HaState::HaStatePendingActiveRoleActivation|HaState::HaStatePendingStandbyRoleActivation => {
                 let mut operations: Vec<(String, String)> = Vec::new();
                 operations.push((Uuid::new_v4().to_string(), "activate_role".to_string()));
@@ -1343,7 +1349,7 @@ impl HaScopeActor {
         }
     }
 
-    fn drive_npu_state_machine(&mut self, state: &mut State, event: &HaEvent) -> Result<()> {
+    fn drive_npu_state_machine(&mut self, state: &mut State, mut event: &HaEvent) -> Result<()> {
         let Some(config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
         };
@@ -1355,14 +1361,15 @@ impl HaScopeActor {
                 if current_state != HaState::HaStateDead {
                     self.set_npu_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
                     self.dpu_ha_role = HaRole::HaRoleDead;
+                    // Update DPU APPL_DB
+                    self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
                 }
+                return Ok(());
             }
             else {
-                // TODO: ?
+                // Equivalent to launch 
+                event = &HaEvent::Launch;
             }
-            // Update DPU APPL_DB
-            self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
-            return Ok(());
         }
 
         let desired_state = DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::Unspecified);
@@ -1371,7 +1378,7 @@ impl HaScopeActor {
         match self.next_state(state, target_state, current_state, event) {
             Some((next_state, reason)) if next_state != current_state => {
                 let pending_state = next_state;
-                self.apply_pending_state_side_effects(state, current_state)?;
+                self.apply_pending_state_side_effects(state, current_state, pending_state)?;
                 self.set_npu_local_ha_state(state, pending_state, reason)?;
 
                 // send out HAStateChanged message to the peer
@@ -1439,7 +1446,7 @@ impl HaScopeActor {
                         TargetState::Active => Some((HaState::HaStateInitializingToActive, "target active role")),
                         TargetState::Standby => Some((HaState::HaStateInitializingToStandby, "target standby role")),
                         TargetState::Standalone => Some((HaState::HaStateStandalone, "target standalone role")),
-                        TargetState::Dead => None,
+                        TargetState::Dead => None, // Target Dead case should be handled at the beginning of the function
                     }
                 }
                 else {
@@ -1634,6 +1641,59 @@ impl HaScopeActor {
             // nop-op but resetting retry count, if the peer is connected
             self.retry_count = 0;
         }
+    }
+
+    /// Send a VoteRequest message to the peer HA scope actor for primary election
+    /// The term and state come from NPU HA scope state table
+    /// The desired state comes from dash_ha_scope_config
+    fn send_vote_request_to_peer(&self, state: &mut State) -> Result<()> {
+        let (internal, _incoming, outgoing) = state.get_all();
+
+        let Some(peer_actor_id) = self.get_peer_actor_id() else {
+            info!("Cannot send VoteRequest to peer: peer actor ID not available");
+            return Ok(());
+        };
+
+        let Some(npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
+            info!("Cannot send VoteRequest: NPU HA scope state not available");
+            return Ok(());
+        };
+
+        let Some(ref config) = self.dash_ha_scope_config else {
+            info!("Cannot send VoteRequest: dash_ha_scope_config not available");
+            return Ok(());
+        };
+
+        // Get term from NPU HA scope state (convert from String to int)
+        let term: String = npu_ha_scope_state
+            .local_target_term
+            .as_ref()
+            .unwrap_or("0");
+
+        // Get current state from NPU HA scope state
+        let current_state = npu_ha_scope_state
+            .local_ha_state
+            .as_deref()
+            .unwrap_or("dead");
+
+        // Get desired state from config
+        let desired_state = DesiredHaState::try_from(config.desired_ha_state)
+            .map(|s| s.as_str())
+            .unwrap_or("unspecified");
+
+        let msg = VoteRequest::new_actor_msg(
+            &self.id,
+            &peer_actor_id,
+            &term,
+            current_state,
+            desired_state,
+        )?;
+
+        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
+        info!("Sent VoteRequest to peer {}: term={}, state={}, desired_state={}", 
+              peer_actor_id, term, current_state, desired_state);
+
+        Ok(())
     }
 
     /// Send a BulkSyncUpdate message with finished=true to the peer HA scope actor

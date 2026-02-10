@@ -220,16 +220,16 @@ pub struct VoteRequest {
     pub dst_actor_id: String,
 
     // state of the source HA scope
-    pub term: int,
+    pub term: String,
     pub state: String,
     pub desired_state: String,
 }
 
 impl VoteRequest {
-    pub fn new_actor_msg(my_id: &str, dst_id: &str, my_term: int, my_state: &str, my_desired_state: &str) -> Result<ActorMessage> {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, my_term: &str, my_state: &str, my_desired_state: &str) -> Result<ActorMessage> {
         ActorMessage::new(Self::msg_key(my_id), &Self {
             dst_actor_id: dst_id.to_string(),
-            term: my_term,
+            term: my_term.to_string(),
             state: my_state.to_string(),
             desired_state: my_desired_state.to_string()
         })
