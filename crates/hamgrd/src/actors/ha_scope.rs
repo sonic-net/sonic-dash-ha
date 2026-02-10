@@ -37,6 +37,7 @@ pub enum HaEvent {
     SwitchoverApproved,
     AdminStateChanged,
     DesiredStateChanged,
+    DpuStateChanged
 }
 
 impl HaEvent {
@@ -54,7 +55,8 @@ impl HaEvent {
             Self::FlowReconciliationApproved => "FlowReconciliationApproved",
             Self::SwitchoverApproved => "SwitchoverApproved",
             Self::AdminStateChanged => "AdminStateChanged",
-            Self::DesiredStateChanged => "DesiredStateChanged"
+            Self::DesiredStateChanged => "DesiredStateChanged",
+            Self::DpuStateChanged => "DpuStateChanged"
         }
     }
 
@@ -73,6 +75,7 @@ impl HaEvent {
             "SwitchoverApproved" => Some(Self::SwitchoverApproved),
             "AdminStateChanged" => Some(Self::AdminStateChanged),
             "DesiredStateChanged" => Some(Self::DesiredStateChanged),
+            "DpuStateChanged" => Some(Self::DpuStateChanged),
             _ => None,
         }
     }
@@ -205,8 +208,6 @@ pub struct HaScopeActor {
     bridges: Vec<ConsumerBridge>,
     // we need to keep track the previous dpu_ha_scope_state to detect state change
     dpu_ha_scope_state: Option<DpuDashHaScopeState>,
-    // current HA role of DPU
-    dpu_ha_role: Option<HaRole>,
     // target state that HAmgrd should transition to upon HA events
     target_ha_scope_state: Option<TargetState>,
     // retry count used for voting
@@ -226,7 +227,6 @@ impl DbBasedActor for HaScopeActor {
                 dash_ha_scope_config: None,
                 bridges: Vec::new(),
                 dpu_ha_scope_state: None,
-                dpu_ha_role: None,
                 target_ha_scope_state: None,
                 retry_count: 0,
                 peer_connected: false
@@ -1037,6 +1037,9 @@ impl HaScopeActor {
             );
         }
 
+        // update basic info of NPU HA scope state
+        self.update_npu_ha_scope_state_base(state);
+
         match vdpu.up {
             true => Ok(HaEvent::None),
             false => Ok(HaEvent::LocalFailure)
@@ -1052,6 +1055,9 @@ impl HaScopeActor {
         if !self.vdpu_is_managed(incoming) {
             return Ok(HaEvent::None);
         }
+
+        // update basic info of NPU HA scope state
+        self.update_npu_ha_scope_state_base(state);
 
         let mut first_time = if self.peer_vdpu_id.is_none() { true } else { false };
 
@@ -1087,6 +1093,32 @@ impl HaScopeActor {
                 false => Ok(HaEvent::PeerLost)
             }
         }
+    }
+
+    /// Handles DPU DASH_HA_SCOPE_STATE update messages for this HA scope.
+    /// Update NPU DASH_HA_SCOPE_STATE ha_state related fields that need acknowledgements from DPU
+    fn handle_dpu_ha_scope_state_update_npu_driven(&mut self, state: &mut State) -> Result<HaEvent, String> {
+        let (_internal, incoming, _) = state.get_all();
+        // parse dpu ha scope state
+        let Some(new_dpu_ha_scope_state) = self.get_dpu_ha_scope_state(incoming) else {
+            // no valid state received from dpu, skip
+            return Ok(HaEvent::None);
+        };
+        // get the NPU ha scope state
+        let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
+            info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
+            return Ok(HaEvent::None);
+        };
+
+        self.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
+
+        npu_ha_scope_state.local_acked_asic_ha_state = new_dpu_ha_scope_state.ha_role.clone();
+        npu_ha_scope_state.local_acked_term = new_dpu_ha_scope_state.ha_term.clone();
+
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
+        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+
+        Ok(HaEvent::DpuStateChanged)
     }
 
     /// Handle bulk sync update messages for this HA scope
@@ -1335,16 +1367,18 @@ impl HaScopeActor {
                 }
 
                 // Activate Active role on DPU
-                self.dpu_ha_role = HaRole::HaRoleActive;
-                self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
+                self.update_dpu_ha_scope_table_with_params(state, HaRole::HaRoleActive, false, false);
             }
             HaState::HaStateInitializingToStandby => {
                 // Activate Standby role on DPU
-                self.dpu_ha_role = HaRole::HaRoleStandby;
-                self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
+                self.update_dpu_ha_scope_table_with_params(state, HaRole::HaRoleStandby, false, false);
             }
             HaState::HaStateSwitchingToActive => {
                 // TODO: Send SwitchOver to the peer
+            }
+            HaState::HaStateDestroying => {
+                // Activate Dead role on the DPU
+                self.update_dpu_ha_scope_table_with_params(state, HaRole::HaRoleDead, false, false);
             }
         }
     }
@@ -1360,9 +1394,8 @@ impl HaScopeActor {
             if config.disabled {
                 if current_state != HaState::HaStateDead {
                     self.set_npu_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
-                    self.dpu_ha_role = HaRole::HaRoleDead;
-                    // Update DPU APPL_DB
-                    self.update_dpu_ha_scope_table_with_params(state, self.dpu_ha_role, false, false);
+                    // Update DPU APPL_DB to activate Dead role on the DPU
+                    self.update_dpu_ha_scope_table_with_params(state, HaRole::HaRoleDead, false, false);
                 }
                 return Ok(());
             }
@@ -1408,6 +1441,7 @@ impl HaScopeActor {
                 HaState::HaStateDestroying => {
                     if self.dpu_ha_scope_state.ha_role == HaRole::HaRoleDead.as_str()
                     {
+                        // HaEvent::DpuStateChanged should trigger this branch
                         // When the DPU is in dead role, all traffic is drained
                         Some((HaState::HaStateDead, "destroy completed"))
                     } else {
@@ -1555,6 +1589,7 @@ impl HaScopeActor {
             }
             HaState::HaStateDestroying => {
                 if self.dpu_ha_scope_state.ha_role == HaRole::HaRoleDead.as_str() {
+                    // HaEvent::DpuStateChanged should trigger this branch
                     Some((HaState::HaStateDead, "resources drained"))
                 } else {
                     None
@@ -1817,6 +1852,17 @@ impl Actor for HaScopeActor {
                     }
                     Err(e) => {
                         error!("Error when processing HA Scope Config Table Update!")
+                    }
+                }
+            }
+            else if key.starts_with(DpuDashHaScopeState::table_name()) {
+                // Update NPU ha scope state based on dpu ha scope state update
+                match self.handle_dpu_ha_scope_state_update_npu_driven(state) {
+                    Ok(incoming_event) => {
+                        event = incoming_event;
+                    }
+                    Err(e) => {
+                        error!("Error when processing DPU HA Scope State Update!")
                     }
                 }
             }
