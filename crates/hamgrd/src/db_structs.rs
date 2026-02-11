@@ -368,6 +368,7 @@ pub struct DashHaScopeTable {
     pub version: u32,
     pub disabled: bool,
     pub ha_role: String,
+    pub ha_term: String,
     pub ha_set_id: String,
     pub vip_v4: String,
     pub vip_v6: Option<String>,

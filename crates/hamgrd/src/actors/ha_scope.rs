@@ -530,6 +530,7 @@ impl HaScopeActor {
                 )
                 .to_lowercase()
             }, /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
+            ha_term: 0, // TODO: not clear what need to be done for DPU-driven mode
             flow_reconcile_requested,
             activate_role_requested,
         };
@@ -548,7 +549,7 @@ impl HaScopeActor {
     }
 
     /// Update DPU HA Scope Table based on configurations and parameters
-    fn update_dpu_ha_scope_table_with_params(&self, state: &mut State, ha_role: String, flow_reconcile_requested: bool, activate_role_requested: bool) -> Result<()> {
+    fn update_dpu_ha_scope_table_with_params(&self, state: &mut State, ha_role: &String, flow_reconcile_requested: bool, activate_role_requested: bool) -> Result<()> {
         let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
         };
@@ -570,9 +571,10 @@ impl HaScopeActor {
             ha_set_id: dash_ha_scope_config.ha_set_id.clone(),
             vip_v4: haset.ha_set.vip_v4.clone(),
             vip_v6: haset.ha_set.vip_v6.clone(),
-            ha_role: ha_role,
-            flow_reconcile_requested,
-            activate_role_requested,
+            ha_role: ha_role.clone(),
+            ha_term: self.get_npu_ha_scope_state(&internal).local_target_term.clone(),
+            flow_reconcile_requested: flow_reconcile_requested,
+            activate_role_requested: activate_role_requested,
         };
 
         let fv = swss_serde::to_field_values(&dash_ha_scope)?;
@@ -744,6 +746,24 @@ impl HaScopeActor {
         // The current target term of the HA state machine. in dpu-driven mode, use the term acked by asic
         npu_ha_scope_state.local_target_term = Some(dpu_ha_scope_state.ha_term.clone());
         npu_ha_scope_state.local_acked_term = Some(dpu_ha_scope_state.ha_term);
+
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
+        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+
+        Ok(())
+    }
+
+    fn increment_npu_ha_scope_state_target_term(&self, state: &mut State) {
+        let Some(ref dash_ha_scope_config) = self.dash_ha_scope_config else {
+            return Ok(());
+        };
+        let (internal, incoming, _outgoing) = state.get_all();
+
+        let Some(mut npu_ha_scope_state) = self.get_npu_ha_scope_state(internal) else {
+            info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
+            return Ok(());
+        };
+        npu_ha_scope_state.local_target_term = Some(npu_ha_scope_state.local_target_term + 1);
 
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
@@ -1208,6 +1228,10 @@ impl HaScopeActor {
         npu_ha_scope_state.peer_ha_state = change.peer_ha_state;
         npu_ha_scope_state.peer_ha_state_last_updated_time_in_ms = change.timestamp;
         npu_ha_scope_state.peer_term = change.term;
+        if self.target_ha_scope_state == TargetState::Standby {
+            // Standby HA scope should follow the change of the peer term
+            npu_ha_scope_state.local_target_term = npu_ha_scope_state.peer_term.clone();
+        }
 
         // Push Update to DB
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
@@ -1342,6 +1366,7 @@ impl HaScopeActor {
     }
 
     fn apply_pending_state_side_effects(&mut self, state: &mut State, current_state: &HaState, pending_state: &HaState) -> Result<()> {
+        let internal = state.internal();
         match pending_state {
             HaState::HaStateConnected => {
                 // Send VoteRequest to the peer to start primary election
@@ -1362,11 +1387,12 @@ impl HaScopeActor {
                 }
                 else if current_state == HaState::HaStatePendingActiveRoleActivation {
                     // When starting from PendingActiveRoleActivation, no need to do bulk sync.
-                    // Send BulkSyncCompleted signal to the peer
+                    // Send BulkSyncCompleted signal to the peer immediately
                     self.send_bulk_sync_completed_to_peer(state)?;
                 }
 
-                // Activate Active role on DPU
+                // Activate Active role on DPU with a new term
+                self.increment_npu_ha_scope_state_target_term(state);
                 self.update_dpu_ha_scope_table_with_params(state, HaRole::HaRoleActive, false, false);
             }
             HaState::HaStateInitializingToStandby => {
@@ -1381,6 +1407,7 @@ impl HaScopeActor {
                 self.update_dpu_ha_scope_table_with_params(state, HaRole::HaRoleDead, false, false);
             }
         }
+        Ok(())
     }
 
     fn drive_npu_state_machine(&mut self, state: &mut State, mut event: &HaEvent) -> Result<()> {
@@ -1415,7 +1442,7 @@ impl HaScopeActor {
                 self.set_npu_local_ha_state(state, pending_state, reason)?;
 
                 // send out HAStateChanged message to the peer
-                let msg = HAStateChanged::new_actor_msg(self.id, current_state, pending_state, now_in_millis(), self.get_npu_ha_scope_state(state.internal()).local_acked_term);
+                let msg = HAStateChanged::new_actor_msg(self.id, current_state, pending_state, now_in_millis(), self.get_npu_ha_scope_state(state.internal()).local_target_term);
                 let peer_actor_id = self.get_peer_actor_id();
                 outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
             }
