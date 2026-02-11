@@ -12,7 +12,7 @@ use swss_common::{
 };
 use tokio::task::JoinHandle;
 use tokio_util::task::AbortOnDropHandle;
-use tracing::debug;
+use tracing::{debug, error};
 pub struct ConsumerBridge {
     _task: AbortOnDropHandle<()>,
 }
@@ -62,7 +62,10 @@ where
         let mut table_cache = TableCache::default();
         let mut send_kfv = async |mut kfv: KeyOpFieldValues| {
             if P::is_proto() {
-                P::convert_pb_to_json(&mut kfv);
+                if let Err(e) = P::convert_pb_to_json(&mut kfv) {
+                    error!("{}: failed to convert protobuf to json for '{}': {}", my_sp.to_longest_path(), kfv.key, e);
+                    return;
+                }
             }
             debug!("{}: receiving update: {:?}", my_sp.to_longest_path(), kfv);
             // Merge the kfv to get the whole table as an update
