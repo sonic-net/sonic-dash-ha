@@ -63,7 +63,12 @@ where
         let mut send_kfv = async |mut kfv: KeyOpFieldValues| {
             if P::is_proto() {
                 if let Err(e) = P::convert_pb_to_json(&mut kfv) {
-                    error!("{}: failed to convert protobuf to json for '{}': {}", my_sp.to_longest_path(), kfv.key, e);
+                    error!(
+                        "{}: failed to convert protobuf to json for '{}': {}",
+                        my_sp.to_longest_path(),
+                        kfv.key,
+                        e
+                    );
                     return;
                 }
             }
@@ -217,9 +222,12 @@ impl ConsumerTable for SubscriberStateTable {
 mod test {
     use super::{spawn_consumer_bridge, ConsumerTable};
     use crate::producer::ProducerTable;
+    use prost::Message;
     use sonic_dash_api_proto::ha_set_config::HaSetConfig;
+    use sonic_dash_api_proto::types::{ip_address, IpAddress};
     use sonicdb_derive::SonicDb;
     use std::collections::HashMap;
+    use std::net::{Ipv4Addr, Ipv6Addr};
     use std::{sync::Arc, time::Duration};
     use swbus_actor::ActorMessage;
     use swbus_edge::{
@@ -371,18 +379,32 @@ mod test {
             |_| true,
         );
 
+        let ha_set = HaSetConfig {
+            version: "1".to_string(),
+            vip_v4: Some(IpAddress {
+                ip: Some(ip_address::Ip::Ipv4("3.2.1.0".parse::<Ipv4Addr>().unwrap().to_bits())),
+            }),
+            vip_v6: Some(IpAddress {
+                ip: Some(ip_address::Ip::Ipv6(
+                    "3:2::1:0".parse::<Ipv6Addr>().unwrap().octets().to_vec(),
+                )),
+            }),
+            vdpu_ids: vec!["vdpu0".to_string(), "vdpu1".to_string()],
+            scope: 1,
+            pinned_vdpu_bfd_probe_states: vec!["up".to_string(), "down".to_string()],
+            preferred_vdpu_id: "vdpu0".to_string(),
+            preferred_standalone_vdpu_index: 0,
+        };
+
+        let expected_ha_set = serde_json::to_string(&ha_set).unwrap(); // Just make sure it can be serialized to json before we encode to protobuf
+        let bytes: Vec<u8> = ha_set.encode_to_vec();
         // Send some updates we should receive
         let kfvs = KeyOpFieldValues {
             key: "haset0_0".to_string(),
             operation: swss_common::KeyOperation::Set,
             field_values: {
-                let mut map = HashMap::new();
-                map.insert(
-                    "pb".to_string(),
-                    "0a013112050d00010203220576647075302205766470753128013a057664707530"
-                        .to_string()
-                        .into(),
-                );
+                let mut map: HashMap<String, swss_common::CxxString> = HashMap::new();
+                map.insert("pb".to_string(), bytes.clone().into());
                 map
             },
         };
@@ -394,7 +416,7 @@ mod test {
             operation: swss_common::KeyOperation::Set,
             field_values: {
                 let mut map = HashMap::new();
-                map.insert("json".to_string(), "{\"version\":\"1\",\"vip_v4\":{\"ip\":{\"Ipv4\":50462976}},\"vip_v6\":null,\"vdpu_ids\":[\"vdpu0\",\"vdpu1\"],\"scope\":1,\"pinned_vdpu_bfd_probe_states\":[],\"preferred_vdpu_id\":\"vdpu0\",\"preferred_standalone_vdpu_index\":0}".to_string().into());
+                map.insert("json".to_string(), expected_ha_set.clone().into());
                 map
             },
         };
