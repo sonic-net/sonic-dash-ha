@@ -164,6 +164,33 @@ impl HaSetActorState {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct HaScopeActorState {
+    pub owner: i32
+}
+
+impl HaScopeActorState {
+    pub fn new_actor_msg(my_id: &str, owner: i32) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { owner })
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "HaScopeStateUpdate|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct ActorRegistration {
     pub active: bool,
 }

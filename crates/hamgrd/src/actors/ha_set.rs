@@ -1,12 +1,13 @@
 use crate::actors::vdpu::{self, VDpuActor};
 use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
-use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState};
+use crate::ha_actor_messages::{ActorRegistration, HaSetActorState, RegistrationType, VDpuActorState, HaScopeActorState};
 use anyhow::{anyhow, Result};
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
 use sonic_dash_api_proto::ip_to_string;
+use sonic_dash_api_proto::types::HaOwner;
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, outgoing::Outgoing},
@@ -20,6 +21,7 @@ pub struct HaSetActor {
     id: String,
     dash_ha_set_config: Option<HaSetConfig>,
     dp_channel_is_alive: bool,
+    ha_owner: HaOwner,
     bridges: Vec<ConsumerBridge>,
 }
 
@@ -29,6 +31,7 @@ impl DbBasedActor for HaSetActor {
             id: key,
             dash_ha_set_config: None,
             dp_channel_is_alive: false,
+            ha_owner: HaOwner::HaOwnerUnspecified,
             bridges: Vec::new(),
         };
         Ok(actor)
@@ -386,6 +389,18 @@ impl HaSetActor {
         Some(vdpus.into_iter().map(|vdpu| vdpu.unwrap()).collect())
     }
 
+    /// Return the HaScopeActorState embedded in the message
+    fn get_ha_scope_actor_state(&self, incoming: &Incoming, key: &str) -> Option<HaScopeActorState> {
+        let msg = incoming.get(key)?;
+        match msg.deserialize_data() {
+            Ok(ha_scope) => Some(ha_scope),
+            Err(e) => {
+                error!("Failed to deserialize HaScopeActorState from the message: {}", e);
+                None
+            }
+        }
+    }
+
     async fn handle_dash_ha_set_config_table_message(
         &mut self,
         state: &mut State,
@@ -447,7 +462,9 @@ impl HaSetActor {
         };
         // global config update affects Vxlan tunnel and dash-ha-set in DPU
         self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
-        self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
+        if self.ha_owner == HaOwner::Dpu {
+            self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
+        }
         Ok(())
     }
 
@@ -458,7 +475,9 @@ impl HaSetActor {
             return Ok(());
         };
         self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
-        self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
+        if self.ha_owner == HaOwner::Dpu {
+            self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
+        }
         Ok(())
     }
 
@@ -484,6 +503,16 @@ impl HaSetActor {
             outgoing.send(entry.source.clone(), msg);
         }
         Ok(())
+    }
+
+    async fn handle_ha_scope_state_update(&mut self, state: &mut State, key: &str) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+        let Some(ha_scope) = self.get_ha_scope_actor_state(&incoming, key) else {
+            return Ok(());
+        };
+
+        self.ha_owner = HaOwner::try_from(i32_value).unwrap_or(HaOwner::HaOwnerUnspecified);
+        return Ok(());
     }
 
     fn do_cleanup(&mut self, state: &mut State) -> Result<()> {
@@ -532,6 +561,9 @@ impl Actor for HaSetActor {
                 return Ok();
             };
             self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive;
+        }
+        else if HaScopeActorState::is_my_msg(key) {
+            return self.handle_ha_scope_state_update(state, key).await;
         }
         Ok(())
     }

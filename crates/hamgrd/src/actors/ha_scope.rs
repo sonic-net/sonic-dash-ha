@@ -1824,7 +1824,7 @@ impl HaScopeActor {
 impl Actor for HaScopeActor {
     #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-scope/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        let mut dash_ha_scope_config = self.dash_ha_scope_config;
+        let mut dash_ha_scope_config: Option<HaScopeConfig> = None;
         if key == Self::table_name() {
             // Retrieve the config update from the incoming message
             // so that we can determin whether using DPU-driven mode or NPU-driven mode later
@@ -1836,16 +1836,23 @@ impl Actor for HaScopeActor {
                     error!("Failed to cleanup HaScopeActor resources: {}", e);
                 }
                 context.stop();
-                return Ok(HaEvent::None);
+                return Ok(());
             }
             let first_time = self.dash_ha_scope_config.is_none();
             dash_ha_scope_config = Some(decode_from_field_values(&kfv.field_values)?);
 
             if first_time {
+                // directly update the config at the first time
+                self.dash_ha_scope_config = dash_ha_scope_config;
+
                 // Subscribe to the vDPU Actor for state updates.
                 self.register_to_vdpu_actor(outgoing, true)?;
                 // Subscribe to the ha-set Actor for state updates.
                 self.register_to_haset_actor(outgoing, true)?;
+                // Send a state update message to the ha-set actor
+                let msg = HaScopeActorState::new_actor_msg(self.id, self.dash_ha_scope_config.as_ref().owner);
+                outgoing.send(outgoing.from_my_sp(HaSetActor::name(), &self.get_haset_id()), msg);
+                return Ok(());
             }
         }
 
@@ -1853,7 +1860,7 @@ impl Actor for HaScopeActor {
             return Ok(());
         }
 
-        if dash_ha_scope_config.owner == HaOwner::Dpu as i32 {
+        if dash_ha_scope_config.as_ref().map(|c| c.owner) == Some(HaOwner::Dpu as i32) {
             // this is a dpu driven ha scope.
             if key == Self::table_name() {
                 return self.handle_dash_ha_scope_config_table_message_dpu_driven(state, key, context);
