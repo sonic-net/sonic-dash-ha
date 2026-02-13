@@ -778,6 +778,59 @@ impl HaScopeActor {
 
         Ok(())
     }
+
+    fn set_npu_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
+        let internal = state.internal();
+        let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
+            return Ok(());
+        };
+
+        if npu_state.local_ha_state.as_deref() == Some(new_state.as_str()) {
+            // the HA scope is already in the new state;
+            return Ok(());
+        }
+        npu_state.local_ha_state = Some(new_state.as_str().to_string());
+        npu_state.local_ha_state_last_updated_time_in_ms = Some(now_in_millis());
+        npu_state.local_ha_state_last_updated_reason = Some(reason.to_string());
+
+        let fvs = swss_serde::to_field_values(&npu_state)?;
+        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+        info!(scope=%self.id, state=%new_state, "HA scope transitioned: {}", reason);
+        Ok(())
+    }
+
+    fn set_npu_flow_sync_session(
+        &mut self,
+        state: &mut State,
+        flow_sync_session_id: &Option<String>,
+        flow_sync_session_state: &Option<String>,
+        flow_sync_session_start_time_in_ms: &Option<i64>,
+        flow_sync_session_target_server: &Option<String>
+    ) -> Result<()> {
+        let internal = state.internal();
+        let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
+            return Ok(());
+        };
+
+        if !flow_sync_session_id.is_none() {
+            npu_state.flow_sync_session_id = flow_sync_session_id.clone();
+        }
+        if !flow_sync_session_state.is_none() {
+            npu_state.flow_sync_session_state = flow_sync_session_state.clone();
+        }
+        if !flow_sync_session_start_time_in_ms.is_none() {
+            npu_state.flow_sync_session_start_time_in_ms = flow_sync_session_start_time_in_ms.clone();
+        }
+        if !flow_sync_session_target_server.is_none() {
+            npu_state.flow_sync_session_target_server = flow_sync_session_target_server.clone();
+        }
+
+        let fvs = swss_serde::to_field_values(&npu_state)?;
+        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+        info!("Update NPU HA Scope State Table with a new flow sync session: {} {} {} {}", flow_sync_session_id, flow_sync_session_state, flow_sync_session_start_time_in_ms, flow_sync_session_target_server);
+        Ok(())
+    }
+
 }
 
 // Implements messages handlers for HaScopeActor (DPU-driven mode)
@@ -1652,58 +1705,6 @@ impl HaScopeActor {
                 }
             }
         }
-    }
-
-    fn set_npu_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
-        let internal = state.internal();
-        let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
-            return Ok(());
-        };
-
-        if npu_state.local_ha_state.as_deref() == Some(new_state.as_str()) {
-            // the HA scope is already in the new state;
-            return Ok(());
-        }
-        npu_state.local_ha_state = Some(new_state.as_str().to_string());
-        npu_state.local_ha_state_last_updated_time_in_ms = Some(now_in_millis());
-        npu_state.local_ha_state_last_updated_reason = Some(reason.to_string());
-
-        let fvs = swss_serde::to_field_values(&npu_state)?;
-        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
-        info!(scope=%self.id, state=%new_state, "HA scope transitioned: {}", reason);
-        Ok(())
-    }
-
-    fn set_npu_flow_sync_session(
-        &mut self,
-        state: &mut State,
-        flow_sync_session_id: &Option<String>,
-        flow_sync_session_state: &Option<String>,
-        flow_sync_session_start_time_in_ms: &Option<i64>,
-        flow_sync_session_target_server: &Option<String>
-    ) -> Result<()> {
-        let internal = state.internal();
-        let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
-            return Ok(());
-        };
-
-        if !flow_sync_session_id.is_none() {
-            npu_state.flow_sync_session_id = flow_sync_session_id.clone();
-        }
-        if !flow_sync_session_state.is_none() {
-            npu_state.flow_sync_session_state = flow_sync_session_state.clone();
-        }
-        if !flow_sync_session_start_time_in_ms.is_none() {
-            npu_state.flow_sync_session_start_time_in_ms = flow_sync_session_start_time_in_ms.clone();
-        }
-        if !flow_sync_session_target_server.is_none() {
-            npu_state.flow_sync_session_target_server = flow_sync_session_target_server.clone();
-        }
-
-        let fvs = swss_serde::to_field_values(&npu_state)?;
-        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
-        info!("Update NPU HA Scope State Table with a new flow sync session: {} {} {} {}", flow_sync_session_id, flow_sync_session_state, flow_sync_session_start_time_in_ms, flow_sync_session_target_server);
-        Ok(())
     }
 
     /// Check if the peer HA scope is connected
