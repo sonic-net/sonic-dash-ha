@@ -1,13 +1,11 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
-    now_in_millis, BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuResetInfo,
-    DpuState, NeighResolveTable, RemoteDpu,
+    now_in_millis, DashBfdProbeState, Dpu, DpuPmonStateType, DpuResetInfo, DpuState, NeighResolveTable, RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use crate::ServicePath;
 use anyhow::{anyhow, Result};
 use sonic_common::SonicDbTable;
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use swbus_actor::state::internal::Internal;
 use swbus_actor::{state::incoming::Incoming, state::outgoing::Outgoing, Actor, ActorMessage, Context, State};
@@ -86,13 +84,6 @@ impl DpuActor {
         }
     }
 
-    fn get_dash_ha_global_config(incoming: &Incoming) -> Result<DashHaGlobalConfig> {
-        let ha_global_config_kfv: KeyOpFieldValues = incoming
-            .get_or_fail(DashHaGlobalConfig::table_name())?
-            .deserialize_data()?;
-        Ok(swss_serde::from_field_values(&ha_global_config_kfv.field_values)?)
-    }
-
     // DpuActor is spawned in response to swss-common-bridge message for DPU and REMOTE_DPU table
     pub async fn start_actor_creator(edge_runtime: Arc<SwbusEdgeRuntime>) -> Result<Vec<ConsumerBridge>> {
         let mut bridges = Vec::new();
@@ -143,9 +134,6 @@ impl DpuActor {
     }
 
     fn do_cleanup(&mut self, _context: &mut Context, state: &mut State) {
-        if let Err(e) = self.update_bfd_sessions(state, true) {
-            error!("Failed to cleanup BFD sessions: {}", e);
-        }
         let (internal, _incoming, _outgoing) = state.get_all();
         self.delete_reset_info(internal);
     }
@@ -185,30 +173,6 @@ impl DpuActor {
                 if let Err(e) = self.set_neigh_resolve(outgoing) {
                     error!("Failed to set NEIGH_RESOLVE_TABLE: {}", e);
                 }
-
-                // DASH_HA_GLOBAL_CONFIG from common-bridge sent to this actor instance only.
-                // Key is DASH_HA_GLOBAL_CONFIG
-                self.bridges.push(
-                    spawn_consumer_bridge_for_actor::<DashHaGlobalConfig>(
-                        context.get_edge_runtime().clone(),
-                        Self::name(),
-                        Some(&self.id),
-                        true,
-                    )
-                    .await?,
-                );
-
-                // REMOTE_DPU from common-bridge sent to this actor instance only.
-                // Key is REMOTE_DPU|<remote_dpu_id>
-                self.bridges.push(
-                    spawn_consumer_bridge_for_actor::<RemoteDpu>(
-                        context.get_edge_runtime().clone(),
-                        Self::name(),
-                        Some(&self.id),
-                        false,
-                    )
-                    .await?,
-                );
 
                 // DASH_BFD_PROBE_STATE from common-bridge sent to this actor instance only.
                 // Key is DASH_BFD_PROBE_STATE
@@ -300,12 +264,12 @@ impl DpuActor {
             return Ok(());
         }
 
-        let (pmon_up, has_global_cfg) = {
+        let pmon_up = {
             let (_internal, incoming, _outgoing) = state.get_all();
             let dpu_state = match Self::get_dpu_state(incoming) {
                 Ok(dpu_state) => dpu_state,
                 Err(e) => {
-                    error!("Failed to decode DPU_STATE for BFD session update. Error: {}", e);
+                    error!("Failed to decode DPU_STATE for pmon transition. Error: {}", e);
                     return Ok(());
                 }
             };
@@ -313,19 +277,14 @@ impl DpuActor {
                 return Ok(());
             };
 
-            let pmon_up = dpu_state.dpu_midplane_link_state == DpuPmonStateType::Up
-                && dpu_state.dpu_control_plane_state == DpuPmonStateType::Up;
-            let has_global_cfg = incoming.get(DashHaGlobalConfig::table_name()).is_some();
-            (pmon_up, has_global_cfg)
+            dpu_state.dpu_midplane_link_state == DpuPmonStateType::Up
+                && dpu_state.dpu_control_plane_state == DpuPmonStateType::Up
         };
 
         let mut remove = false;
-        let mut add = false;
         match self.last_pmon_up {
             Some(prev) if prev && !pmon_up => remove = true,
-            Some(prev) if !prev && pmon_up => add = true,
             None if !pmon_up => remove = true,
-            None if pmon_up => add = true,
             _ => {}
         }
         self.last_pmon_up = Some(pmon_up);
@@ -335,13 +294,6 @@ impl DpuActor {
             // It's handled by an external process.
             if let Err(e) = self.write_reset_info(state) {
                 error!("Failed to write DASH_DPU_RESET_INFO: {}", e);
-            }
-            self.update_bfd_sessions(state, true)?;
-        } else if add {
-            if has_global_cfg {
-                self.update_bfd_sessions(state, false)?;
-            } else {
-                debug!("DASH_HA_GLOBAL_CONFIG not available; skip BFD session recreate");
             }
         }
 
@@ -406,101 +358,10 @@ impl DpuActor {
         Ok(())
     }
 
-    fn update_bfd_session(
-        &self,
-        peer_ip: &str,
-        global_cfg: Option<&DashHaGlobalConfig>,
-        outgoing: &mut Outgoing,
-        remove: bool,
-    ) -> Result<()> {
-        // todo: this needs to wait until HaScope has been activated.
-        let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
-            debug!("DPU is not managed by this HA instance. Ignore BFD session creation");
-            return Ok(());
-        };
-
-        let sep = BfdSessionTable::key_separator();
-        let key = format!("default{sep}default{sep}{peer_ip}");
-
-        let kfv = if remove {
-            KeyOpFieldValues {
-                key,
-                operation: KeyOperation::Del,
-                field_values: HashMap::new(),
-            }
-        } else {
-            let global_cfg = global_cfg.ok_or_else(|| anyhow!("DASH_HA_GLOBAL_CONFIG is missing"))?;
-            let bfd_session = BfdSessionTable {
-                tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
-                rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
-                multiplier: global_cfg.dpu_bfd_probe_multiplier,
-                multihop: true,
-                local_addr: dpu.pa_ipv4.clone(),
-                session_type: Some("passive".to_string()),
-                shutdown: false,
-            };
-
-            let fv = swss_serde::to_field_values(&bfd_session)?;
-            KeyOpFieldValues {
-                key,
-                operation: KeyOperation::Set,
-                field_values: fv,
-            }
-        };
-
-        let msg = ActorMessage::new(self.id.clone(), &kfv)?;
-        outgoing.send(outgoing.common_bridge_sp::<BfdSessionTable>(), msg);
-        Ok(())
-    }
-
-    fn update_bfd_sessions(&self, state: &mut State, remove: bool) -> Result<()> {
-        if !self.is_local_managed() {
-            debug!("DPU is not managed by this HA instance. Ignore BFD session creation or deletion");
-            return Ok(());
-        }
-        if !remove && self.last_pmon_up == Some(false) {
-            debug!("DPU midplane or control plane is down. Skip BFD session creation");
-            return Ok(());
-        }
-        let (_internal, incoming, outgoing) = state.get_all();
-        let global_cfg = if remove {
-            None
-        } else {
-            Some(Self::get_dash_ha_global_config(incoming)?)
-        };
-        let Some(DpuData::LocalDpu { ref npu_ipv4, .. }) = self.dpu else {
-            return Ok(());
-        };
-        let remote_dpu_msgs = incoming.get_by_prefix(RemoteDpu::table_name());
-        let mut remote_npus: Vec<String> = remote_dpu_msgs
-            .iter()
-            .filter_map(|entry| {
-                let Ok(kfv) = entry.msg.deserialize_data() as Result<KeyOpFieldValues, _> else {
-                    return None;
-                };
-                let Ok(remote_dpu) = swss_serde::from_field_values(&kfv.field_values) as Result<RemoteDpu, _> else {
-                    return None;
-                };
-
-                Some(remote_dpu.npu_ipv4.clone())
-            })
-            .collect::<HashSet<String>>()
-            .into_iter()
-            .collect();
-        remote_npus.push(npu_ipv4.clone());
-        remote_npus.sort();
-        for npu in remote_npus {
-            self.update_bfd_session(&npu, global_cfg.as_ref(), outgoing, remove)?;
-        }
-        Ok(())
-    }
-
-    fn handle_remote_dpu_message_to_remote_dpu(
-        &mut self,
-        state: &mut State,
-        key: &str,
-        context: &mut Context,
-    ) -> Result<()> {
+    // the actor is spawned for both local dpu and remote dpu, this function is to handle the message for
+    // remote dpu. For remote dpu, we only care about the config message, and we don't care about the
+    // state message since it's not managed by this ha instance.
+    fn handle_remote_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
         let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
         if dpu_kfv.operation == KeyOperation::Del {
@@ -512,36 +373,6 @@ impl DpuActor {
         self.dpu = Some(DpuData::RemoteDpu(rdpu));
         // notify dependent actors about the state of this DPU
         self.update_dpu_state(incoming, outgoing, None)?;
-        Ok(())
-    }
-
-    fn handle_remote_dpu_message_to_local_dpu(&mut self, state: &mut State, key: &str) -> Result<()> {
-        let (_internal, incoming, outgoing) = state.get_all();
-        let dpu_kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
-
-        let remote_dpu: RemoteDpu = swss_serde::from_field_values(&dpu_kfv.field_values)?;
-
-        if self.last_pmon_up == Some(false) {
-            debug!("DPU midplane or control plane is down. Skip BFD session creation for remote DPU");
-            return Ok(());
-        }
-
-        // create bfd session
-        let global_cfg = Self::get_dash_ha_global_config(incoming)?;
-        self.update_bfd_session(&remote_dpu.npu_ipv4, Some(&global_cfg), outgoing, false)?;
-        Ok(())
-    }
-
-    async fn handle_remote_dpu_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        if self.dpu.is_none() || matches!(self.dpu.as_ref().unwrap(), DpuData::RemoteDpu(_)) {
-            self.handle_remote_dpu_message_to_remote_dpu(state, key, context)
-        } else {
-            self.handle_remote_dpu_message_to_local_dpu(state, key)
-        }
-    }
-
-    fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
-        self.update_bfd_sessions(state, false)?;
         Ok(())
     }
 
@@ -633,7 +464,7 @@ impl Actor for DpuActor {
         if key == Self::dpu_table_name() {
             return self.handle_dpu_message(state, key, context).await;
         } else if key.starts_with(Self::remote_dpu_table_name()) {
-            return self.handle_remote_dpu_message(state, key, context).await;
+            return self.handle_remote_dpu_message(state, key, context);
         }
 
         if self.dpu.is_none() {
@@ -648,8 +479,6 @@ impl Actor for DpuActor {
         // the rest of the messages are only for locally managed dpu
         if !self.is_local_managed() {
             return Ok(());
-        } else if key == DashHaGlobalConfig::table_name() {
-            return self.handle_dash_ha_global_config(state);
         } else if key == DpuState::table_name() {
             self.handle_pmon_transition(state)?;
             let (_internal, incoming, outgoing) = state.get_all();
@@ -671,10 +500,7 @@ mod test {
         dpu::DpuActor,
         test::{self, *},
     };
-    use crate::db_structs::{
-        BfdSessionTable, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuResetInfo, DpuState, NeighResolveTable,
-        RemoteDpu,
-    };
+    use crate::db_structs::{DashBfdProbeState, Dpu, DpuResetInfo, DpuState, NeighResolveTable, RemoteDpu};
     use crate::ha_actor_messages::DpuActorState;
     use sonic_common::SonicDbTable;
     use std::time::Duration;
@@ -694,11 +520,6 @@ mod test {
         let dpu_bfd_up_state = make_dpu_bfd_state(vec!["10.0.0.0", "10.0.1.0", "10.0.2.0", "10.0.3.0"], vec![]);
         let dpu_bfd_down_state = make_dpu_bfd_state(vec![], vec![]);
         let dpu_actor_state_wo_bfd = make_local_dpu_actor_state(0, 0, true, Some(dpu_pmon_up_state.clone()), None);
-        let remote_dpu1_fvs = to_field_values(&make_remote_dpu_object(1, 0)).unwrap();
-        let remote_dpu2_fvs = to_field_values(&make_remote_dpu_object(2, 0)).unwrap();
-        let remote_dpu3_fvs = to_field_values(&make_remote_dpu_object(3, 0)).unwrap();
-        let dash_global_cfg = make_dash_ha_global_config();
-        let dash_global_cfg_fvs = serde_json::to_value(to_field_values(&dash_global_cfg).unwrap()).unwrap();
 
         let mut dpu_actor_up_state = dpu_actor_state_wo_bfd.clone();
         dpu_actor_up_state.up = true;
@@ -713,16 +534,6 @@ mod test {
         dpu_actor_bfd_down_state.dpu_bfd_state = Some(dpu_bfd_down_state.clone());
 
         let dpu_fvs = serde_json::to_value(to_field_values(&to_local_dpu(&dpu_actor_state_wo_bfd)).unwrap()).unwrap();
-        let bfd = BfdSessionTable {
-            tx_interval: dash_global_cfg.dpu_bfd_probe_interval_in_ms,
-            rx_interval: dash_global_cfg.dpu_bfd_probe_interval_in_ms,
-            multiplier: dash_global_cfg.dpu_bfd_probe_multiplier,
-            multihop: true,
-            local_addr: dpu_actor_state_wo_bfd.pa_ipv4.clone(),
-            session_type: Some("passive".to_string()),
-            shutdown: false,
-        };
-        let bfd_fvs = serde_json::to_value(to_field_values(&bfd).unwrap()).unwrap();
 
         // Expected reset info when pmon goes down (dpu_id=0 for switch0_dpu0)
         let expected_reset_info = DpuResetInfo {
@@ -751,47 +562,19 @@ mod test {
             // Check for NeighResolveTable message
             recv! { key: "switch0_dpu0", data: {"key": format!("{}:{}", "".to_string(), dpu_actor_state_wo_bfd.pa_ipv4.clone()), "operation": "Set", "field_values": {"mac":"00:00:00:00:00:00"}},
                     addr: crate::common_bridge_sp::<NeighResolveTable>(&runtime.get_swbus_edge()) },
-            send! { key: "REMOTE_DPU|switch1_dpu0", data: { "key": "REMOTE_DPU|switch1_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu1_fvs).unwrap() }},
-            send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_state_wo_bfd, addr: runtime.sp("vdpu", "test-vdpu") },
-            send! { key: "REMOTE_DPU|switch2_dpu0", data: { "key": "REMOTE_DPU|switch2_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu2_fvs).unwrap()}},
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            send! { key: "REMOTE_DPU|switch3_dpu0", data: { "key": "REMOTE_DPU|switch3_dpu0", "operation": "Set", "field_values": serde_json::to_value(&remote_dpu3_fvs).unwrap()}},
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             send! { key: DashBfdProbeState::table_name(), data: { "key": "dash_ha", "operation": "Set", "field_values":serde_json::to_value(to_field_values(&dpu_bfd_up_state).unwrap()).unwrap()} },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_up_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate DPU_STATE planes going down then up
             send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_down_state).unwrap()).unwrap()} },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_pmon_down_state, addr: runtime.sp("vdpu", "test-vdpu") },
             // Check that DASH_DPU_RESET_INFO was written with reset_status=true
             chkdb! { type: DpuResetInfo, key: "DPU0", data: expected_reset_info_fvs, exclude: "timestamp" },
             send! { key: DpuState::table_name(), data: { "key": "DPU1", "operation": "Set", "field_values": serde_json::to_value(to_field_values(&dpu_pmon_up_state).unwrap()).unwrap()} },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Set", "field_values": bfd_fvs},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             recv! { key: "DPUStateUpdate|switch0_dpu0", data: dpu_actor_up_state, addr: runtime.sp("vdpu", "test-vdpu") },
 
             // Simulate BFD probe going down
@@ -801,15 +584,6 @@ mod test {
             // simulate delete of Dpu entry
             send! { key: Dpu::table_name(), data: { "key": DpuActor::dpu_table_name(), "operation": "Del", "field_values": dpu_fvs},
                 addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
-
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.0.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.1.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.2.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
-            recv! { key: "switch0_dpu0", data: {"key": "default:default:10.0.3.0",  "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
         ];
         test::run_commands(&runtime, runtime.sp("dpu", "switch0_dpu0"), &commands).await;
         if tokio::time::timeout(Duration::from_secs(1), handle).await.is_err() {

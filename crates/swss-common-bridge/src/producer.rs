@@ -170,6 +170,138 @@ mod test {
         timeout(Duration::from_secs(5), run_dup_test(zcst, zpst)).await.unwrap();
     }
 
+    /// Test that verifies ZmqClient can send messages to ZmqServer, and that
+    /// messages can still be delivered after recreating the ZmqServer.
+    #[tokio::test]
+    async fn zmq_client_server_message_passing_with_server_recreate() {
+        let (zmq_endpoint, _deleter) = random_zmq_endpoint();
+        let redis = Redis::start();
+
+        // Create ZmqClient (will persist across server recreations)
+        let zmqc = ZmqClient::new(&zmq_endpoint).unwrap();
+
+        // First run: create ZmqServer and ZmqConsumerStateTable
+        {
+            let mut zmqs = ZmqServer::new(&zmq_endpoint).unwrap();
+            let mut zcst = ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs, None, None).unwrap();
+
+            // Send messages using ZmqClient
+            let kfvs = random_kfvs();
+            zmqc.send_msg("", "mytable", kfvs.clone()).unwrap();
+
+            // Receive messages
+            let mut kfvs_received = Vec::new();
+            while kfvs_received.len() < kfvs.len() {
+                zcst.read_data_async().await.unwrap();
+                kfvs_received.extend(zcst.pops_async().await.unwrap());
+            }
+
+            // Verify messages
+            let mut kfvs_sorted = kfvs;
+            kfvs_sorted.sort_unstable();
+            kfvs_received.sort_unstable();
+            assert_eq!(kfvs_sorted, kfvs_received);
+
+            // zmqs and zcst are dropped here, simulating server disconnection
+        }
+
+        // Small delay to ensure cleanup
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Second run: recreate ZmqServer and ZmqConsumerStateTable with the same endpoint
+        {
+            let mut zmqs2 = ZmqServer::new(&zmq_endpoint).unwrap();
+            let mut zcst2 =
+                ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs2, None, None).unwrap();
+
+            // Send messages using the same ZmqClient
+            let kfvs2 = random_kfvs();
+            zmqc.send_msg("", "mytable", kfvs2.clone()).unwrap();
+
+            // Receive messages
+            let mut kfvs_received2 = Vec::new();
+            while kfvs_received2.len() < kfvs2.len() {
+                zcst2.read_data_async().await.unwrap();
+                kfvs_received2.extend(zcst2.pops_async().await.unwrap());
+            }
+
+            // Verify messages
+            let mut kfvs2_sorted = kfvs2;
+            kfvs2_sorted.sort_unstable();
+            kfvs_received2.sort_unstable();
+            assert_eq!(kfvs2_sorted, kfvs_received2);
+        }
+    }
+
+    #[tokio::test]
+    async fn zmq_consumer_recreate_test() {
+        let (zmq_endpoint, _deleter) = random_zmq_endpoint();
+
+        // First run: create ZMQ server, client, producer and consumer
+        let mut zmqs = ZmqServer::new(&zmq_endpoint).unwrap();
+        let zmqc = ZmqClient::new(&zmq_endpoint).unwrap();
+
+        let redis = Redis::start();
+        let zpst = ZmqProducerStateTable::new(redis.db_connector(), "mytable", zmqc, false).unwrap();
+        let zcst = ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs, None, None).unwrap();
+
+        // Setup swbus (shared across both runs)
+        let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"), ConnectionType::InNode);
+        swbus_edge.start().await.unwrap();
+        let rt = Arc::new(swbus_edge);
+
+        // Create edge client to send updates to the bridge
+        let swbus = SimpleSwbusEdgeClient::new(rt.clone(), sp("receiver"), true, false);
+
+        // Spawn the bridge (keeps the producer alive across consumer recreations)
+        let _bridge = ProducerBridge::spawn(rt, sp("mytable-bridge"), zpst);
+
+        // First run
+        timeout(Duration::from_secs(5), run_test_with_swbus(&swbus, zcst))
+            .await
+            .unwrap();
+
+        // Drop the consumer and server to simulate disconnection
+        drop(zmqs);
+        // Small delay to ensure cleanup
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Recreate ZMQ server and consumer with the same endpoint
+        let mut zmqs2 = ZmqServer::new(&zmq_endpoint).unwrap();
+        let zcst2 = ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs2, None, None).unwrap();
+
+        // Second run with recreated consumer
+        timeout(Duration::from_secs(5), run_test_with_swbus(&swbus, zcst2))
+            .await
+            .unwrap();
+    }
+
+    async fn run_test_with_swbus<C: ConsumerTable>(swbus: &SimpleSwbusEdgeClient, mut consumer_table: C) {
+        // Send some updates to the bridge
+        let mut kfvs = random_kfvs();
+        for kfv in &kfvs {
+            let msg = OutgoingMessage {
+                destination: sp("mytable-bridge"),
+                body: MessageBody::Request {
+                    payload: encode_kfv(kfv),
+                },
+            };
+            swbus.send(msg).await.unwrap();
+        }
+
+        // Receive the updates directly
+        let mut kfvs_received = Vec::new();
+        while kfvs_received.len() < kfvs.len() {
+            consumer_table.read_data().await;
+            kfvs_received.extend(consumer_table.pops().await);
+        }
+
+        // Assert we got all the same updates
+        kfvs.sort_unstable();
+        kfvs_received.sort_unstable();
+        assert_eq!(kfvs, kfvs_received);
+    }
+
     async fn run_test<C: ConsumerTable, P: ProducerTable>(mut consumer_table: C, producer_table: P) {
         // Setup swbus
         let mut swbus_edge = SwbusEdgeRuntime::new("<none>".to_string(), sp("edge"), ConnectionType::InNode);
