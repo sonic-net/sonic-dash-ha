@@ -93,29 +93,6 @@ impl fmt::Display for HaState {
     }
 }
 
-impl DesiredHaState {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            DesiredHaState::DesiredHaStateUnspecified => "unspecified",
-            DesiredHaState::DesiredHaStateActive => "active",
-            DesiredHaState::DesiredHaStateStandby => "standby",
-            DesiredHaState::DesiredHaStateStandalone => "standalone",
-            DesiredHaState::DesiredHaStateDead => "dead",
-        }
-    }
-
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "unspecified" => Some(Self::DesiredHaStateUnspecified),
-            "active" => Some(Self::DesiredHaStateActive),
-            "standby" => Some(Self::DesiredHaStateStandby),
-            "standalone" => Some(Self::DesiredHaStateStandalone),
-            "dead" => Some(Self::DesiredHaStateDead),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum TargetState {
     Active,
@@ -1302,11 +1279,11 @@ impl HaScopeActor {
             response = "BecomeActive";
         }
         else if my_desired_state == DesiredHaState::DesiredHaStateActive && 
-                request.desired_state.as_ref().and_then(|s| DesiredHaState::from_str(s)) == Some(DesiredHaState::DesiredHaStateStandby) {
+                request.desired_state.as_ref().and_then(|s| DesiredHaState::from_str_name(s)) == Some(DesiredHaState::DesiredHaStateStandby) {
             response = "BecomeStandby";
         }
         else if my_desired_state == DesiredHaState::DesiredHaStateStandby && 
-                request.desired_state.as_ref().and_then(|s| DesiredHaState::from_str(s)) == Some(DesiredHaState::DesiredHaStateActive) {
+                request.desired_state.as_ref().and_then(|s| DesiredHaState::from_str_name(s)) == Some(DesiredHaState::DesiredHaStateActive) {
             response = "BecomeActive";
         }
         else {
