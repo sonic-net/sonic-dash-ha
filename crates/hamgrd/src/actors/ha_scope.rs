@@ -89,46 +89,7 @@ impl Default for HaState {
 
 impl fmt::Display for HaState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-impl HaState {
-    fn as_str(&self) -> &'static str {
-        match self {
-            HaState::HaStateDead => "dead",
-            HaState::HaStateConnecting => "connecting",
-            HaState::HaStateConnected => "connected",
-            HaState::HaStateInitializingToActive => "initializing_to_active",
-            HaState::HaStateInitializingToStandby => "initializing_to_standby",
-            HaState::HaStatePendingActiveRoleActivation => "pending_active_role_activation",
-            HaState::HaStatePendingStandbyRoleActivation => "pending_standby_role_activation",
-            HaState::HaStateActive => "active",
-            HaState::HaStateStandby => "standby",
-            HaState::HaStateStandalone => "standalone",
-            HaState::HaStateSwitchingToStandby => "switching_to_standby",
-            HaState::HaStateSwitchingToActive => "switching_to_active",
-            HaState::HaStateDestroying => "destroying",
-        }
-    }
-
-    fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "dead" => Some(HaState::HaStateDead),
-            "connecting" => Some(HaState::HaStateConnecting),
-            "connected" => Some(HaState::HaStateConnected),
-            "initializing_to_active" => Some(HaState::HaStateInitializingToActive),
-            "initializing_to_standby" => Some(HaState::HaStateInitializingToStandby),
-            "pending_active_role_activation" => Some(HaState::HaStatePendingActiveRoleActivation),
-            "pending_standby_role_activation" => Some(HaState::HaStatePendingStandbyRoleActivation),
-            "active" => Some(HaState::HaStateActive),
-            "standby" => Some(HaState::HaStateStandby),
-            "standalone" => Some(HaState::HaStateStandalone),
-            "switching_to_standby" => Some(HaState::HaStateSwitchingToStandby),
-            "switching_to_active" => Some(HaState::HaStateSwitchingToActive),
-            "destroying" => Some(HaState::HaStateDestroying),
-            _ => None,
-        }
+        write!(f, "{}", self.as_str_name())
     }
 }
 
@@ -785,11 +746,11 @@ impl HaScopeActor {
             return Ok(());
         };
 
-        if npu_state.local_ha_state.as_deref() == Some(new_state.as_str()) {
+        if npu_state.local_ha_state.as_deref() == Some(new_state.as_str_name()) {
             // the HA scope is already in the new state;
             return Ok(());
         }
-        npu_state.local_ha_state = Some(new_state.as_str().to_string());
+        npu_state.local_ha_state = Some(new_state.as_str_name().to_string());
         npu_state.local_ha_state_last_updated_time_in_ms = Some(now_in_millis());
         npu_state.local_ha_state_last_updated_reason = Some(reason.to_string());
 
@@ -1442,7 +1403,7 @@ impl HaScopeActor {
         let internal = state.internal();
         self.get_npu_ha_scope_state(&*internal)
             .and_then(|scope| scope.local_ha_state)
-            .and_then(|s| HaState::from_str(&s))
+            .and_then(|s| HaState::from_str_name(&s))
             .unwrap_or(HaState::HaStateDead)
     }
 
@@ -1450,7 +1411,7 @@ impl HaScopeActor {
         let internal = state.internal();
         self.get_npu_ha_scope_state(&*internal)
             .and_then(|scope| scope.peer_ha_state)
-            .and_then(|s| HaState::from_str(&s))
+            .and_then(|s| HaState::from_str_name(&s))
             .unwrap_or(HaState::HaStateDead)
     }
 
@@ -1537,7 +1498,7 @@ impl HaScopeActor {
                 let local_target_term = self.get_npu_ha_scope_state(internal)
                     .and_then(|s| s.local_target_term);
                 if let Some(peer_actor_id) = self.get_peer_actor_id() {
-                    if let Ok(msg) = HAStateChanged::new_actor_msg(&self.id, current_state.as_str(), pending_state.as_str(), now_in_millis(), local_target_term) {
+                    if let Ok(msg) = HAStateChanged::new_actor_msg(&self.id, current_state.as_str_name(), pending_state.as_str_name(), now_in_millis(), local_target_term) {
                         outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
                     }
                 }
