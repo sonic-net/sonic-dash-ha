@@ -116,31 +116,6 @@ impl DesiredHaState {
     }
 }
 
-impl HaRole {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            HaRole::HaRoleUnspecified => "unspecified",
-            HaRole::HaRoleDead => "dead",
-            HaRole::HaRoleActive => "active",
-            HaRole::HaRoleStandby => "standby",
-            HaRole::HaRoleStandalone => "standalone",
-            HaRole::HaRoleSwitchingToActive => "switching_to_active",
-        }
-    }
-
-    pub fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "unspecified" => Some(Self::HaRoleUnspecified),
-            "dead" => Some(Self::HaRoleDead),
-            "active" => Some(Self::HaRoleActive),
-            "standby" => Some(Self::HaRoleStandby),
-            "standalone" => Some(Self::HaRoleStandalone),
-            "switching_to_active" => Some(Self::HaRoleSwitchingToActive),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 enum TargetState {
     Active,
@@ -1443,18 +1418,18 @@ impl HaScopeActor {
 
                 // Activate Active role on DPU with a new term
                 let _ = self.increment_npu_ha_scope_state_target_term(state);
-                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleActive.as_str().to_string(), false, false);
+                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleActive.as_str_name().to_string(), false, false);
             }
             HaState::HaStateInitializingToStandby => {
                 // Activate Standby role on DPU
-                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleStandby.as_str().to_string(), false, false);
+                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleStandby.as_str_name().to_string(), false, false);
             }
             HaState::HaStateSwitchingToActive => {
                 // TODO: Send SwitchOver to the peer
             }
             HaState::HaStateDestroying => {
                 // Activate Dead role on the DPU
-                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleDead.as_str().to_string(), false, false);
+                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleDead.as_str_name().to_string(), false, false);
             }
             _ => {}
         }
@@ -1474,7 +1449,7 @@ impl HaScopeActor {
                 if current_state != HaState::HaStateDead {
                     self.set_npu_local_ha_state(state, HaState::HaStateDead, "admin disabled")?;
                     // Update DPU APPL_DB to activate Dead role on the DPU
-                    let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleDead.as_str().to_string(), false, false);
+                    let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::HaRoleDead.as_str_name().to_string(), false, false);
                 }
                 return Ok(());
             }
@@ -1522,7 +1497,7 @@ impl HaScopeActor {
             return match current_state {
                 HaState::HaStateDead => None,
                 HaState::HaStateDestroying => {
-                    if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::HaRoleDead.as_str())
+                    if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::HaRoleDead.as_str_name())
                     {
                         // HaEvent::DpuStateChanged should trigger this branch
                         // When the DPU is in dead role, all traffic is drained
@@ -1658,7 +1633,7 @@ impl HaScopeActor {
                 None
             }
             HaState::HaStateDestroying => {
-                if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::HaRoleDead.as_str()) {
+                if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::HaRoleDead.as_str_name()) {
                     // HaEvent::DpuStateChanged should trigger this branch
                     Some((HaState::HaStateDead, "resources drained"))
                 } else {
