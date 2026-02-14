@@ -7,7 +7,7 @@ use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
 use sonic_dash_api_proto::ip_to_string;
-use sonic_dash_api_proto::types::HaOwner;
+use sonic_dash_api_proto::types::{HaOwner,HaState};
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, outgoing::Outgoing},
@@ -511,7 +511,33 @@ impl HaSetActor {
             return Ok(());
         };
 
-        self.ha_owner = HaOwner::try_from(i32_value).unwrap_or(HaOwner::HaOwnerUnspecified);
+        self.ha_owner = HaOwner::try_from(ha_scope.owner).unwrap_or(HaOwner::HaOwnerUnspecified);
+        let ha_scope_state = ha_scope.ha_scope_state.clone();
+
+        let mut vdpus = Vec::new();
+        if ha_scope_state.local_ha_state.as_ref().unwrap() == HaState::HaStateActive.as_str_name() {
+            // primary (Active) DPU
+            vdpus.push(
+                self.get_vdpu(incoming, ha_scope.vdpu_id)
+                        .map(|vdpu| VDpuStateExt { vdpu, is_primary: true })
+            );
+            // secondary (Standby) DPU
+            vdpus.push(
+                self.get_vdpu(incoming, ha_scope.peer_vdpu_id)
+                        .map(|vdpu| VDpuStateExt { vdpu, is_primary: false })
+            );
+        }
+        else if ha_scope_state.local_ha_state.as_ref().unwrap() == HaState::HaStateStandalone.as_str_name() {
+            // primary (Standalone) DPU
+            vdpus.push(
+                self.get_vdpu(incoming, ha_scope.vdpu_id)
+                        .map(|vdpu| VDpuStateExt { vdpu, is_primary: true })
+            );
+        }
+
+        // update VNET ROUTE Table
+        self.update_vnet_route_tunnel_table(&vdpus, &incoming, &mut outgoing).await?;
+
         return Ok(());
     }
 

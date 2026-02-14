@@ -1,6 +1,6 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
 #![allow(unused)]
-use crate::db_structs::{DashBfdProbeState, DashHaSetTable, Dpu, DpuState, RemoteDpu};
+use crate::db_structs::{DashBfdProbeState, DashHaSetTable, Dpu, DpuState, NpuDashHaScopeState, RemoteDpu};
 use anyhow::Result;
 use chrono::{format::ParseError, DateTime, TimeZone, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -165,12 +165,15 @@ impl HaSetActorState {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct HaScopeActorState {
-    pub owner: i32
+    pub owner: i32,
+    pub ha_scope_state: NpuDashHaScopeState,
+    pub vdpu_id: String,
+    pub peer_vdpu_id: String
 }
 
 impl HaScopeActorState {
-    pub fn new_actor_msg(my_id: &str, owner: i32) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { owner })
+    pub fn new_actor_msg(my_id: &str, owner: i32, ha_scope_state: &NpuDashHaScopeState, vdpu_id: &str, peer_vdpu_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), &Self { owner, ha_scope_state: ha_scope_state.clone(), vdpu_id: vdpu_id.to_string(), peer_vdpu_id: peer_vdpu_id.to_string() })
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
