@@ -515,7 +515,7 @@ impl HaSetActor {
         let ha_scope_state = ha_scope.ha_scope_state.clone();
 
         let mut vdpus = Vec::new();
-        if ha_scope_state.local_ha_state.as_ref().unwrap() == HaState::HaStateActive.as_str_name() {
+        if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateActive.as_str_name()) {
             // primary (Active) DPU
             vdpus.push(
                 self.get_vdpu(incoming, ha_scope.vdpu_id)
@@ -527,7 +527,7 @@ impl HaSetActor {
                         .map(|vdpu| VDpuStateExt { vdpu, is_primary: false })
             );
         }
-        else if ha_scope_state.local_ha_state.as_ref().unwrap() == HaState::HaStateStandalone.as_str_name() {
+        else if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateStandalone.as_str_name()) {
             // primary (Standalone) DPU
             vdpus.push(
                 self.get_vdpu(incoming, ha_scope.vdpu_id)

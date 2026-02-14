@@ -693,8 +693,8 @@ impl HaScopeActor {
     }
 
     fn set_npu_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
-        let internal = state.internal();
-        let Some(mut npu_state) = self.get_npu_ha_scope_state(&*internal) else {
+        let (internal, _incoming, outoging) = state.get_all();
+        let Some(mut npu_state) = self.get_npu_ha_scope_state(internal) else {
             return Ok(());
         };
 
@@ -1447,11 +1447,23 @@ impl HaScopeActor {
 
                 // send out HAStateChanged message to the peer
                 let (internal, _incoming, outgoing) = state.get_all();
-                let local_target_term = self.get_npu_ha_scope_state(internal)
-                    .and_then(|s| s.local_target_term);
+                let npu_state = self.get_npu_ha_scope_state(internal);
+                let local_target_term = npu_state.as_ref().and_then(|s| s.local_target_term.as_deref());
                 if let Some(peer_actor_id) = self.get_peer_actor_id() {
-                    if let Ok(msg) = HAStateChanged::new_actor_msg(&self.id, current_state.as_str_name(), pending_state.as_str_name(), now_in_millis(), local_target_term) {
+                    if let Ok(msg) = HAStateChanged::new_actor_msg(&self.id, current_state.as_str_name(), pending_state.as_str_name(), now_in_millis(), local_target_term.unwrap_or("0")) {
                         outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
+                    }
+                }
+
+                // Send a state update message to the ha-set actor
+                let owner = self.dash_ha_scope_config.as_ref()
+                    .map(|c| c.owner)
+                    .unwrap_or(HaOwner::HaOwnerUnspecified as i32);
+                if let Some(ref npu_state) = npu_state {
+                    if let Ok(msg) = HaScopeActorState::new_actor_msg(&self.id, owner, npu_state, &self.vdpu_id, self.peer_vdpu_id.as_deref().unwrap_or("")) {
+                        if let Some(ha_set_id) = self.get_haset_id() {
+                            outgoing.send(outgoing.from_my_sp(HaSetActor::name(), &ha_set_id), msg);
+                        }
                     }
                 }
             }
@@ -1767,8 +1779,7 @@ impl HaScopeActor {
 impl Actor for HaScopeActor {
     #[instrument(name="handle_message", level="info", skip_all, fields(actor=format!("ha-scope/{}", self.id), key=key))]
     async fn handle_message(&mut self, state: &mut State, key: &str, context: &mut Context) -> Result<()> {
-        let mut dash_ha_scope_config: Option<HaScopeConfig> = None;
-        let (_internal, incoming, outgoing) = state.get_all();
+        let (internal, incoming, outgoing) = state.get_all();
         
         if key == Self::table_name() {
             // Retrieve the config update from the incoming message
@@ -1784,11 +1795,10 @@ impl Actor for HaScopeActor {
                 return Ok(());
             }
             let first_time = self.dash_ha_scope_config.is_none();
-            dash_ha_scope_config = Some(decode_from_field_values(&kfv.field_values)?);
 
             if first_time {
                 // directly update the config at the first time
-                self.dash_ha_scope_config = dash_ha_scope_config;
+                self.dash_ha_scope_config = Some(decode_from_field_values(&kfv.field_values)?);
 
                 // Subscribe to the vDPU Actor for state updates.
                 self.register_to_vdpu_actor(outgoing, true)?;
@@ -1796,21 +1806,22 @@ impl Actor for HaScopeActor {
                 self.register_to_haset_actor(outgoing, true)?;
                 // Send a state update message to the ha-set actor
                 let owner = self.dash_ha_scope_config.as_ref()
-                    .map(|c| HaOwner::try_from(c.owner).unwrap_or(HaOwner::HaOwnerUnspecified));
-                if let Ok(msg) = HaScopeActorState::new_actor_msg(&self.id, owner) {
+                    .map(|c| c.owner)
+                    .unwrap_or(HaOwner::HaOwnerUnspecified as i32);
+                let npu_state = self.get_npu_ha_scope_state(internal).unwrap_or_default();
+                if let Ok(msg) = HaScopeActorState::new_actor_msg(&self.id, owner, &npu_state, &self.vdpu_id, self.peer_vdpu_id.as_deref().unwrap_or("")) {
                     if let Some(ha_set_id) = self.get_haset_id() {
                         outgoing.send(outgoing.from_my_sp(HaSetActor::name(), &ha_set_id), msg);
                     }
                 }
-                return Ok(());
             }
         }
 
-        if dash_ha_scope_config.is_none() {
+        if self.dash_ha_scope_config.is_none() {
             return Ok(());
         }
 
-        if dash_ha_scope_config.as_ref().map(|c| c.owner) == Some(HaOwner::Dpu as i32) {
+        if self.dash_ha_scope_config.as_ref().map(|c| c.owner) == Some(HaOwner::Dpu as i32) {
             // this is a dpu driven ha scope.
             if key == Self::table_name() {
                 return self.handle_dash_ha_scope_config_table_message_dpu_driven(state, key, context);
