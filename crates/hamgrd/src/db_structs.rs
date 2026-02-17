@@ -352,6 +352,8 @@ pub struct VnetRouteTunnelTable {
     pub rx_monitor_timer: Option<u32>,
     pub tx_monitor_timer: Option<u32>,
     pub check_directly_connected: Option<bool>,
+    #[serde_as(as = "Option<StringWithSeparator::<CommaSeparator, String>>")]
+    pub pinned_state: Option<Vec<String>>,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2312-ha-scope-configurations>
@@ -420,7 +422,23 @@ pub struct DpuDashHaSetState {
     // The last update time of this state in milliseconds.
     pub last_updated_time: i64,
     // Data plane channel is alive or not.
-    pub dp_channel_is_alive: bool
+    pub dp_channel_is_alive: bool,
+}
+
+/// DPU Reset Information written to STATE_DB.
+/// Key format: DPU{dpu_id} (e.g., DPU0, DPU1, ..., DPU7)
+#[skip_serializing_none]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[sonicdb(table_name = "DPU_RESET_INFO", key_separator = "|", db_name = "STATE_DB")]
+pub struct DpuResetInfo {
+    /// Reset status: true means DPU has reset (midplane or control plane went down)
+    pub reset_status: bool,
+    /// Timestamp in milliseconds when reset was detected
+    pub timestamp: i64,
+    /// DPU id as the key used in DPU table
+    pub dpu_id: String,
+    /// vDPU ID
+    pub vdpu_id: Option<String>,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
