@@ -10,6 +10,7 @@ use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use sonic_dash_api_proto::types::{HaOwner, HaRole, HaState};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::time::Duration;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
