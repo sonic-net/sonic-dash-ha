@@ -168,12 +168,12 @@ impl HaSetActor {
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
 
         let up = if self.dp_channel_is_alive { true } else { false };
-        let vdpu_ids = if self.dash_ha_set_config.is_none() {
-            Vec::new()
-        } else {
-            self.dash_ha_set_config.vdpu_ids
-        };
-        let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, vdpu_ids).unwrap();
+        let vdpu_ids = self
+            .dash_ha_set_config
+            .as_ref()
+            .map(|c| c.vdpu_ids.clone())
+            .unwrap_or_default();
+        let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, &vdpu_ids).unwrap();
         let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
         for actor_sp in peer_actors {
             outgoing.send(actor_sp, msg.clone());
@@ -517,12 +517,12 @@ impl HaSetActor {
             };
 
             let up = if self.dp_channel_is_alive { true } else { false };
-            let vdpu_ids: Vec<String> = if self.dash_ha_set_config.is_none() {
-                Vec::new()
-            } else {
-                self.dash_ha_set_config.vdpu_ids
-            };
-            let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, vdpu_ids).unwrap();
+            let vdpu_ids = self
+                .dash_ha_set_config
+                .as_ref()
+                .map(|c| c.vdpu_ids.clone())
+                .unwrap_or_default();
+            let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, &vdpu_ids).unwrap();
 
             outgoing.send(entry.source.clone(), msg);
         }
@@ -542,27 +542,30 @@ impl HaSetActor {
         if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateActive.as_str_name()) {
             // primary (Active) DPU
             vdpus.push(
-                self.get_vdpu(incoming, ha_scope.vdpu_id)
+                self.get_vdpu(incoming, &ha_scope.vdpu_id)
                     .map(|vdpu| VDpuStateExt { vdpu, is_primary: true }),
             );
             // secondary (Standby) DPU
-            vdpus.push(self.get_vdpu(incoming, ha_scope.peer_vdpu_id).map(|vdpu| VDpuStateExt {
+            vdpus.push(self.get_vdpu(incoming, &ha_scope.peer_vdpu_id).map(|vdpu| VDpuStateExt {
                 vdpu,
                 is_primary: false,
             }));
         } else if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateStandalone.as_str_name()) {
             // primary (Standalone) DPU
             vdpus.push(
-                self.get_vdpu(incoming, ha_scope.vdpu_id)
+                self.get_vdpu(incoming, &ha_scope.vdpu_id)
                     .map(|vdpu| VDpuStateExt { vdpu, is_primary: true }),
             );
         }
 
         // update VNET ROUTE Table
-        self.update_vnet_route_tunnel_table(&vdpus, &incoming, &mut outgoing)
-            .await?;
+        let vdpus: Vec<VDpuStateExt> = vdpus.into_iter().flatten().collect();
+        if !vdpus.is_empty() {
+            self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing)
+                .await?;
+        }
 
-        return Ok(());
+        Ok(())
     }
 
     fn do_cleanup(&mut self, state: &mut State) -> Result<()> {
@@ -607,8 +610,9 @@ impl Actor for HaSetActor {
         } else if ActorRegistration::is_my_msg(key, RegistrationType::HaSetState) {
             return self.handle_haset_state_registration(state, key).await;
         } else if key.starts_with(DpuDashHaSetState::table_name()) {
+            let (_, incoming, _) = state.get_all();
             let Some(ha_set_state) = self.get_dpu_ha_set_state(incoming) else {
-                return Ok();
+                return Ok(());
             };
             self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive;
         } else if HaScopeActorState::is_my_msg(key) {
@@ -634,6 +638,7 @@ mod test {
     use sonic_common::SonicDbTable;
     use sonic_dash_api_proto::ha_set_config::HaSetConfig;
     use sonic_dash_api_proto::ip_to_string;
+    use sonic_dash_api_proto::types::HaOwner;
     use std::collections::HashMap;
     use std::time::Duration;
     use swss_common::CxxString;
@@ -719,6 +724,8 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
+            dp_channel_is_alive: false,
+            ha_owner: HaOwner::HaOwnerUnspecified,
             bridges: Vec::new(),
         };
 
@@ -850,6 +857,8 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
+            dp_channel_is_alive: false,
+            ha_owner: HaOwner::HaOwnerUnspecified,
             bridges: Vec::new(),
         };
 

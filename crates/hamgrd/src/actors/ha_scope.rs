@@ -3,6 +3,7 @@ use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use crate::{HaSetActor, VDpuActor};
 use anyhow::Result;
+use serde::de::DeserializeOwned;
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
@@ -78,18 +79,6 @@ impl HaEvent {
             "DpuStateChanged" => Some(Self::DpuStateChanged),
             _ => None,
         }
-    }
-}
-
-impl Default for HaState {
-    fn default() -> Self {
-        HaState::HaStateDead
-    }
-}
-
-impl fmt::Display for HaState {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.as_str_name())
     }
 }
 
@@ -1007,9 +996,9 @@ impl HaScopeActor {
             let msg = HAStateChanged::new_actor_msg(
                 &self.id,
                 "",
-                npu_ha_scope_state.local_ha_state.unwrap_or_default(),
-                npu_ha_scope_state.local_ha_state_last_updated_time_in_ms,
-                npu_ha_scope_state.local_target_term,
+                npu_ha_scope_state.local_ha_state.as_deref().unwrap_or(""),
+                npu_ha_scope_state.local_ha_state_last_updated_time_in_ms.unwrap_or(0),
+                npu_ha_scope_state.local_target_term.as_deref().unwrap_or("0"),
             )
             .map_err(|e| e.to_string())?;
             outgoing.send(entry.source.clone(), msg);
@@ -1721,8 +1710,10 @@ impl HaScopeActor {
                 });
             } else {
                 // Send a signal to itself to ask to go to standalone
-                let msg = SelfNotification::new_actor_msg(self.id, HaEvent::PeerLost.as_str());
-                outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg);
+                let outgoing = state.outgoing();
+                if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, HaEvent::PeerLost.as_str()) {
+                    outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg);
+                }
             }
         } else {
             // nop-op but resetting retry count, if the peer is connected
