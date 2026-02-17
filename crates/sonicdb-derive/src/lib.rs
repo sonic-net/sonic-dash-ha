@@ -82,6 +82,11 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
                 true
             }
             fn convert_pb_to_json(kfv: &mut swss_common::KeyOpFieldValues) -> Result<(), Box<dyn std::error::Error>> {
+                // Skip pb processing for delete operations
+                if kfv.operation == swss_common::KeyOperation::Del {
+                    return Ok(());
+                }
+
                 let value_bytes = match kfv.field_values.get("pb") {
                     Some(v) => v.as_bytes(),
                     None => return Err("Missing 'pb' field".into()),
