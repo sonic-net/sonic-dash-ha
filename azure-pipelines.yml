@@ -108,3 +108,7 @@ stages:
     - script: |
         make ci-test
       displayName: 'Test'
+
+    - publish: $(System.DefaultWorkingDirectory)/
+      artifact: sonic-dash-ha
+      displayName: 'Archive release binaries'
