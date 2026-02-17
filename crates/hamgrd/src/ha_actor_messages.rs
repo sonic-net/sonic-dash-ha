@@ -138,12 +138,24 @@ impl VDpuActorState {
 pub struct HaSetActorState {
     pub up: bool,
     pub ha_set: DashHaSetTable,
-    pub vdpu_ids: Vec<String>
+    pub vdpu_ids: Vec<String>,
 }
 
 impl HaSetActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable, vdpu_ids: &Vec<String>) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up: true, ha_set: ha_set, vdpu_ids: vdpu_ids.clone() })
+    pub fn new_actor_msg(
+        up: bool,
+        my_id: &str,
+        ha_set: DashHaSetTable,
+        vdpu_ids: &Vec<String>,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                up: true,
+                ha_set,
+                vdpu_ids: vdpu_ids.clone(),
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -168,12 +180,26 @@ pub struct HaScopeActorState {
     pub owner: i32,
     pub ha_scope_state: NpuDashHaScopeState,
     pub vdpu_id: String,
-    pub peer_vdpu_id: String
+    pub peer_vdpu_id: String,
 }
 
 impl HaScopeActorState {
-    pub fn new_actor_msg(my_id: &str, owner: i32, ha_scope_state: &NpuDashHaScopeState, vdpu_id: &str, peer_vdpu_id: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { owner, ha_scope_state: ha_scope_state.clone(), vdpu_id: vdpu_id.to_string(), peer_vdpu_id: peer_vdpu_id.to_string() })
+    pub fn new_actor_msg(
+        my_id: &str,
+        owner: i32,
+        ha_scope_state: &NpuDashHaScopeState,
+        vdpu_id: &str,
+        peer_vdpu_id: &str,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                owner,
+                ha_scope_state: ha_scope_state.clone(),
+                vdpu_id: vdpu_id.to_string(),
+                peer_vdpu_id: peer_vdpu_id.to_string(),
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -203,7 +229,7 @@ pub enum RegistrationType {
     DPUState,
     VDPUState,
     HaSetState,
-    HAStateChanged
+    HAStateChanged,
 }
 
 impl ActorRegistration {
@@ -216,7 +242,7 @@ impl ActorRegistration {
             RegistrationType::DPUState => "DPUStateRegister|",
             RegistrationType::VDPUState => "VDPUStateRegister|",
             RegistrationType::HaSetState => "HaSetStateRegister|",
-            RegistrationType::HAStateChanged => "HAStateChangedRegister|"
+            RegistrationType::HAStateChanged => "HAStateChangedRegister|",
         }
     }
 
@@ -256,13 +282,22 @@ pub struct VoteRequest {
 }
 
 impl VoteRequest {
-    pub fn new_actor_msg(my_id: &str, dst_id: &str, my_term: &str, my_state: &str, my_desired_state: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self {
-            dst_actor_id: dst_id.to_string(),
-            term: my_term.to_string(),
-            state: my_state.to_string(),
-            desired_state: my_desired_state.to_string()
-        })
+    pub fn new_actor_msg(
+        my_id: &str,
+        dst_id: &str,
+        my_term: &str,
+        my_state: &str,
+        my_desired_state: &str,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+                term: my_term.to_string(),
+                state: my_state.to_string(),
+                desired_state: my_desired_state.to_string(),
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -293,10 +328,13 @@ pub struct VoteReply {
 
 impl VoteReply {
     pub fn new_actor_msg(my_id: &str, dst_id: &str, response: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self {
-            dst_actor_id: dst_id.to_string(),
-            response: response.to_string()
-        })
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+                response: response.to_string(),
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -322,15 +360,18 @@ pub struct BulkSyncUpdate {
     pub dst_actor_id: String,
 
     // message meta
-    pub finished: bool
+    pub finished: bool,
 }
 
 impl BulkSyncUpdate {
     pub fn new_actor_msg(my_id: &str, dst_id: &str, finished: bool) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self {
-            dst_actor_id: dst_id.to_string(),
-            finished: finished
-        })
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+                finished,
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -356,17 +397,20 @@ pub struct HAStateChanged {
     pub prev_state: String,
     pub new_state: String,
     pub timestamp: i64,
-    pub term: String
+    pub term: String,
 }
 
 impl HAStateChanged {
     pub fn new_actor_msg(my_id: &str, prev_state: &str, new_state: &str, ts: i64, term: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self {
-            prev_state: prev_state.to_string(),
-            new_state: new_state.to_string(),
-            timestamp: ts,
-            term: term.to_string()
-        })
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                prev_state: prev_state.to_string(),
+                new_state: new_state.to_string(),
+                timestamp: ts,
+                term: term.to_string(),
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -388,14 +432,12 @@ impl HAStateChanged {
 
 pub struct SelfNotification {
     // notifications of ha_events happening in the background
-    pub ha_event: String
+    pub ha_event: String,
 }
 
 impl SelfNotification {
     pub fn new_actor_msg(my_id: &str, ha_event: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self {
-            ha_event: ha_event
-        })
+        ActorMessage::new(Self::msg_key(my_id), &Self { ha_event })
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {

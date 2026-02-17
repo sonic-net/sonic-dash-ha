@@ -318,7 +318,7 @@ pub struct DashHaSetTable {
 pub struct DashFlowSyncSessionTable {
     pub ha_set_id: String,
     pub target_server_ip: String,
-    pub target_server_port: u16
+    pub target_server_port: u16,
 }
 
 /// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2343-flow-sync-session-states
@@ -333,7 +333,7 @@ pub struct DashFlowSyncSessionTable {
 pub struct DashFlowSyncSessionState {
     pub state: String,
     pub creation_time_in_ms: i64,
-    pub last_state_start_time_in_ms: i64
+    pub last_state_start_time_in_ms: i64,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db>
