@@ -33,7 +33,7 @@ impl DbBasedActor for HaSetActor {
             id: key,
             dash_ha_set_config: None,
             dp_channel_is_alive: false,
-            ha_owner: HaOwner::HaOwnerUnspecified,
+            ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
         };
         Ok(actor)
@@ -535,11 +535,11 @@ impl HaSetActor {
             return Ok(());
         };
 
-        self.ha_owner = HaOwner::try_from(ha_scope.owner).unwrap_or(HaOwner::HaOwnerUnspecified);
+        self.ha_owner = HaOwner::try_from(ha_scope.owner).unwrap_or(HaOwner::Unspecified);
         let ha_scope_state = ha_scope.ha_scope_state.clone();
 
         let mut vdpus = Vec::new();
-        if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateActive.as_str_name()) {
+        if ha_scope_state.local_ha_state.as_deref() == Some(HaState::Active.as_str_name()) {
             // primary (Active) DPU
             vdpus.push(
                 self.get_vdpu(incoming, &ha_scope.vdpu_id)
@@ -553,7 +553,7 @@ impl HaSetActor {
                         is_primary: false,
                     }),
             );
-        } else if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateStandalone.as_str_name()) {
+        } else if ha_scope_state.local_ha_state.as_deref() == Some(HaState::Standalone.as_str_name()) {
             // primary (Standalone) DPU
             vdpus.push(
                 self.get_vdpu(incoming, &ha_scope.vdpu_id)
@@ -727,7 +727,7 @@ mod test {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
             dp_channel_is_alive: false,
-            ha_owner: HaOwner::HaOwnerUnspecified,
+            ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
         };
 
@@ -860,7 +860,7 @@ mod test {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
             dp_channel_is_alive: false,
-            ha_owner: HaOwner::HaOwnerUnspecified,
+            ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
         };
 

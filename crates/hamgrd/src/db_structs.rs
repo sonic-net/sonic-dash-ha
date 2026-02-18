@@ -444,7 +444,7 @@ pub struct DpuResetInfo {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Default, Clone, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "STATE_DB")]
 pub struct NpuDashHaScopeState {
     // HA scope creation time in milliseconds.
