@@ -546,10 +546,13 @@ impl HaSetActor {
                     .map(|vdpu| VDpuStateExt { vdpu, is_primary: true }),
             );
             // secondary (Standby) DPU
-            vdpus.push(self.get_vdpu(incoming, &ha_scope.peer_vdpu_id).map(|vdpu| VDpuStateExt {
-                vdpu,
-                is_primary: false,
-            }));
+            vdpus.push(
+                self.get_vdpu(incoming, &ha_scope.peer_vdpu_id)
+                    .map(|vdpu| VDpuStateExt {
+                        vdpu,
+                        is_primary: false,
+                    }),
+            );
         } else if ha_scope_state.local_ha_state.as_deref() == Some(HaState::HaStateStandalone.as_str_name()) {
             // primary (Standalone) DPU
             vdpus.push(
@@ -561,8 +564,7 @@ impl HaSetActor {
         // update VNET ROUTE Table
         let vdpus: Vec<VDpuStateExt> = vdpus.into_iter().flatten().collect();
         if !vdpus.is_empty() {
-            self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing)
-                .await?;
+            self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         }
 
         Ok(())

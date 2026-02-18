@@ -433,15 +433,15 @@ impl HAStateChanged {
 #[derive(Serialize, Deserialize)]
 pub struct SelfNotification {
     // notifications of ha_events happening in the background
-    pub ha_event: String,
+    pub event: String,
 }
 
 impl SelfNotification {
-    pub fn new_actor_msg(my_id: &str, ha_event: &str) -> Result<ActorMessage> {
+    pub fn new_actor_msg(my_id: &str, event: &str) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
             &Self {
-                ha_event: ha_event.to_string(),
+                event: event.to_string(),
             },
         )
     }

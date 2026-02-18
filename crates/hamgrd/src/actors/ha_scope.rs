@@ -1089,11 +1089,15 @@ impl HaScopeActor {
 
                 // register messages from the peer ha scope actor
                 let _ = self.register_to_hascope_actor(outgoing, true);
-                // schedule an async function to check and retry later
-                tokio::spawn(async {
-                    tokio::time::sleep(Duration::from_secs(RETRY_INTERVAL)).await;
-                    self.check_peer_connection_and_retry(state).await;
-                });
+
+                // Send a signal to itself to schedule a check later
+                let outgoing = state.outgoing().clone();
+                if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, "CheckPeerConnection") {
+                    tokio::spawn(async {
+                        tokio::time::sleep(Duration::from_secs(RETRY_INTERVAL)).await;
+                        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg);
+                    });
+                }
             }
         }
 
@@ -1355,7 +1359,7 @@ impl HaScopeActor {
         Ok(HaEvent::VoteCompleted)
     }
 
-    /// Handle self notification messages sent from background threads spawn by actor-self
+    /// Handle async self notification messages
     fn handle_self_notification(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let notification: Option<SelfNotification> = self.decode_hascope_actor_message(incoming, &key.to_string());
@@ -1363,7 +1367,11 @@ impl HaScopeActor {
             return Err("Failed to decode SelfNotification message".to_string());
         };
 
-        if let Some(event) = HaEvent::from_str(&notification.ha_event) {
+        if notification.event == "CheckPeerConnection" {
+            return self.check_peer_connection_and_retry(state);
+        }
+
+        if let Some(event) = HaEvent::from_str(&notification.event) {
             return Ok(event);
         } else {
             return Err("Unknown event".to_string());
@@ -1695,9 +1703,9 @@ impl HaScopeActor {
     }
 
     /// Check if the peer HA scope is connected
-    /// If not, schedule an execution of the same function for later
-    /// Upon exceeding retry count threshold, send a PeerLost notification to the local HA scope actor
-    async fn check_peer_connection_and_retry(&mut self, state: &mut State) {
+    /// If not, send a self notification to schedule an execution of the same function for later
+    /// Upon exceeding retry count threshold, signal a PeerLost event
+    fn check_peer_connection_and_retry(&mut self, state: &mut State) -> Result<HaEvent, String> {
         if !self.peer_connected {
             if self.retry_count < MAX_RETRIES {
                 // retry sending peer with HAStateChanged Registration Message
@@ -1705,21 +1713,24 @@ impl HaScopeActor {
                 // register messages from the peer ha scope actor
                 self.register_to_hascope_actor(state.outgoing(), true);
 
-                tokio::spawn(async {
-                    tokio::time::sleep(Duration::from_secs(RETRY_INTERVAL)).await;
-                    self.check_peer_connection_and_retry(state).await;
-                });
-            } else {
-                // Send a signal to itself to ask to go to standalone
-                let outgoing = state.outgoing();
-                if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, HaEvent::PeerLost.as_str()) {
-                    outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg);
+                // Send a signal to itself to schedule a check later
+                let outgoing = state.outgoing().clone();
+                if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, "CheckPeerConnection") {
+                    tokio::spawn(async {
+                        tokio::time::sleep(Duration::from_secs(RETRY_INTERVAL)).await;
+                        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg);
+                    });
                 }
+            } else {
+                // reset retry count
+                self.retry_count = 0;
+                return Ok(HaEvent::PeerLost);
             }
         } else {
             // nop-op but resetting retry count, if the peer is connected
             self.retry_count = 0;
         }
+        return Ok(HaEvent::None);
     }
 
     /// Send a VoteRequest message to the peer HA scope actor for primary election
