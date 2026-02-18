@@ -761,11 +761,7 @@ impl HaScopeActor {
     /// Updates the actor's internal config and performs any necessary initialization or subscriptions.
     /// Update DPU DASH_HA_SCOPE_TABLE
     /// Update NPU DASH_HA_SCOPE_STATE if approved_pending_operation_ids is not empty
-    fn handle_dash_ha_scope_config_table_message_dpu_driven(
-        &mut self,
-        state: &mut State,
-        key: &str
-    ) -> Result<()> {
+    fn handle_dash_ha_scope_config_table_message_dpu_driven(&mut self, state: &mut State, key: &str) -> Result<()> {
         let (_internal, incoming, _outgoing) = state.get_all();
 
         // Retrieve the config update from the incoming message
@@ -1092,7 +1088,11 @@ impl HaScopeActor {
                 // Send a signal to itself to schedule a check later
                 let outgoing = state.outgoing().clone();
                 if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, "CheckPeerConnection") {
-                    outgoing.send_with_delay(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg, Duration::from_secs(RETRY_INTERVAL.into()));
+                    outgoing.send_with_delay(
+                        outgoing.from_my_sp(HaScopeActor::name(), &self.id),
+                        msg,
+                        Duration::from_secs(RETRY_INTERVAL.into()),
+                    );
                 }
             }
         }
@@ -1662,10 +1662,7 @@ impl HaScopeActor {
             }
             HaState::InitializingToStandby => {
                 if *event == HaEvent::BulkSyncCompleted {
-                    Some((
-                        HaState::PendingStandbyRoleActivation,
-                        "bulk sync completed (standby)",
-                    ))
+                    Some((HaState::PendingStandbyRoleActivation, "bulk sync completed (standby)"))
                 } else if *event == HaEvent::LocalFailure {
                     Some((HaState::Standby, "local failure while init standby"))
                 } else {
@@ -1712,7 +1709,11 @@ impl HaScopeActor {
                 // Send a signal to itself to schedule a check later
                 let outgoing = state.outgoing().clone();
                 if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, "CheckPeerConnection") {
-                    outgoing.send_with_delay(outgoing.from_my_sp(HaScopeActor::name(), &self.id), msg, Duration::from_secs(RETRY_INTERVAL.into()));
+                    outgoing.send_with_delay(
+                        outgoing.from_my_sp(HaScopeActor::name(), &self.id),
+                        msg,
+                        Duration::from_secs(RETRY_INTERVAL.into()),
+                    );
                 }
             } else {
                 // reset retry count
@@ -1748,7 +1749,11 @@ impl HaScopeActor {
         };
 
         // Get term from NPU HA scope state (convert from String to int)
-        let term: String = npu_ha_scope_state.local_target_term.as_ref().map_or("0", |v| v).to_string();
+        let term: String = npu_ha_scope_state
+            .local_target_term
+            .as_ref()
+            .map_or("0", |v| v)
+            .to_string();
 
         // Get current state from NPU HA scope state
         let current_state = npu_ha_scope_state.local_ha_state.as_deref().unwrap_or("dead");
@@ -1808,7 +1813,10 @@ impl HaScopeActor {
         let bulk_sync_session = DashFlowSyncSessionTable {
             ha_set_id: ha_set_id.clone(),
             target_server_ip: haset.ha_set.peer_ip,
-            target_server_port: haset.ha_set.cp_data_channel_port.expect("cp_data_channel_port must be configured"),
+            target_server_port: haset
+                .ha_set
+                .cp_data_channel_port
+                .expect("cp_data_channel_port must be configured"),
         };
 
         let session_id = Uuid::new_v4().to_string();
