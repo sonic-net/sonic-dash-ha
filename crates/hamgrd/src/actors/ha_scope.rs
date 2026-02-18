@@ -1402,7 +1402,7 @@ impl HaScopeActor {
                 // Send VoteRequest to the peer to start primary election
                 self.send_vote_request_to_peer(state)?;
             }
-            HaState::PendingActiveRoleActivation | HaState::PendingStandbyRoleActivation => {
+            HaState::PendingActiveActivation | HaState::PendingStandbyActivation => {
                 let mut operations: Vec<(String, String)> = Vec::new();
                 operations.push((Uuid::new_v4().to_string(), "activate_role".to_string()));
                 self.update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
@@ -1414,7 +1414,7 @@ impl HaScopeActor {
                 if *current_state == HaState::Standalone {
                     // If staring from Standalone, do bulk sync
                     let _ = self.add_bulk_sync_session(state);
-                } else if *current_state == HaState::PendingActiveRoleActivation {
+                } else if *current_state == HaState::PendingActiveActivation {
                     // When starting from PendingActiveRoleActivation, no need to do bulk sync.
                     // Send BulkSyncCompleted signal to the peer immediately
                     self.send_bulk_sync_completed_to_peer(state)?;
@@ -1424,7 +1424,7 @@ impl HaScopeActor {
                 let _ = self.increment_npu_ha_scope_state_target_term(state);
                 let _ = self.update_dpu_ha_scope_table_with_params(
                     state,
-                    &HaRole::HaRoleActive.as_str_name().to_string(),
+                    &HaRole::Active.as_str_name().to_string(),
                     false,
                     false,
                 );
@@ -1433,7 +1433,7 @@ impl HaScopeActor {
                 // Activate Standby role on DPU
                 let _ = self.update_dpu_ha_scope_table_with_params(
                     state,
-                    &HaRole::HaRoleStandby.as_str_name().to_string(),
+                    &HaRole::Standby.as_str_name().to_string(),
                     false,
                     false,
                 );
@@ -1445,7 +1445,7 @@ impl HaScopeActor {
                 // Activate Dead role on the DPU
                 let _ = self.update_dpu_ha_scope_table_with_params(
                     state,
-                    &HaRole::HaRoleDead.as_str_name().to_string(),
+                    &HaRole::Dead.as_str_name().to_string(),
                     false,
                     false,
                 );
@@ -1470,7 +1470,7 @@ impl HaScopeActor {
                     // Update DPU APPL_DB to activate Dead role on the DPU
                     let _ = self.update_dpu_ha_scope_table_with_params(
                         state,
-                        &HaRole::HaRoleDead.as_str_name().to_string(),
+                        &HaRole::Dead.as_str_name().to_string(),
                         false,
                         false,
                     );
@@ -1547,8 +1547,7 @@ impl HaScopeActor {
             return match current_state {
                 HaState::Dead => None,
                 HaState::Destroying => {
-                    if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str())
-                        == Some(HaRole::HaRoleDead.as_str_name())
+                    if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::Dead.as_str_name())
                     {
                         // HaEvent::DpuStateChanged should trigger this branch
                         // When the DPU is in dead role, all traffic is drained
@@ -1601,7 +1600,7 @@ impl HaScopeActor {
                 if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_ha_state(state) == HaState::InitializingToStandby
                 {
-                    Some((HaState::PendingActiveRoleActivation, "peer is ready"))
+                    Some((HaState::PendingActiveActivation, "peer is ready"))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::Standalone, "remote peer failure during initialization"))
                 } else if *event == HaEvent::LocalFailure {
@@ -1610,7 +1609,7 @@ impl HaScopeActor {
                     None
                 }
             }
-            HaState::PendingActiveRoleActivation => {
+            HaState::PendingActiveActivation => {
                 // On receiving approval from SDN controller, go to Active
                 if *event == HaEvent::PendingRoleActivationApproved {
                     Some((HaState::Active, "received approval from SDN controller"))
@@ -1662,14 +1661,14 @@ impl HaScopeActor {
             }
             HaState::InitializingToStandby => {
                 if *event == HaEvent::BulkSyncCompleted {
-                    Some((HaState::PendingStandbyRoleActivation, "bulk sync completed (standby)"))
+                    Some((HaState::PendingStandbyActivation, "bulk sync completed (standby)"))
                 } else if *event == HaEvent::LocalFailure {
                     Some((HaState::Standby, "local failure while init standby"))
                 } else {
                     None
                 }
             }
-            HaState::PendingStandbyRoleActivation => {
+            HaState::PendingStandbyActivation => {
                 // On receiving approval from SDN controller, go to Active
                 if *event == HaEvent::PendingRoleActivationApproved {
                     Some((HaState::Standby, "received approval from SDN controller"))
@@ -1683,9 +1682,7 @@ impl HaScopeActor {
                 None
             }
             HaState::Destroying => {
-                if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str())
-                    == Some(HaRole::HaRoleDead.as_str_name())
-                {
+                if self.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::Dead.as_str_name()) {
                     // HaEvent::DpuStateChanged should trigger this branch
                     Some((HaState::Dead, "resources drained"))
                 } else {
@@ -1798,11 +1795,7 @@ impl HaScopeActor {
 
     /// Add a new entry in DASH_FLOW_SYNC_SESSION_TABLE to start a bulk sync session
     fn add_bulk_sync_session(&mut self, state: &mut State) -> Result<Option<String>> {
-        let Some(dash_ha_scope_config) = self.dash_ha_scope_config.as_ref() else {
-            return Ok(None);
-        };
-
-        let (internal, incoming, outgoing) = state.get_all();
+        let (_internal, incoming, outgoing) = state.get_all();
 
         let ha_set_id = self.get_haset_id().unwrap();
         let Some(haset) = self.get_haset(incoming) else {
@@ -1822,12 +1815,12 @@ impl HaScopeActor {
         let session_id = Uuid::new_v4().to_string();
         let fv = swss_serde::to_field_values(&bulk_sync_session)?;
         let kfv = KeyOpFieldValues {
-            key: session_id,
+            key: session_id.clone(),
             operation: KeyOperation::Set,
             field_values: fv,
         };
 
-        let msg = ActorMessage::new(session_id, &kfv)?;
+        let msg = ActorMessage::new(session_id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<DashFlowSyncSessionTable>(), msg);
 
         // update NPU HA scope state table
