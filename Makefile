@@ -63,16 +63,20 @@ ci-format:
 
 ci-build:
 	RUSTFLAGS="--deny warnings" cargo build           --workspace --all-features
+	cargo clean
 	RUSTFLAGS="--deny warnings" cargo build --release --workspace --all-features
 
 ci-doc:
 	RUSTDOCFLAGS="--deny warnings" cargo doc           --workspace --all-features
+	cargo clean
 	RUSTDOCFLAGS="--deny warnings" cargo doc --release --workspace --all-features
 
 ci-lint:
 	cargo clippy           --workspace --all-features --no-deps -- --deny "clippy::all"
+	cargo clean
 	cargo clippy --release --workspace --all-features --no-deps -- --deny "clippy::all"
 
 ci-test:
 	cargo test           --workspace --all-features
+	cargo clean
 	cargo test --release --workspace --all-features
