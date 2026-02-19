@@ -1057,8 +1057,7 @@ impl HaScopeActor {
     /// Register messages from a peer HA scope actor
     fn handle_haset_state_update_npu_driven_mode(&mut self, state: &mut State) -> Result<HaEvent, String> {
         // the ha_scope is not managing the target vDPU. Skip
-        let (_internal, incoming, outgoing) = state.get_all();
-        if !self.vdpu_is_managed(incoming) {
+        if !self.vdpu_is_managed(state.incoming()) {
             return Ok(HaEvent::None);
         }
 
@@ -1067,7 +1066,7 @@ impl HaScopeActor {
 
         let first_time = self.peer_vdpu_id.is_none();
 
-        let Some(ha_set) = self.get_haset(incoming) else {
+        let Some(ha_set) = self.get_haset(state.incoming()) else {
             return Ok(HaEvent::None);
         };
         let peer_vdpu_id = self.get_remote_vdpu_id(&ha_set);
@@ -1082,7 +1081,7 @@ impl HaScopeActor {
                 self.peer_vdpu_id = peer_vdpu_id;
 
                 // register messages from the peer ha scope actor
-                let _ = self.register_to_hascope_actor(outgoing, true);
+                let _ = self.register_to_hascope_actor(state.outgoing(), true);
 
                 // Send a signal to itself to schedule a check later
                 let outgoing = state.outgoing();
@@ -1226,9 +1225,9 @@ impl HaScopeActor {
             return Err("Failed to decode HAStateChanged message".to_string());
         };
 
-        npu_ha_scope_state.peer_ha_state = change.peer_ha_state;
-        npu_ha_scope_state.peer_ha_state_last_updated_time_in_ms = change.timestamp;
-        npu_ha_scope_state.peer_term = change.term;
+        npu_ha_scope_state.peer_ha_state = Some(change.new_state);
+        npu_ha_scope_state.peer_ha_state_last_updated_time_in_ms = Some(change.timestamp);
+        npu_ha_scope_state.peer_term = Some(change.term);
         if self.target_ha_scope_state == Some(TargetState::Standby) {
             // Standby HA scope should follow the change of the peer term
             npu_ha_scope_state.local_target_term = npu_ha_scope_state.peer_term.clone();
@@ -1269,7 +1268,7 @@ impl HaScopeActor {
             .and_then(|s| s.local_target_term)
             .and_then(|s| s.parse::<i32>().ok())
             .unwrap_or(0);
-        let peer_term = request.term.and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        let peer_term = request.term.parse::<i32>().ok().unwrap_or(0);
 
         if my_desired_state == DesiredHaState::Standalone {
             response = "RetryLater";
@@ -1291,19 +1290,11 @@ impl HaScopeActor {
         } else if my_term < peer_term {
             response = "BecomeActive";
         } else if my_desired_state == DesiredHaState::Active
-            && request
-                .desired_state
-                .as_ref()
-                .and_then(|s| DesiredHaState::from_str_name(s))
-                == Some(DesiredHaState::Standby)
+            && DesiredHaState::from_str_name(&request.desired_state) == Some(DesiredHaState::Unspecified)
         {
             response = "BecomeStandby";
-        } else if my_desired_state == DesiredHaState::Standby
-            && request
-                .desired_state
-                .as_ref()
-                .and_then(|s| DesiredHaState::from_str_name(s))
-                == Some(DesiredHaState::Active)
+        } else if my_desired_state == DesiredHaState::Unspecified
+            && DesiredHaState::from_str_name(&request.desired_state) == Some(DesiredHaState::Active)
         {
             response = "BecomeActive";
         } else {
@@ -1687,6 +1678,7 @@ impl HaScopeActor {
                     None
                 }
             }
+            _ => None,
         }
     }
 
