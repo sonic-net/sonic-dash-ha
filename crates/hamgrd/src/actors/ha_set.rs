@@ -430,7 +430,7 @@ impl HaSetActor {
             }
         }
     }
-  
+
     fn update_bfd_session(
         &self,
         peer_ip: &str,
