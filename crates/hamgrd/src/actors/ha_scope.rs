@@ -287,7 +287,7 @@ impl HaScopeActor {
         }
         return Some(format!(
             "{}{}{}",
-            self.peer_vdpu_id.as_ref().unwrap_or_default(),
+            self.peer_vdpu_id.as_deref().unwrap_or_default(),
             HaScopeConfig::key_separator(),
             &self.ha_scope_id
         ));
@@ -696,7 +696,7 @@ impl HaScopeActor {
     }
 
     fn set_npu_local_ha_state(&mut self, state: &mut State, new_state: HaState, reason: &str) -> Result<()> {
-        let (internal, _incoming, outoging) = state.get_all();
+        let (internal, _incoming, _outoging) = state.get_all();
         let Some(mut npu_state) = self.get_npu_ha_scope_state(internal) else {
             return Ok(());
         };
@@ -745,10 +745,10 @@ impl HaScopeActor {
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
         info!(
             "Update NPU HA Scope State Table with a new flow sync session: {} {} {} {}",
-            flow_sync_session_id.unwrap_or_default(),
-            flow_sync_session_state.unwrap_or_default(),
+            flow_sync_session_id.as_deref().unwrap_or_default(),
+            flow_sync_session_state.as_deref().unwrap_or_default(),
             flow_sync_session_start_time_in_ms.unwrap_or_default(),
-            flow_sync_session_target_server.unwrap_or_default()
+            flow_sync_session_target_server.as_deref().unwrap_or_default()
         );
         Ok(())
     }
@@ -918,7 +918,7 @@ impl HaScopeActor {
             .map_err(|e| e.to_string())?;
         let dash_ha_scope_config: HaScopeConfig =
             decode_from_field_values(&kfv.field_values).map_err(|e| e.to_string())?;
-        let old_ha_scope_config = self.dash_ha_scope_config;
+        let old_ha_scope_config = self.dash_ha_scope_config.unwrap_or_default();
 
         // Update internal config
         self.dash_ha_scope_config = Some(dash_ha_scope_config);
@@ -929,12 +929,12 @@ impl HaScopeActor {
         }
 
         // admin state change
-        if old_ha_scope_config.unwrap().disabled != self.dash_ha_scope_config.unwrap().disabled {
+        if old_ha_scope_config.disabled != self.dash_ha_scope_config.as_ref().unwrap().disabled {
             return Ok(HaEvent::AdminStateChanged);
         }
 
         // desired state change
-        if old_ha_scope_config.unwrap().desired_ha_state != self.dash_ha_scope_config.unwrap().desired_ha_state {
+        if old_ha_scope_config.desired_ha_state != self.dash_ha_scope_config.as_ref().unwrap().desired_ha_state {
             return Ok(HaEvent::DesiredStateChanged);
         }
 
@@ -1029,7 +1029,8 @@ impl HaScopeActor {
                     Some(&self.id),
                     true,
                 )
-                .await,
+                .await
+                .map_err(|e| e.to_string())?,
             );
             // subscribe to dpu DASH_FLOW_SYNC_SESSION_STATE
             self.bridges.push(
@@ -1039,7 +1040,8 @@ impl HaScopeActor {
                     Some(&self.id),
                     true,
                 )
-                .await,
+                .await
+                .map_err(|e| e.to_string())?,
             );
         }
 
