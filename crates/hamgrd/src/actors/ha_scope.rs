@@ -9,7 +9,6 @@ use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use sonic_dash_api_proto::types::{HaOwner, HaRole, HaState};
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::time::Duration;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
@@ -1086,7 +1085,7 @@ impl HaScopeActor {
                 let _ = self.register_to_hascope_actor(outgoing, true);
 
                 // Send a signal to itself to schedule a check later
-                let outgoing = state.outgoing().clone();
+                let outgoing = state.outgoing();
                 if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, "CheckPeerConnection") {
                     outgoing.send_with_delay(
                         outgoing.from_my_sp(HaScopeActor::name(), &self.id),
@@ -1263,8 +1262,8 @@ impl HaScopeActor {
         let my_desired_state = self
             .dash_ha_scope_config
             .as_ref()
-            .map(|c| DesiredHaState::try_from(c.desired_ha_state).unwrap_or(DesiredHaState::DesiredHaStateUnspecified))
-            .unwrap_or(DesiredHaState::DesiredHaStateUnspecified);
+            .map(|c| DesiredHaState::try_from(c.desired_ha_state).unwrap_or(DesiredHaState::Unspecified))
+            .unwrap_or(DesiredHaState::Unspecified);
         let my_term = self
             .get_npu_ha_scope_state(internal)
             .and_then(|s| s.local_target_term)
@@ -1272,11 +1271,11 @@ impl HaScopeActor {
             .unwrap_or(0);
         let peer_term = request.term.and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
 
-        if my_desired_state == DesiredHaState::DesiredHaStateStandalone {
+        if my_desired_state == DesiredHaState::Standalone {
             response = "RetryLater";
         } else if my_state == HaState::Active {
             response = "BecomeStandby";
-        } else if (my_desired_state == DesiredHaState::DesiredHaStateDead && my_state == HaState::Dead)
+        } else if (my_desired_state == DesiredHaState::Dead && my_state == HaState::Dead)
             || my_state == HaState::Destroying
         {
             response = "BecomeStandalone";
@@ -1291,20 +1290,20 @@ impl HaScopeActor {
             response = "BecomeStandby";
         } else if my_term < peer_term {
             response = "BecomeActive";
-        } else if my_desired_state == DesiredHaState::DesiredHaStateActive
+        } else if my_desired_state == DesiredHaState::Active
             && request
                 .desired_state
                 .as_ref()
                 .and_then(|s| DesiredHaState::from_str_name(s))
-                == Some(DesiredHaState::DesiredHaStateStandby)
+                == Some(DesiredHaState::Standby)
         {
             response = "BecomeStandby";
-        } else if my_desired_state == DesiredHaState::DesiredHaStateStandby
+        } else if my_desired_state == DesiredHaState::Standby
             && request
                 .desired_state
                 .as_ref()
                 .and_then(|s| DesiredHaState::from_str_name(s))
-                == Some(DesiredHaState::DesiredHaStateActive)
+                == Some(DesiredHaState::Active)
         {
             response = "BecomeActive";
         } else {
@@ -1482,8 +1481,7 @@ impl HaScopeActor {
             }
         }
 
-        let _desired_state =
-            DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::DesiredHaStateUnspecified);
+        let _desired_state = DesiredHaState::try_from(config.desired_ha_state).unwrap_or(DesiredHaState::Unspecified);
         let target_state = self.target_ha_scope_state.unwrap_or(TargetState::Dead);
 
         match self.next_state(state, &target_state, &current_state, &event_to_use) {
@@ -1704,7 +1702,7 @@ impl HaScopeActor {
                 self.register_to_hascope_actor(state.outgoing(), true);
 
                 // Send a signal to itself to schedule a check later
-                let outgoing = state.outgoing().clone();
+                let outgoing = state.outgoing();
                 if let Ok(msg) = SelfNotification::new_actor_msg(&self.id, "CheckPeerConnection") {
                     outgoing.send_with_delay(
                         outgoing.from_my_sp(HaScopeActor::name(), &self.id),
@@ -1805,7 +1803,7 @@ impl HaScopeActor {
 
         let bulk_sync_session = DashFlowSyncSessionTable {
             ha_set_id: ha_set_id.clone(),
-            target_server_ip: haset.ha_set.peer_ip,
+            target_server_ip: haset.ha_set.peer_ip.clone(),
             target_server_port: haset
                 .ha_set
                 .cp_data_channel_port
@@ -1826,7 +1824,7 @@ impl HaScopeActor {
         // update NPU HA scope state table
         self.set_npu_flow_sync_session(
             state,
-            &Some(session_id),
+            &Some(session_id.clone()),
             &None,
             &Some(now_in_millis()),
             &Some(haset.ha_set.peer_ip),
@@ -2004,7 +2002,7 @@ impl Actor for HaScopeActor {
             }
 
             // drive the state machine based on the information gained from message processing
-            self.drive_npu_state_machine(state, &event);
+            self.drive_npu_state_machine(state, &event.unwrap_or(HaEvent::None));
         }
 
         Ok(())

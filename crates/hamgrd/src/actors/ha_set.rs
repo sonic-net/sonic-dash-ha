@@ -1,4 +1,4 @@
-use crate::actors::vdpu::{self, VDpuActor};
+use crate::actors::vdpu::VDpuActor;
 use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::{
