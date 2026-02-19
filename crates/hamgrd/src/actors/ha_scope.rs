@@ -1,4 +1,4 @@
-use crate::actors::{ha_set, spawn_consumer_bridge_for_actor, DbBasedActor};
+use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use crate::{HaSetActor, VDpuActor};
@@ -8,7 +8,7 @@ use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use sonic_dash_api_proto::types::{HaOwner, HaRole, HaState};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
@@ -287,7 +287,7 @@ impl HaScopeActor {
         }
         return Some(format!(
             "{}{}{}",
-            self.peer_vdpu_id.as_ref(),
+            self.peer_vdpu_id.as_ref().unwrap_or_default(),
             HaScopeConfig::key_separator(),
             &self.ha_scope_id
         ));
@@ -436,7 +436,7 @@ impl HaScopeActor {
                 )
                 .to_lowercase()
             }, /*todo, how switching_to_active is derived. Is it relevant to dpu driven mode */
-            ha_term: 0, // TODO: not clear what need to be done for DPU-driven mode
+            ha_term: "0".to_string(), // TODO: not clear what need to be done for DPU-driven mode
             flow_reconcile_requested,
             activate_role_requested,
         };
@@ -711,7 +711,7 @@ impl HaScopeActor {
 
         let fvs = swss_serde::to_field_values(&npu_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
-        info!(scope=%self.id, state=%new_state, "HA scope transitioned: {}", reason);
+        info!(scope=%self.id, state=%new_state.as_str_name(), "HA scope transitioned: {}", reason);
         Ok(())
     }
 
@@ -745,10 +745,10 @@ impl HaScopeActor {
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
         info!(
             "Update NPU HA Scope State Table with a new flow sync session: {} {} {} {}",
-            flow_sync_session_id,
-            flow_sync_session_state,
-            flow_sync_session_start_time_in_ms,
-            flow_sync_session_target_server
+            flow_sync_session_id.unwrap_or_default(),
+            flow_sync_session_state.unwrap_or_default(),
+            flow_sync_session_start_time_in_ms.unwrap_or_default(),
+            flow_sync_session_target_server.unwrap_or_default()
         );
         Ok(())
     }
@@ -929,12 +929,12 @@ impl HaScopeActor {
         }
 
         // admin state change
-        if old_ha_scope_config.disabled != self.dash_ha_scope_config.disabled {
+        if old_ha_scope_config.unwrap().disabled != self.dash_ha_scope_config.unwrap().disabled {
             return Ok(HaEvent::AdminStateChanged);
         }
 
         // desired state change
-        if old_ha_scope_config.desired_ha_state != self.dash_ha_scope_config.desired_ha_state {
+        if old_ha_scope_config.unwrap().desired_ha_state != self.dash_ha_scope_config.unwrap().desired_ha_state {
             return Ok(HaEvent::DesiredStateChanged);
         }
 
@@ -1029,7 +1029,7 @@ impl HaScopeActor {
                     Some(&self.id),
                     true,
                 )
-                .await?,
+                .await,
             );
             // subscribe to dpu DASH_FLOW_SYNC_SESSION_STATE
             self.bridges.push(
@@ -1039,7 +1039,7 @@ impl HaScopeActor {
                     Some(&self.id),
                     true,
                 )
-                .await?,
+                .await,
             );
         }
 
@@ -1249,7 +1249,7 @@ impl HaScopeActor {
     /// Handle vote request messages for this HA scope
     /// Folloing procedure documented in https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election
     fn handle_vote_request(&mut self, state: &mut State, key: &str) {
-        let mut response = "";
+        let mut response: &str;
         let source_actor_id = key.strip_prefix(VoteRequest::msg_key_prefix()).unwrap_or(key);
         let (internal, incoming, outgoing) = state.get_all();
         let request: Option<VoteRequest> = self.decode_hascope_actor_message(incoming, &key.to_string());
@@ -1364,7 +1364,7 @@ impl HaScopeActor {
         }
     }
 
-    fn current_npu_ha_state(&self, state: &mut State) -> HaState {
+    fn current_npu_ha_state(&self, state: &State) -> HaState {
         let internal = state.internal();
         self.get_npu_ha_scope_state(&*internal)
             .and_then(|scope| scope.local_ha_state)
@@ -1372,7 +1372,7 @@ impl HaScopeActor {
             .unwrap_or(HaState::Dead)
     }
 
-    fn current_npu_peer_ha_state(&self, state: &mut State) -> HaState {
+    fn current_npu_peer_ha_state(&self, state: &State) -> HaState {
         let internal = state.internal();
         self.get_npu_ha_scope_state(&*internal)
             .and_then(|scope| scope.peer_ha_state)
