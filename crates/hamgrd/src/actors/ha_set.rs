@@ -10,7 +10,7 @@ use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_set_config::HaSetConfig;
 use sonic_dash_api_proto::ip_to_string;
 use sonic_dash_api_proto::types::{HaOwner, HaState};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use swbus_actor::{
     state::{incoming::Incoming, outgoing::Outgoing},
     Actor, ActorMessage, Context, State,
@@ -25,6 +25,7 @@ pub struct HaSetActor {
     dp_channel_is_alive: bool,
     ha_owner: HaOwner,
     bridges: Vec<ConsumerBridge>,
+    bfd_session_npu_ips: HashSet<String>,
 }
 
 impl DbBasedActor for HaSetActor {
@@ -35,6 +36,7 @@ impl DbBasedActor for HaSetActor {
             dp_channel_is_alive: false,
             ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
         };
         Ok(actor)
     }
@@ -201,13 +203,18 @@ impl HaSetActor {
 
     async fn update_vnet_route_tunnel_table(
         &self,
-        vdpus: &Vec<VDpuStateExt>,
+        vdpus: &[VDpuStateExt],
         incoming: &Incoming,
         outgoing: &mut Outgoing,
     ) -> Result<()> {
         let Some(global_cfg) = Self::get_dash_global_config(incoming) else {
             return Ok(());
         };
+
+        if !vdpus.iter().any(|vdpu_ext| vdpu_ext.vdpu.dpu.is_managed) {
+            debug!("None of DPUs is managed by local HAMGRD. Skip vnet_route_tunnel update");
+            return Ok(());
+        }
 
         let swss_key = format!(
             "{}:{}",
@@ -286,10 +293,21 @@ impl HaSetActor {
         Ok(())
     }
 
-    fn delete_vnet_route_tunnel_table(&self, incoming: &Incoming, outgoing: &mut Outgoing) -> Result<()> {
+    fn delete_vnet_route_tunnel_table(
+        &self,
+        vdpus: &[VDpuStateExt],
+        incoming: &Incoming,
+        outgoing: &mut Outgoing,
+    ) -> Result<()> {
+        if !vdpus.iter().any(|vdpu_ext| vdpu_ext.vdpu.dpu.is_managed) {
+            debug!("None of DPUs is managed by local HAMGRD. Skip vnet_route_tunnel deletion");
+            return Ok(());
+        }
+
         let Some(global_cfg) = Self::get_dash_global_config(incoming) else {
             return Ok(());
         };
+
         let swss_key = format!(
             "{}:{}",
             global_cfg
@@ -412,6 +430,101 @@ impl HaSetActor {
             }
         }
     }
+  
+    fn update_bfd_session(
+        &self,
+        peer_ip: &str,
+        local_addr: &str,
+        global_cfg: Option<&DashHaGlobalConfig>,
+        outgoing: &mut Outgoing,
+        remove: bool,
+    ) -> Result<()> {
+        let sep = BfdSessionTable::key_separator();
+        let key = format!("default{sep}default{sep}{peer_ip}");
+
+        let kfv = if remove {
+            KeyOpFieldValues {
+                key,
+                operation: KeyOperation::Del,
+                field_values: HashMap::new(),
+            }
+        } else {
+            let global_cfg = global_cfg.ok_or_else(|| anyhow!("DASH_HA_GLOBAL_CONFIG is missing"))?;
+            let bfd_session = BfdSessionTable {
+                tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+                rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+                multiplier: global_cfg.dpu_bfd_probe_multiplier,
+                multihop: true,
+                local_addr: local_addr.to_string(),
+                session_type: Some("passive".to_string()),
+                shutdown: false,
+            };
+
+            let fv = swss_serde::to_field_values(&bfd_session)?;
+            KeyOpFieldValues {
+                key,
+                operation: KeyOperation::Set,
+                field_values: fv,
+            }
+        };
+
+        let msg = ActorMessage::new(self.id.clone(), &kfv)?;
+        outgoing.send(outgoing.common_bridge_sp::<BfdSessionTable>(), msg);
+        Ok(())
+    }
+
+    fn update_bfd_sessions(&mut self, incoming: &Incoming, outgoing: &mut Outgoing, remove: bool) -> Result<()> {
+        let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
+            return Ok(());
+        };
+
+        // If none of the vdpus is managed, skip BFD session creation
+        if !vdpus.iter().any(|v| v.vdpu.dpu.is_managed) {
+            debug!("None of DPUs is managed by local HAMGRD. Skip BFD session update");
+            return Ok(());
+        }
+
+        if remove {
+            // Delete all tracked BFD sessions
+            let mut old_ips: Vec<String> = self.bfd_session_npu_ips.drain().collect();
+            old_ips.sort();
+            for npu_ip in old_ips {
+                self.update_bfd_session(&npu_ip, "", None, outgoing, true)?;
+            }
+            return Ok(());
+        }
+
+        let Some(global_cfg) = Self::get_dash_global_config(incoming) else {
+            return Ok(());
+        };
+
+        // Find the managed (local) VDPU to get local_addr (pa_ipv4)
+        let local_addr = vdpus
+            .iter()
+            .find(|v| v.vdpu.dpu.is_managed)
+            .map(|v| v.vdpu.dpu.pa_ipv4.clone())
+            .unwrap();
+
+        // Collect all unique npu_ipv4 addresses from all VDPUs
+        let new_npu_ips: HashSet<String> = vdpus.iter().map(|v| v.vdpu.dpu.npu_ipv4.clone()).collect();
+
+        // Delete BFD sessions for IPs no longer in the set
+        let mut stale_ips: Vec<String> = self.bfd_session_npu_ips.difference(&new_npu_ips).cloned().collect();
+        stale_ips.sort();
+        for npu_ip in &stale_ips {
+            self.update_bfd_session(npu_ip, "", None, outgoing, true)?;
+        }
+
+        // Create/update BFD sessions for current IPs
+        let mut sorted_ips: Vec<&String> = new_npu_ips.iter().collect();
+        sorted_ips.sort();
+        for npu_ip in sorted_ips {
+            self.update_bfd_session(npu_ip, &local_addr, Some(&global_cfg), outgoing, false)?;
+        }
+
+        self.bfd_session_npu_ips = new_npu_ips;
+        Ok(())
+    }
 
     async fn handle_dash_ha_set_config_table_message(
         &mut self,
@@ -431,10 +544,45 @@ impl HaSetActor {
         }
         let first_time = self.dash_ha_set_config.is_none();
 
+        // Save old vdpu_ids before updating config, to unregister removed ones later
+        let old_vdpu_ids: HashSet<String> = self
+            .dash_ha_set_config
+            .as_ref()
+            .map(|cfg| {
+                cfg.vdpu_ids
+                    .iter()
+                    .map(|id| id.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
         self.dash_ha_set_config = Some(decode_from_field_values(&dpu_kfv.field_values).unwrap());
 
         // Subscribe to the DPU Actor for state updates.
         self.register_to_vdpu_actor(outgoing, true)?;
+
+        // Unregister from vdpus that are no longer in the config
+        if !first_time {
+            let new_vdpu_ids: HashSet<String> = self
+                .dash_ha_set_config
+                .as_ref()
+                .map(|cfg| {
+                    cfg.vdpu_ids
+                        .iter()
+                        .map(|id| id.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let removed_vdpu_ids: Vec<&String> = old_vdpu_ids.difference(&new_vdpu_ids).collect();
+            if !removed_vdpu_ids.is_empty() {
+                let msg = ActorRegistration::new_actor_msg(false, RegistrationType::VDPUState, &self.id)?;
+                for id in removed_vdpu_ids {
+                    outgoing.send(outgoing.from_my_sp(VDpuActor::name(), id), msg.clone());
+                }
+            }
+        }
 
         if first_time {
             self.bridges.push(
@@ -465,12 +613,13 @@ impl HaSetActor {
         self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
 
         if !first_time {
-            // on config update, also update vnet route tunnel table
+            // on config update, also update vnet route tunnel table and BFD sessions
             let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
                 return Ok(());
             };
 
             self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
+            self.update_bfd_sessions(incoming, outgoing, false)?;
         }
         Ok(())
     }
@@ -485,12 +634,13 @@ impl HaSetActor {
         if self.ha_owner == HaOwner::Dpu {
             self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         }
+        self.update_bfd_sessions(incoming, outgoing, false)?;
         Ok(())
     }
 
     async fn handle_vdpu_state_update(&mut self, state: &mut State) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        // vdpu update affects dash-ha-set in DPU and vxlan tunnel
+        // vdpu update affects dash-ha-set in DPU, vxlan tunnel, and BFD sessions
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
         };
@@ -498,6 +648,9 @@ impl HaSetActor {
         if self.ha_owner == HaOwner::Dpu {
             self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         }
+        // Note: vdpu state update doesn't change the set of npu_ips, but
+        // may provide initial vdpu states needed for BFD session creation
+        self.update_bfd_sessions(incoming, outgoing, false)?;
         Ok(())
     }
 
@@ -582,8 +735,12 @@ impl HaSetActor {
             error!("Failed to delete dash_ha_set_table: {}", e);
         }
 
-        if let Err(e) = self.delete_vnet_route_tunnel_table(incoming, outgoing) {
+        if let Err(e) = self.delete_vnet_route_tunnel_table(&vdpus, incoming, outgoing) {
             error!("Failed to delete vnet_route_tunnel_table: {}", e);
+        }
+
+        if let Err(e) = self.update_bfd_sessions(incoming, outgoing, true) {
+            error!("Failed to cleanup BFD sessions: {}", e);
         }
 
         self.register_to_vdpu_actor(outgoing, false)?;
@@ -641,7 +798,7 @@ mod test {
     use sonic_dash_api_proto::ha_set_config::HaSetConfig;
     use sonic_dash_api_proto::ip_to_string;
     use sonic_dash_api_proto::types::HaOwner;
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::time::Duration;
     use swss_common::CxxString;
     use swss_common::KeyOpFieldValues;
@@ -687,6 +844,17 @@ mod test {
         let (_, ha_set_obj) = make_dpu_scope_ha_set_obj(0, 0);
         let ha_set_obj_fvs = serde_json::to_value(swss_serde::to_field_values(&ha_set_obj).unwrap()).unwrap();
 
+        let bfd = BfdSessionTable {
+            tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            multiplier: global_cfg.dpu_bfd_probe_multiplier,
+            multihop: true,
+            local_addr: vdpu0_state_obj.dpu.pa_ipv4.clone(),
+            session_type: Some("passive".to_string()),
+            shutdown: false,
+        };
+        let bfd_fvs = serde_json::to_value(swss_serde::to_field_values(&bfd).unwrap()).unwrap();
+
         let expected_vnet_route = VnetRouteTunnelTable {
             endpoint: vec![
                 vdpu0_state_obj.dpu.pa_ipv4.clone(),
@@ -729,6 +897,7 @@ mod test {
             dp_channel_is_alive: false,
             ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -759,6 +928,11 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route},
                     addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            // Verify BFD sessions created
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             // simulate pinned_vdpu_bfd_probe_states update. vdpu register and DashHaSetTable update will be triggered but no change
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs_bfd_pinned },
@@ -774,6 +948,11 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route_bfd_pinned},
                     addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            // Verify BFD sessions re-created after config update
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
@@ -783,10 +962,222 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                        "operation": "Del", "field_values": {}},
                     addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            // Verify BFD sessions deleted
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+        ];
+
+        test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
+        if tokio::time::timeout(Duration::from_secs(3), handle).await.is_err() {
+            panic!("timeout waiting for actor to terminate");
+        }
+    }
+
+    // test ha-set updated with new vdpu_ids, causing stale BFD sessions removed and new ones added
+    #[tokio::test]
+    async fn ha_set_actor_vdpu_change() {
+        sonic_common::log::init_logger_for_test();
+
+        let _redis = Redis::start_config_db();
+        let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
+
+        // prepare test data
+        let global_cfg = make_dash_ha_global_config();
+        let global_cfg_fvs = serde_json::to_value(swss_serde::to_field_values(&global_cfg).unwrap()).unwrap();
+
+        // Initial config: switch pair 0 (vdpu0-0 + vdpu1-0)
+        let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
+        let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
+
+        let dpu0 = make_local_dpu_actor_state(0, 0, true, None, None);
+        let dpu1 = make_remote_dpu_actor_state(1, 0);
+        let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+        let (vdpu1_id, vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+        let vdpu0_state = serde_json::to_value(&vdpu0_state_obj).unwrap();
+        let vdpu1_state = serde_json::to_value(&vdpu1_state_obj).unwrap();
+
+        let (_, ha_set_obj) = make_dpu_scope_ha_set_obj(0, 0);
+        let ha_set_obj_fvs = serde_json::to_value(swss_serde::to_field_values(&ha_set_obj).unwrap()).unwrap();
+
+        // Initial BFD sessions (local_addr from managed dpu0: 18.0.0.0)
+        let bfd = BfdSessionTable {
+            tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            multiplier: global_cfg.dpu_bfd_probe_multiplier,
+            multihop: true,
+            local_addr: vdpu0_state_obj.dpu.pa_ipv4.clone(),
+            session_type: Some("passive".to_string()),
+            shutdown: false,
+        };
+        let bfd_fvs = serde_json::to_value(swss_serde::to_field_values(&bfd).unwrap()).unwrap();
+
+        let expected_vnet_route = VnetRouteTunnelTable {
+            endpoint: vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.npu_ipv4.clone(),
+            ],
+            endpoint_monitor: Some(vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.pa_ipv4.clone(),
+            ]),
+            monitoring: Some("custom_bfd".into()),
+            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
+            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            check_directly_connected: Some(true),
+            pinned_state: Some(ha_set_cfg.pinned_vdpu_bfd_probe_states.clone()),
+        };
+        let expected_vnet_route = swss_serde::to_field_values(&expected_vnet_route).unwrap();
+
+        // New VDPUs: switch pair 1 (vdpu0-0 + vdpu2-0)
+        let dpu2 = make_remote_dpu_actor_state(2, 0);
+        let (vdpu2_id, vdpu2_state_obj) = make_vdpu_actor_state(true, &dpu2);
+        let vdpu2_state = serde_json::to_value(&vdpu2_state_obj).unwrap();
+
+        // Updated ha_set config with new vdpu_ids
+        let mut ha_set_cfg_updated = ha_set_cfg.clone();
+        ha_set_cfg_updated.vdpu_ids = vec![vdpu0_id.clone(), vdpu2_id.clone()];
+        ha_set_cfg_updated.preferred_vdpu_id = vdpu0_id.clone();
+        let ha_set_cfg_fvs_updated = protobuf_struct_to_kfv(&ha_set_cfg_updated);
+
+        // New BFD sessions (local_addr from managed dpu0: 18.0.0.0)
+        let bfd_new = BfdSessionTable {
+            tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            multiplier: global_cfg.dpu_bfd_probe_multiplier,
+            multihop: true,
+            local_addr: vdpu0_state_obj.dpu.pa_ipv4.clone(),
+            session_type: Some("passive".to_string()),
+            shutdown: false,
+        };
+        let bfd_new_fvs = serde_json::to_value(swss_serde::to_field_values(&bfd_new).unwrap()).unwrap();
+
+        // Expected DashHaSetTable after vdpu change
+        let ha_set_obj_updated = DashHaSetTable {
+            version: "1".to_string(),
+            vip_v4: ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap()),
+            vip_v6: Some(ip_to_string(ha_set_cfg.vip_v6.as_ref().unwrap())),
+            owner: None,
+            scope: Some("dpu".to_string()),
+            local_npu_ip: vdpu0_state_obj.dpu.npu_ipv4.clone(),
+            local_ip: vdpu0_state_obj.dpu.pa_ipv4.clone(),
+            peer_ip: vdpu2_state_obj.dpu.pa_ipv4.clone(),
+            cp_data_channel_port: global_cfg.cp_data_channel_port,
+            dp_channel_dst_port: global_cfg.dp_channel_dst_port,
+            dp_channel_src_port_min: global_cfg.dp_channel_src_port_min,
+            dp_channel_src_port_max: global_cfg.dp_channel_src_port_max,
+            dp_channel_probe_interval_ms: global_cfg.dp_channel_probe_interval_ms,
+            dp_channel_probe_fail_threshold: global_cfg.dp_channel_probe_fail_threshold,
+        };
+        let ha_set_obj_updated_fvs =
+            serde_json::to_value(swss_serde::to_field_values(&ha_set_obj_updated).unwrap()).unwrap();
+
+        // Expected VnetRouteTunnelTable after vdpu change
+        let expected_vnet_route_updated = VnetRouteTunnelTable {
+            endpoint: vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu2_state_obj.dpu.npu_ipv4.clone(),
+            ],
+            endpoint_monitor: Some(vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu2_state_obj.dpu.pa_ipv4.clone(),
+            ]),
+            monitoring: Some("custom_bfd".into()),
+            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
+            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            check_directly_connected: Some(true),
+            pinned_state: Some(ha_set_cfg_updated.pinned_vdpu_bfd_probe_states.clone()),
+        };
+        let expected_vnet_route_updated = swss_serde::to_field_values(&expected_vnet_route_updated).unwrap();
+
+        let ha_set_actor = HaSetActor {
+            id: ha_set_id.clone(),
+            dash_ha_set_config: None,
+            dp_channel_is_alive: false,
+            ha_owner: HaOwner::Unspecified,
+            bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
+        };
+
+        let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
+
+        #[rustfmt::skip]
+        let commands = [
+            // === Phase 1: Initial setup with vdpu0-0 and vdpu1-0 ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": global_cfg_fvs } },
+
+            // Now send original VDPU states
+            send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state, addr: runtime.sp("vdpu", &vdpu0_id) },
+            send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
+            // Verify initial DashHaSetTable, VnetRoute, and BFD sessions
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                      "operation": "Set", "field_values": expected_vnet_route},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+
+            // === Phase 2: Update ha_set config with new vdpu_ids ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs_updated },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            // Expect registration to new vdpus
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu2_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            // Pre-populate new VDPU states in incoming (no output since config references vdpu0-0/vdpu1-0 which aren't ready yet)
+            send! { key: VDpuActorState::msg_key(&vdpu2_id), data: vdpu2_state, addr: runtime.sp("vdpu", &vdpu2_id) },
+
+            // Verify updated DashHaSetTable
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_updated_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            // Verify updated VnetRouteTunnelTable
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                      "operation": "Set", "field_values": expected_vnet_route_updated},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            // Verify stale BFD sessions removed 10.0.1.0
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            // Verify new BFD sessions created (10.0.0.0, 10.0.2.0)
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_new_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.2.0", "operation": "Set", "field_values": bfd_new_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+
+            // === Phase 3: Delete ha-set entry ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs_updated },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                       "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.2.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu2_id) },
         ];
 
         test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
@@ -821,47 +1212,11 @@ mod test {
         let vdpu0_state = serde_json::to_value(&vdpu0_state_obj).unwrap();
         let vdpu1_state = serde_json::to_value(&vdpu1_state_obj).unwrap();
 
-        let expected_vnet_route = VnetRouteTunnelTable {
-            endpoint: vec![
-                vdpu0_state_obj.dpu.npu_ipv4.clone(),
-                vdpu1_state_obj.dpu.npu_ipv4.clone(),
-            ],
-            endpoint_monitor: Some(vec![
-                vdpu0_state_obj.dpu.pa_ipv4.clone(),
-                vdpu1_state_obj.dpu.pa_ipv4.clone(),
-            ]),
-            monitoring: Some("custom_bfd".into()),
-            primary: Some(vec![vdpu0_state_obj.dpu.npu_ipv4.clone()]),
-            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
-            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
-            check_directly_connected: Some(false),
-            pinned_state: Some(ha_set_cfg.pinned_vdpu_bfd_probe_states.clone()),
-        };
-        let expected_vnet_route = swss_serde::to_field_values(&expected_vnet_route).unwrap();
-
-        let expected_vnet_route_bfd_pinned = VnetRouteTunnelTable {
-            endpoint: vec![
-                vdpu0_state_obj.dpu.npu_ipv4.clone(),
-                vdpu1_state_obj.dpu.npu_ipv4.clone(),
-            ],
-            endpoint_monitor: Some(vec![
-                vdpu0_state_obj.dpu.pa_ipv4.clone(),
-                vdpu1_state_obj.dpu.pa_ipv4.clone(),
-            ]),
-            monitoring: Some("custom_bfd".into()),
-            primary: Some(vec![vdpu0_state_obj.dpu.npu_ipv4.clone()]),
-            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
-            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
-            check_directly_connected: Some(false),
-            pinned_state: Some(ha_set_cfg_bfd_pinned.pinned_vdpu_bfd_probe_states.clone()),
-        };
-        let expected_vnet_route_bfd_pinned = swss_serde::to_field_values(&expected_vnet_route_bfd_pinned).unwrap();
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: false,
-            ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -881,11 +1236,6 @@ mod test {
             // Simulate VDPU state update for vdpu1 (backup)
             send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
 
-            // Verify that the VnetRouteTunnelTable was updated
-            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
-                      "operation": "Set", "field_values": expected_vnet_route},
-                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
-
             // simulate pinned_vdpu_bfd_probe_states update
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs_bfd_pinned },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
@@ -893,17 +1243,10 @@ mod test {
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
-            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
-                      "operation": "Set", "field_values": expected_vnet_route_bfd_pinned},
-                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
 
             // simulate delete of ha-set entry
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
-
-            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
-                       "operation": "Del", "field_values": {}},
-                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
 
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },

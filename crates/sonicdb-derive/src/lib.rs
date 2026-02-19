@@ -81,30 +81,28 @@ pub fn serde_sonicdb_derive(input: TokenStream) -> TokenStream {
             fn is_proto() -> bool {
                 true
             }
-            fn convert_pb_to_json(kfv: &mut swss_common::KeyOpFieldValues) {
-                let value_hex = match kfv.field_values.get("pb") {
-                    Some(v) => v.to_str().ok(),
-                    None => None,
-                };
-                let value_hex = match value_hex {
-                    Some(s) if !s.is_empty() => s,
-                    _ => return,
-                };
-                let value_bytes = match hex::decode(value_hex) {
-                    Ok(bytes) => bytes,
-                    Err(_) => return,
-                };
-                let config = match #struct_name::decode(&*value_bytes) {
-                    Ok(cfg) => cfg,
-                    Err(_) => return,
+            fn convert_pb_to_json(kfv: &mut swss_common::KeyOpFieldValues) -> Result<(), Box<dyn std::error::Error>> {
+                // Skip pb processing for delete operations
+                if kfv.operation == swss_common::KeyOperation::Del {
+                    return Ok(());
+                }
+
+                let value_bytes = match kfv.field_values.get("pb") {
+                    Some(v) => v.as_bytes(),
+                    None => return Err("Missing 'pb' field".into()),
                 };
 
-                let json = match serde_json::to_string(&config) {
-                    Ok(j) => j,
-                    Err(_) => return,
-                };
+                if value_bytes.is_empty() {
+                    return Err("Empty 'pb' field".into());
+                }
+
+                let config = #struct_name::decode(value_bytes)?;
+
+                let json = serde_json::to_string(&config)?;
+
                 kfv.field_values.clear();
                 kfv.field_values.insert("json".to_string(), json.into());
+                Ok(())
             }
         }
     } else {

@@ -10,9 +10,10 @@ pub trait SonicDbTable {
     fn is_proto() -> bool {
         false
     }
-    fn convert_pb_to_json(_kfv: &mut KeyOpFieldValues) {
+    fn convert_pb_to_json(_kfv: &mut KeyOpFieldValues) -> Result<(), Box<dyn std::error::Error>> {
         // Default implementation does nothing.
         // This can be overridden by the macro to convert protobuf to JSON.
+        Ok(())
     }
     fn is_dpu() -> bool;
 }

@@ -24,6 +24,9 @@ stages:
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
 
+    variables:
+      CARGO_INCREMENTAL: 0
+
     steps:
     - checkout: self
       clean: true
@@ -105,3 +108,7 @@ stages:
     - script: |
         make ci-test
       displayName: 'Test'
+
+    - publish: $(System.DefaultWorkingDirectory)/
+      artifact: sonic-dash-ha
+      displayName: 'Archive release binaries'
