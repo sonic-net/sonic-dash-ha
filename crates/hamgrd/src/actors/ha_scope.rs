@@ -1124,7 +1124,7 @@ impl HaScopeActor {
     /// Handle bulk sync update messages for this HA scope
     /// On standby DPU, we expect to receive bluk sync update messages that map to BulkSyncCompleted events
     /// On active DPU, we expect to receive bluk sync update messages that map to BulkSyncCompletedAck events
-    fn handle_bulk_sync_update(&mut self, state: &mut State, key: &String) -> Result<HaEvent, String> {
+    fn handle_bulk_sync_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let update: Option<BulkSyncUpdate> = self.decode_hascope_actor_message(incoming, key);
 
@@ -1201,7 +1201,7 @@ impl HaScopeActor {
 
     /// Handle HA state changed messages for this HA scope
     /// Store the new HA state of peer in Npu
-    fn handle_ha_state_change(&mut self, state: &mut State, key: &String) -> Result<HaEvent, String> {
+    fn handle_ha_state_change(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let Some(ref _dash_ha_scope_config) = self.dash_ha_scope_config else {
             return Err("DASH HA scope config is initialized yet!".to_string());
         };
@@ -1243,7 +1243,7 @@ impl HaScopeActor {
         let response: &str;
         let source_actor_id = key.strip_prefix(VoteRequest::msg_key_prefix()).unwrap_or(key);
         let (internal, incoming, outgoing) = state.get_all();
-        let request: Option<VoteRequest> = self.decode_hascope_actor_message(incoming, &key.to_string());
+        let request: Option<VoteRequest> = self.decode_hascope_actor_message(incoming, key);
         let Some(request) = request else {
             error!("Failed to decode VoteRequest message");
             return;
@@ -1311,7 +1311,7 @@ impl HaScopeActor {
     /// Map to HaEvent::VoteCompleted if the reponse is one of [BecomeActive | BecomeStandby | BecomeStandalone ] and set the target state
     fn handle_vote_reply(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let (_internal, incoming, _outgoing) = state.get_all();
-        let reply: Option<VoteReply> = self.decode_hascope_actor_message(incoming, &key.to_string());
+        let reply: Option<VoteReply> = self.decode_hascope_actor_message(incoming, key);
         let Some(reply) = reply else {
             return Err("Failed to decode VoteReply message".to_string());
         };
@@ -1339,7 +1339,7 @@ impl HaScopeActor {
     /// Handle async self notification messages
     fn handle_self_notification(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let (_internal, incoming, _outgoing) = state.get_all();
-        let notification: Option<SelfNotification> = self.decode_hascope_actor_message(incoming, &key.to_string());
+        let notification: Option<SelfNotification> = self.decode_hascope_actor_message(incoming, key);
         let Some(notification) = notification else {
             return Err("Failed to decode SelfNotification message".to_string());
         };
@@ -1400,18 +1400,18 @@ impl HaScopeActor {
 
                 // Activate Active role on DPU with a new term
                 let _ = self.increment_npu_ha_scope_state_target_term(state);
-                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::Active.as_str_name(), false, false);
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Active.as_str_name(), false, false);
             }
             HaState::InitializingToStandby => {
                 // Activate Standby role on DPU
-                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::Standby.as_str_name(), false, false);
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Standby.as_str_name(), false, false);
             }
             HaState::SwitchingToActive => {
                 // TODO: Send SwitchOver to the peer
             }
             HaState::Destroying => {
                 // Activate Dead role on the DPU
-                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::Dead.as_str_name(), false, false);
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Dead.as_str_name(), false, false);
             }
             _ => {}
         }
@@ -1432,8 +1432,7 @@ impl HaScopeActor {
                 if current_state != HaState::Dead {
                     self.set_npu_local_ha_state(state, HaState::Dead, "admin disabled")?;
                     // Update DPU APPL_DB to activate Dead role on the DPU
-                    let _ =
-                        self.update_dpu_ha_scope_table_with_params(state, &HaRole::Dead.as_str_name(), false, false);
+                    let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Dead.as_str_name(), false, false);
                 }
                 return Ok(());
             } else {
@@ -1905,7 +1904,7 @@ impl Actor for HaScopeActor {
                     }
                 }
             } else if BulkSyncUpdate::is_my_msg(key) {
-                match self.handle_bulk_sync_update(state, &key.to_string()) {
+                match self.handle_bulk_sync_update(state, key) {
                     Ok(incoming_event) => {
                         event = Some(incoming_event);
                     }
@@ -1935,7 +1934,7 @@ impl Actor for HaScopeActor {
                     }
                 }
             } else if HAStateChanged::is_my_msg(key) {
-                match self.handle_ha_state_change(state, &key.to_string()) {
+                match self.handle_ha_state_change(state, key) {
                     Ok(incoming_event) => {
                         event = Some(incoming_event);
                     }
