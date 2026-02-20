@@ -1,4 +1,4 @@
-use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
+use crate::actors::DbBasedActor;
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use crate::{HaSetActor, VDpuActor};
@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::HaScopeConfig;
-use sonic_dash_api_proto::types::{HaOwner, HaState};
+use sonic_dash_api_proto::types::HaOwner;
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
@@ -306,7 +306,8 @@ impl HaScopeBase {
         self.delete_npu_ha_scope_state(internal)?;
         self.register_to_vdpu_actor(outgoing, false)?;
         self.register_to_haset_actor(outgoing, false)?;
-        self.register_to_hascope_actor(outgoing, false)?;
+        // TODO: not able to unregister ha scope actors with current actor implementation
+        // self.register_to_hascope_actor(outgoing, false)?;
         Ok(())
     }
 }

@@ -3,8 +3,6 @@ mod dpu;
 mod npu;
 
 use crate::actors::DbBasedActor;
-use crate::db_structs::*;
-use crate::ha_actor_messages::*;
 use anyhow::Result;
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::ha_scope_config::HaScopeConfig;

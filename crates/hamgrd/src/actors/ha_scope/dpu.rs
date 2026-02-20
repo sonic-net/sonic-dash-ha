@@ -1,11 +1,10 @@
-use crate::actors::spawn_consumer_bridge_for_actor;
+use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use anyhow::Result;
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
-use std::collections::HashMap;
 use swbus_actor::{ActorMessage, Context, State};
 use swss_common::{KeyOpFieldValues, KeyOperation};
 use tracing::{debug, error};
