@@ -306,7 +306,7 @@ pub struct DashHaSetTable {
     pub dp_channel_probe_fail_threshold: Option<u32>,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2313-flow-sync-sessions
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2313-flow-sync-sessions>
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
 #[sonicdb(
@@ -321,7 +321,7 @@ pub struct DashFlowSyncSessionTable {
     pub target_server_port: u16,
 }
 
-/// https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2343-flow-sync-session-states
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2343-flow-sync-session-states>
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
 #[sonicdb(

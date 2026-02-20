@@ -1240,7 +1240,7 @@ impl HaScopeActor {
     }
 
     /// Handle vote request messages for this HA scope
-    /// Folloing procedure documented in https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election
+    /// Folloing procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
     fn handle_vote_request(&mut self, state: &mut State, key: &str) {
         let response: &str;
         let source_actor_id = key.strip_prefix(VoteRequest::msg_key_prefix()).unwrap_or(key);
@@ -1309,7 +1309,7 @@ impl HaScopeActor {
     }
 
     /// Hanlde vote reply messages for this HA scope
-    /// Folloing procedure documented in https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election
+    /// Folloing procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
     /// Map to HaEvent::VoteCompleted if the reponse is one of [BecomeActive | BecomeStandby | BecomeStandalone ] and set the target state
     fn handle_vote_reply(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let (_internal, incoming, _outgoing) = state.get_all();
