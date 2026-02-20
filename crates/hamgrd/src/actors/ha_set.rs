@@ -169,13 +169,12 @@ impl HaSetActor {
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
 
-        let up = if self.dp_channel_is_alive { true } else { false };
         let vdpu_ids = self
             .dash_ha_set_config
             .as_ref()
             .map(|c| c.vdpu_ids.clone())
             .unwrap_or_default();
-        let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, &vdpu_ids).unwrap();
+        let msg = HaSetActorState::new_actor_msg(self.dp_channel_is_alive, &self.id, dash_ha_set, &vdpu_ids).unwrap();
         let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
         for actor_sp in peer_actors {
             outgoing.send(actor_sp, msg.clone());
@@ -669,13 +668,13 @@ impl HaSetActor {
                 return Ok(());
             };
 
-            let up = if self.dp_channel_is_alive { true } else { false };
             let vdpu_ids = self
                 .dash_ha_set_config
                 .as_ref()
                 .map(|c| c.vdpu_ids.clone())
                 .unwrap_or_default();
-            let msg = HaSetActorState::new_actor_msg(up, &self.id, dash_ha_set, &vdpu_ids).unwrap();
+            let msg =
+                HaSetActorState::new_actor_msg(self.dp_channel_is_alive, &self.id, dash_ha_set, &vdpu_ids).unwrap();
 
             outgoing.send(entry.source.clone(), msg);
         }
@@ -684,7 +683,7 @@ impl HaSetActor {
 
     async fn handle_ha_scope_state_update(&mut self, state: &mut State, key: &str) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
-        let Some(ha_scope) = self.get_ha_scope_actor_state(&incoming, key) else {
+        let Some(ha_scope) = self.get_ha_scope_actor_state(incoming, key) else {
             return Ok(());
         };
 

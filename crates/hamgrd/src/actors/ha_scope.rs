@@ -169,7 +169,7 @@ impl HaScopeActor {
     where
         T: DeserializeOwned,
     {
-        let msg = incoming.get(&key)?;
+        let msg = incoming.get(key)?;
         match msg.deserialize_data() {
             Ok(data) => Some(data),
             Err(e) => {
@@ -271,15 +271,13 @@ impl HaScopeActor {
     }
 
     fn get_peer_actor_id(&self) -> Option<String> {
-        if self.peer_vdpu_id.is_none() {
-            return None;
-        }
-        return Some(format!(
+        self.peer_vdpu_id.as_ref()?;
+        Some(format!(
             "{}{}{}",
             self.peer_vdpu_id.as_deref().unwrap_or_default(),
             HaScopeConfig::key_separator(),
             &self.ha_scope_id
-        ));
+        ))
     }
 
     fn vdpu_is_managed(&self, incoming: &Incoming) -> bool {
@@ -447,7 +445,7 @@ impl HaScopeActor {
     fn update_dpu_ha_scope_table_with_params(
         &self,
         state: &mut State,
-        ha_role: &String,
+        ha_role: &str,
         flow_reconcile_requested: bool,
         activate_role_requested: bool,
     ) -> Result<()> {
@@ -472,7 +470,7 @@ impl HaScopeActor {
             ha_set_id: dash_ha_scope_config.ha_set_id.clone(),
             vip_v4: haset.ha_set.vip_v4.clone(),
             vip_v6: haset.ha_set.vip_v6.clone(),
-            ha_role: ha_role.clone(),
+            ha_role: ha_role.to_owned(),
             ha_term: self
                 .get_npu_ha_scope_state(internal)
                 .and_then(|s| s.local_target_term)
@@ -612,7 +610,7 @@ impl HaScopeActor {
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
 
-        return Ok(approved_types);
+        Ok(approved_types)
     }
 
     fn update_npu_ha_scope_state_ha_state(&self, state: &mut State) -> Result<()> {
@@ -724,7 +722,7 @@ impl HaScopeActor {
             npu_state.flow_sync_session_state = flow_sync_session_state.clone();
         }
         if !flow_sync_session_start_time_in_ms.is_none() {
-            npu_state.flow_sync_session_start_time_in_ms = flow_sync_session_start_time_in_ms.clone();
+            npu_state.flow_sync_session_start_time_in_ms = flow_sync_session_start_time_in_ms;
         }
         if !flow_sync_session_target_server.is_none() {
             npu_state.flow_sync_session_target_server = flow_sync_session_target_server.clone();
@@ -958,7 +956,7 @@ impl HaScopeActor {
             }
         }
 
-        return Ok(HaEvent::None);
+        Ok(HaEvent::None)
     }
 
     /// Handles registration messages from peer HA Scope actor
@@ -1089,7 +1087,7 @@ impl HaScopeActor {
         }
 
         if first_time {
-            return Ok(HaEvent::Launch);
+            Ok(HaEvent::Launch)
         } else {
             match ha_set.up {
                 true => Ok(HaEvent::None),
@@ -1143,7 +1141,7 @@ impl HaScopeActor {
     /// Handle DashFlowSyncSessionState updates for this HA scope
     /// Extract the session fields and update NPU HA scope state table
     /// Return HaEvent::BulkSyncCompleted when state is "completed", otherwise HaEvent::None
-    fn handle_flow_sync_session_state_update(&mut self, state: &mut State, key: &String) -> Result<HaEvent, String> {
+    fn handle_flow_sync_session_state_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
         let (internal, incoming, _outgoing) = state.get_all();
 
         let msg = incoming.get(key);
@@ -1231,11 +1229,11 @@ impl HaScopeActor {
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
 
         if self.peer_connected {
-            return Ok(HaEvent::PeerStateChanged);
+            Ok(HaEvent::PeerStateChanged)
         } else {
             // we treat the first HaStateChanged message from the peer as a confirmation of connection
             self.peer_connected = true;
-            return Ok(HaEvent::PeerConnected);
+            Ok(HaEvent::PeerConnected)
         }
     }
 
@@ -1351,9 +1349,9 @@ impl HaScopeActor {
         }
 
         if let Some(event) = HaEvent::from_str(&notification.event) {
-            return Ok(event);
+            Ok(event)
         } else {
-            return Err("Unknown event".to_string());
+            Err("Unknown event".to_string())
         }
     }
 
@@ -1384,8 +1382,8 @@ impl HaScopeActor {
                 self.send_vote_request_to_peer(state)?;
             }
             HaState::PendingActiveActivation | HaState::PendingStandbyActivation => {
-                let mut operations: Vec<(String, String)> = Vec::new();
-                operations.push((Uuid::new_v4().to_string(), "activate_role".to_string()));
+                let mut operations: Vec<(String, String)> =
+                    vec![(Uuid::new_v4().to_string(), "activate_role".to_string())];
                 self.update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
             }
             HaState::Standalone => {
@@ -1443,7 +1441,7 @@ impl HaScopeActor {
         };
 
         let current_state = self.current_npu_ha_state(state.internal());
-        let mut event_to_use = event.clone();
+        let mut event_to_use = *event;
 
         if *event == HaEvent::AdminStateChanged {
             if config.disabled {
@@ -1703,7 +1701,7 @@ impl HaScopeActor {
             // nop-op but resetting retry count, if the peer is connected
             self.retry_count = 0;
         }
-        return Ok(HaEvent::None);
+        Ok(HaEvent::None)
     }
 
     /// Send a VoteRequest message to the peer HA scope actor for primary election
@@ -1806,17 +1804,15 @@ impl HaScopeActor {
         outgoing.send(outgoing.common_bridge_sp::<DashFlowSyncSessionTable>(), msg);
 
         // update NPU HA scope state table
-        if let Err(e) = self.set_npu_flow_sync_session(
+        self.set_npu_flow_sync_session(
             state,
             &Some(session_id.clone()),
             &None,
             &Some(now_in_millis()),
             &Some(haset.ha_set.peer_ip),
-        ) {
-            return Err(e);
-        }
+        )?;
 
-        return Ok(Some(session_id));
+        Ok(Some(session_id))
     }
 }
 

@@ -142,18 +142,13 @@ pub struct HaSetActorState {
 }
 
 impl HaSetActorState {
-    pub fn new_actor_msg(
-        up: bool,
-        my_id: &str,
-        ha_set: DashHaSetTable,
-        vdpu_ids: &Vec<String>,
-    ) -> Result<ActorMessage> {
+    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable, vdpu_ids: &[String]) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
             &Self {
                 up: true,
                 ha_set,
-                vdpu_ids: vdpu_ids.clone(),
+                vdpu_ids: vdpu_ids.to_owned(),
             },
         )
     }
