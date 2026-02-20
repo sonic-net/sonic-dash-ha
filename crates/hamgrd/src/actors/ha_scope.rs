@@ -90,17 +90,6 @@ enum TargetState {
     Dead,
 }
 
-impl TargetState {
-    fn as_str(&self) -> &'static str {
-        match self {
-            TargetState::Active => "active",
-            TargetState::Standby => "standby",
-            TargetState::Standalone => "standalone",
-            TargetState::Dead => "dead",
-        }
-    }
-}
-
 pub struct HaScopeActor {
     id: String,
     ha_scope_id: String,
@@ -1046,7 +1035,9 @@ impl HaScopeActor {
         }
 
         // update basic info of NPU HA scope state
-        self.update_npu_ha_scope_state_base(state);
+        if let Err(e) = self.update_npu_ha_scope_state_base(state) {
+            return Err(e.to_string());
+        }
 
         match vdpu.up {
             true => Ok(HaEvent::None),
@@ -1203,7 +1194,7 @@ impl HaScopeActor {
         // Return BulkSyncCompleted when state is "completed"
         // Also send a notification to the peer
         if session_state.state == "completed" {
-            self.send_bulk_sync_completed_to_peer(state);
+            let _ = self.send_bulk_sync_completed_to_peer(state);
             return Ok(HaEvent::BulkSyncCompleted);
         }
 
@@ -1446,6 +1437,7 @@ impl HaScopeActor {
     }
 
     fn drive_npu_state_machine(&mut self, state: &mut State, event: &HaEvent) -> Result<()> {
+        info!("Drive NPU HA state machine based on {}", event.as_str());
         let Some(config) = self.dash_ha_scope_config.as_ref() else {
             return Ok(());
         };
@@ -1691,7 +1683,7 @@ impl HaScopeActor {
                 // retry sending peer with HAStateChanged Registration Message
                 self.retry_count += 1;
                 // register messages from the peer ha scope actor
-                self.register_to_hascope_actor(state.outgoing(), true);
+                let _ = self.register_to_hascope_actor(state.outgoing(), true);
 
                 // Send a signal to itself to schedule a check later
                 let outgoing = state.outgoing();
@@ -1814,13 +1806,15 @@ impl HaScopeActor {
         outgoing.send(outgoing.common_bridge_sp::<DashFlowSyncSessionTable>(), msg);
 
         // update NPU HA scope state table
-        self.set_npu_flow_sync_session(
+        if let Err(e) = self.set_npu_flow_sync_session(
             state,
             &Some(session_id.clone()),
             &None,
             &Some(now_in_millis()),
             &Some(haset.ha_set.peer_ip),
-        );
+        ) {
+            return Err(e);
+        }
 
         return Ok(Some(session_id));
     }
@@ -1994,7 +1988,7 @@ impl Actor for HaScopeActor {
             }
 
             // drive the state machine based on the information gained from message processing
-            self.drive_npu_state_machine(state, &event.unwrap_or(HaEvent::None));
+            self.drive_npu_state_machine(state, &event.unwrap_or(HaEvent::None))?;
         }
 
         Ok(())
