@@ -918,7 +918,7 @@ impl HaScopeActor {
             .map_err(|e| e.to_string())?;
         let dash_ha_scope_config: HaScopeConfig =
             decode_from_field_values(&kfv.field_values).map_err(|e| e.to_string())?;
-        let old_ha_scope_config = self.dash_ha_scope_config.unwrap_or_default();
+        let old_ha_scope_config = self.dash_ha_scope_config.clone().unwrap_or_default();
 
         // Update internal config
         self.dash_ha_scope_config = Some(dash_ha_scope_config);
@@ -1251,7 +1251,7 @@ impl HaScopeActor {
     /// Handle vote request messages for this HA scope
     /// Folloing procedure documented in https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election
     fn handle_vote_request(&mut self, state: &mut State, key: &str) {
-        let mut response: &str;
+        let response: &str;
         let source_actor_id = key.strip_prefix(VoteRequest::msg_key_prefix()).unwrap_or(key);
         let (internal, incoming, outgoing) = state.get_all();
         let request: Option<VoteRequest> = self.decode_hascope_actor_message(incoming, &key.to_string());
@@ -1259,7 +1259,7 @@ impl HaScopeActor {
             error!("Failed to decode VoteRequest message");
             return;
         };
-        let my_state = self.current_npu_ha_state(state);
+        let my_state = self.current_npu_ha_state(internal);
         let my_desired_state = self
             .dash_ha_scope_config
             .as_ref()
@@ -1366,17 +1366,15 @@ impl HaScopeActor {
         }
     }
 
-    fn current_npu_ha_state(&self, state: &State) -> HaState {
-        let internal = state.internal();
-        self.get_npu_ha_scope_state(&*internal)
+    fn current_npu_ha_state(&self, internal: &Internal) -> HaState {
+        self.get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.local_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
             .unwrap_or(HaState::Dead)
     }
 
-    fn current_npu_peer_ha_state(&self, state: &State) -> HaState {
-        let internal = state.internal();
-        self.get_npu_ha_scope_state(&*internal)
+    fn current_npu_peer_ha_state(&self, internal: &Internal) -> HaState {
+        self.get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.peer_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
             .unwrap_or(HaState::Dead)
@@ -1452,7 +1450,7 @@ impl HaScopeActor {
             return Ok(());
         };
 
-        let current_state = self.current_npu_ha_state(state);
+        let current_state = self.current_npu_ha_state(state.internal());
         let mut event_to_use = event.clone();
 
         if *event == HaEvent::AdminStateChanged {
@@ -1589,7 +1587,7 @@ impl HaScopeActor {
                 // Go to Standalone if detecting problem on the peer and the local DPU is healthy
                 // Go to Standby if detecting problem locally
                 if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_ha_state(state) == HaState::InitializingToStandby
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby
                 {
                     Some((HaState::PendingActiveActivation, "peer is ready"))
                 } else if *event == HaEvent::PeerLost {
@@ -1623,7 +1621,7 @@ impl HaScopeActor {
                 if *event == HaEvent::PeerLost {
                     Some((HaState::Standalone, "peer lost during switchover to standby"))
                 } else if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_ha_state(state) == HaState::Active
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::Active
                 {
                     Some((HaState::Standby, "peer has been active"))
                 } else {
@@ -1643,7 +1641,7 @@ impl HaScopeActor {
                 if *event == HaEvent::PeerLost {
                     Some((HaState::Standalone, "peer lost during switchover to active"))
                 } else if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_ha_state(state) == HaState::SwitchingToStandby
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::SwitchingToStandby
                 {
                     Some((HaState::Active, "switchover to active complete"))
                 } else {
