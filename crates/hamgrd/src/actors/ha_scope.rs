@@ -165,7 +165,7 @@ impl HaScopeActor {
         }
     }
 
-    fn decode_hascope_actor_message<T>(&self, incoming: &Incoming, key: &String) -> Option<T>
+    fn decode_hascope_actor_message<T>(&self, incoming: &Incoming, key: &str) -> Option<T>
     where
         T: DeserializeOwned,
     {
@@ -1400,33 +1400,18 @@ impl HaScopeActor {
 
                 // Activate Active role on DPU with a new term
                 let _ = self.increment_npu_ha_scope_state_target_term(state);
-                let _ = self.update_dpu_ha_scope_table_with_params(
-                    state,
-                    &HaRole::Active.as_str_name().to_string(),
-                    false,
-                    false,
-                );
+                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::Active.as_str_name(), false, false);
             }
             HaState::InitializingToStandby => {
                 // Activate Standby role on DPU
-                let _ = self.update_dpu_ha_scope_table_with_params(
-                    state,
-                    &HaRole::Standby.as_str_name().to_string(),
-                    false,
-                    false,
-                );
+                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::Standby.as_str_name(), false, false);
             }
             HaState::SwitchingToActive => {
                 // TODO: Send SwitchOver to the peer
             }
             HaState::Destroying => {
                 // Activate Dead role on the DPU
-                let _ = self.update_dpu_ha_scope_table_with_params(
-                    state,
-                    &HaRole::Dead.as_str_name().to_string(),
-                    false,
-                    false,
-                );
+                let _ = self.update_dpu_ha_scope_table_with_params(state, &HaRole::Dead.as_str_name(), false, false);
             }
             _ => {}
         }
@@ -1447,12 +1432,8 @@ impl HaScopeActor {
                 if current_state != HaState::Dead {
                     self.set_npu_local_ha_state(state, HaState::Dead, "admin disabled")?;
                     // Update DPU APPL_DB to activate Dead role on the DPU
-                    let _ = self.update_dpu_ha_scope_table_with_params(
-                        state,
-                        &HaRole::Dead.as_str_name().to_string(),
-                        false,
-                        false,
-                    );
+                    let _ =
+                        self.update_dpu_ha_scope_table_with_params(state, &HaRole::Dead.as_str_name(), false, false);
                 }
                 return Ok(());
             } else {
@@ -1933,7 +1914,7 @@ impl Actor for HaScopeActor {
                     }
                 }
             } else if key.starts_with(DashFlowSyncSessionState::table_name()) {
-                match self.handle_flow_sync_session_state_update(state, &key.to_string()) {
+                match self.handle_flow_sync_session_state_update(state, key) {
                     Ok(incoming_event) => {
                         event = Some(incoming_event);
                     }
