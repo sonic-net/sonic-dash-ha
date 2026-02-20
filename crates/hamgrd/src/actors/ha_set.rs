@@ -150,7 +150,7 @@ impl HaSetActor {
         }
     }
 
-    fn update_dash_ha_set_state(
+    fn update_dash_ha_set_table(
         &self,
         vdpus: &[VDpuStateExt],
         incoming: &Incoming,
@@ -609,7 +609,7 @@ impl HaSetActor {
             return Ok(());
         };
 
-        self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
+        self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
 
         if !first_time {
             // on config update, also update vnet route tunnel table and BFD sessions
@@ -629,7 +629,7 @@ impl HaSetActor {
             return Ok(());
         };
         // global config update affects Vxlan tunnel and dash-ha-set in DPU
-        self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
+        self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
         if self.ha_owner == HaOwner::Dpu {
             self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         }
@@ -643,7 +643,7 @@ impl HaSetActor {
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
         };
-        self.update_dash_ha_set_state(&vdpus, incoming, outgoing)?;
+        self.update_dash_ha_set_table(&vdpus, incoming, outgoing)?;
         if self.ha_owner == HaOwner::Dpu {
             self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
         }
@@ -894,7 +894,7 @@ mod test {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
             dp_channel_is_alive: false,
-            ha_owner: HaOwner::Unspecified,
+            ha_owner: HaOwner::Dpu,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
         };
@@ -1100,7 +1100,7 @@ mod test {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
             dp_channel_is_alive: false,
-            ha_owner: HaOwner::Unspecified,
+            ha_owner: HaOwner::Dpu,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
         };
@@ -1214,8 +1214,10 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
+            dp_channel_is_alive: false,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_owner: HaOwner::Dpu,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
