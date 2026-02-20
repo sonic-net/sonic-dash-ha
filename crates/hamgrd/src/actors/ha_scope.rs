@@ -722,7 +722,7 @@ impl HaScopeActor {
             npu_state.flow_sync_session_state = flow_sync_session_state.clone();
         }
         if !flow_sync_session_start_time_in_ms.is_none() {
-            npu_state.flow_sync_session_start_time_in_ms = flow_sync_session_start_time_in_ms;
+            npu_state.flow_sync_session_start_time_in_ms = *flow_sync_session_start_time_in_ms;
         }
         if !flow_sync_session_target_server.is_none() {
             npu_state.flow_sync_session_target_server = flow_sync_session_target_server.clone();
@@ -1382,8 +1382,7 @@ impl HaScopeActor {
                 self.send_vote_request_to_peer(state)?;
             }
             HaState::PendingActiveActivation | HaState::PendingStandbyActivation => {
-                let mut operations: Vec<(String, String)> =
-                    vec![(Uuid::new_v4().to_string(), "activate_role".to_string())];
+                let operations: Vec<(String, String)> = vec![(Uuid::new_v4().to_string(), "activate_role".to_string())];
                 self.update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
             }
             HaState::Standalone => {
