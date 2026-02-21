@@ -44,6 +44,19 @@ impl Outgoing {
         });
     }
 
+    pub fn send_with_delay(&mut self, dest: ServicePath, msg: ActorMessage, delay: Duration) {
+        let swbus_message = actor_msg_to_swbus_msg(&msg, dest, &self.swbus_client);
+        let now = SystemTime::now();
+        let time_sent = now.checked_add(delay).expect("SystemTime overflowed!");
+        self.queued_messages.push({
+            UnackedMessage {
+                actor_message: msg,
+                swbus_message,
+                time_sent,
+            }
+        });
+    }
+
     pub(crate) fn new(swbus_client: Arc<SimpleSwbusEdgeClient>) -> Self {
         let mut resend_interval = interval(RESEND_TIME);
         resend_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

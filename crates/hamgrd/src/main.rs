@@ -31,6 +31,8 @@ use lazy_static::lazy_static;
 use sonic_dash_api_proto::{ha_scope_config::HaScopeConfig, ha_set_config::HaSetConfig};
 use std::any::Any;
 
+use crate::db_structs::DashFlowSyncSessionTable;
+
 lazy_static! {
     static ref DPU_SLOT_ID: Mutex<u8> = Mutex::new(0);
 }
@@ -149,9 +151,14 @@ async fn spawn_producer_bridges(edge_runtime: Arc<SwbusEdgeRuntime>, dpu: &Dpu) 
     let handle = spawn_zmq_producer_bridge::<DashHaSetTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
-    // Spawn DASH_HA_SCOPE_TABLE zmq producer bridge for ha-set actor
+    // Spawn DASH_HA_SCOPE_TABLE zmq producer bridge for ha-scope actor
     // Has service path swss-common-bridge/DASH_HA_SCOPE_TABLE.
     let handle = spawn_zmq_producer_bridge::<DashHaScopeTable>(edge_runtime.clone(), &zmq_endpoint).await?;
+    handles.push(handle);
+
+    // Spawn DASH_FLOW_SYNC_SESSION_TABLE zmq producer bridge for ha-scope actor
+    // Has service path swss-common-bridge/DASH_FLOW_SYNC_SESSION_TABLE
+    let handle = spawn_zmq_producer_bridge::<DashFlowSyncSessionTable>(edge_runtime.clone(), &zmq_endpoint).await?;
     handles.push(handle);
 
     let handle = spawn_vanilla_producer_bridge::<VnetRouteTunnelTable>(edge_runtime.clone()).await?;
