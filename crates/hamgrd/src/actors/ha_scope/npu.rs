@@ -2,7 +2,7 @@ use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
 use crate::HaSetActor;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
@@ -151,17 +151,15 @@ impl NpuHaScopeActor {
         state: &mut State,
         key: &str,
         _context: &mut Context,
-    ) -> Result<HaEvent, String> {
+    ) -> Result<HaEvent> {
         let (_internal, incoming, _outgoing) = state.get_all();
 
         // Retrieve the config update from the incoming message
         let kfv: KeyOpFieldValues = incoming
-            .get_or_fail(key)
-            .map_err(|e| e.to_string())?
-            .deserialize_data()
-            .map_err(|e| e.to_string())?;
+            .get_or_fail(key)?
+            .deserialize_data()?;
         let dash_ha_scope_config: HaScopeConfig =
-            decode_from_field_values(&kfv.field_values).map_err(|e| e.to_string())?;
+            decode_from_field_values(&kfv.field_values)?;
         let old_ha_scope_config = self.base.dash_ha_scope_config.clone().unwrap_or_default();
 
         // Update internal config
@@ -223,12 +221,12 @@ impl NpuHaScopeActor {
 
     /// Handles registration messages from peer HA Scope actor
     /// Respond with HAStateChanged when the actor-self is ready
-    async fn handle_ha_scope_registration(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
+    async fn handle_ha_scope_registration(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (internal, incoming, outgoing) = state.get_all();
         let entry = incoming
             .get_entry(key)
-            .ok_or_else(|| format!("Entry not found for key: {}", key))?;
-        let ActorRegistration { active, .. } = entry.msg.deserialize_data().map_err(|e| e.to_string())?;
+            .ok_or_else(|| anyhow!("Entry not found for key: {}", key))?;
+        let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
             let Some(npu_ha_scope_state) = self.base.get_npu_ha_scope_state(internal) else {
                 info!(
@@ -244,7 +242,7 @@ impl NpuHaScopeActor {
                 npu_ha_scope_state.local_ha_state_last_updated_time_in_ms.unwrap_or(0),
                 npu_ha_scope_state.local_target_term.as_deref().unwrap_or("0"),
             )
-            .map_err(|e| e.to_string())?;
+            ?;
             outgoing.send(entry.source.clone(), msg);
         }
         Ok(HaEvent::None)
@@ -257,16 +255,30 @@ impl NpuHaScopeActor {
         &mut self,
         state: &mut State,
         context: &mut Context,
-    ) -> Result<HaEvent, String> {
-        let (_internal, incoming, _outgoing) = state.get_all();
+    ) -> Result<HaEvent> {
+        let (internal, incoming, _outgoing) = state.get_all();
         let Some(vdpu) = self.base.get_vdpu(incoming) else {
             error!("Failed to retrieve vDPU {} from incoming state", &self.base.vdpu_id);
-            return Err("Failed to retrieve vDPU from incoming state".to_string());
+            return Err(anyhow!("Failed to retrieve vDPU from incoming state"));
         };
 
         if !vdpu.dpu.is_managed {
             debug!("vDPU {} is unmanaged. Put actor in dormant state", &self.base.vdpu_id);
             return Ok(HaEvent::None);
+        }
+
+        // create an internal entry for npu STATE_DB/DASH_HA_SCOPE_STATE, which will be the
+        // notification channel to SDN controller
+        let swss_key = format!(
+            "{}{}{}",
+            self.base.vdpu_id,
+            NpuDashHaScopeState::key_separator(),
+            self.base.ha_scope_id
+        );
+        if !internal.has_entry(NpuDashHaScopeState::table_name(), &swss_key) {
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await?;
+            let table = swss_common::Table::new_async(db, NpuDashHaScopeState::table_name()).await?;
+            internal.add(NpuDashHaScopeState::table_name(), table, swss_key).await;
         }
 
         if self.base.bridges.is_empty() {
@@ -278,8 +290,7 @@ impl NpuHaScopeActor {
                     Some(&self.base.id),
                     true,
                 )
-                .await
-                .map_err(|e| e.to_string())?,
+                .await?,
             );
             // subscribe to dpu DASH_FLOW_SYNC_SESSION_STATE
             self.base.bridges.push(
@@ -289,15 +300,12 @@ impl NpuHaScopeActor {
                     Some(&self.base.id),
                     true,
                 )
-                .await
-                .map_err(|e| e.to_string())?,
+                .await?,
             );
         }
 
         // update basic info of NPU HA scope state
-        if let Err(e) = self.base.update_npu_ha_scope_state_base(state) {
-            return Err(e.to_string());
-        }
+        self.base.update_npu_ha_scope_state_base(state)?;
 
         match vdpu.up {
             true => Ok(HaEvent::None),
@@ -308,7 +316,7 @@ impl NpuHaScopeActor {
     /// Handles HaSet state update messages for this HA scope.
     /// Map the update to a HaEvent
     /// Register messages from a peer HA scope actor
-    fn handle_haset_state_update_npu_driven_mode(&mut self, state: &mut State) -> Result<HaEvent, String> {
+    fn handle_haset_state_update_npu_driven_mode(&mut self, state: &mut State) -> Result<HaEvent> {
         // the ha_scope is not managing the target vDPU. Skip
         if !self.base.vdpu_is_managed(state.incoming()) {
             return Ok(HaEvent::None);
@@ -360,7 +368,7 @@ impl NpuHaScopeActor {
 
     /// Handles DPU DASH_HA_SCOPE_STATE update messages for this HA scope.
     /// Update NPU DASH_HA_SCOPE_STATE ha_state related fields that need acknowledgements from DPU
-    fn handle_dpu_ha_scope_state_update_npu_driven(&mut self, state: &mut State) -> Result<HaEvent, String> {
+    fn handle_dpu_ha_scope_state_update_npu_driven(&mut self, state: &mut State) -> Result<HaEvent> {
         let (internal, incoming, _) = state.get_all();
         // parse dpu ha scope state
         let Some(new_dpu_ha_scope_state) = self.base.get_dpu_ha_scope_state(incoming) else {
@@ -377,7 +385,7 @@ impl NpuHaScopeActor {
         npu_ha_scope_state.local_acked_term = Some(new_dpu_ha_scope_state.ha_term.clone());
         self.base.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
-        let fvs = swss_serde::to_field_values(&npu_ha_scope_state).map_err(|e| e.to_string())?;
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
 
         Ok(HaEvent::DpuStateChanged)
@@ -386,7 +394,7 @@ impl NpuHaScopeActor {
     /// Handle bulk sync update messages for this HA scope
     /// On standby DPU, we expect to receive bluk sync update messages that map to BulkSyncCompleted events
     /// On active DPU, we expect to receive bluk sync update messages that map to BulkSyncCompletedAck events
-    fn handle_bulk_sync_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
+    fn handle_bulk_sync_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let update: Option<BulkSyncUpdate> = self.base.decode_hascope_actor_message(incoming, key);
 
@@ -403,32 +411,17 @@ impl NpuHaScopeActor {
     /// Handle DashFlowSyncSessionState updates for this HA scope
     /// Extract the session fields and update NPU HA scope state table
     /// Return HaEvent::BulkSyncCompleted when state is "completed", otherwise HaEvent::None
-    fn handle_flow_sync_session_state_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
+    fn handle_flow_sync_session_state_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (internal, incoming, _outgoing) = state.get_all();
 
         let msg = incoming.get(key);
         let Some(msg) = msg else {
-            return Err("Failed to get DashFlowSyncSessionState message".to_string());
+            return Err(anyhow!("Failed to get DashFlowSyncSessionState message"));
         };
 
-        let kfv = match msg.deserialize_data::<KeyOpFieldValues>() {
-            Ok(data) => data,
-            Err(e) => {
-                error!("Failed to deserialize DashFlowSyncSessionState KeyOpFieldValues: {}", e);
-                return Err("Failed to deserialize DashFlowSyncSessionState".to_string());
-            }
-        };
+        let kfv = msg.deserialize_data::<KeyOpFieldValues>()?;
 
-        let session_state: DashFlowSyncSessionState = match swss_serde::from_field_values(&kfv.field_values) {
-            Ok(state) => state,
-            Err(e) => {
-                error!(
-                    "Failed to deserialize DashFlowSyncSessionState from field values: {}",
-                    e
-                );
-                return Err("Failed to deserialize DashFlowSyncSessionState".to_string());
-            }
-        };
+        let session_state: DashFlowSyncSessionState = swss_serde::from_field_values(&kfv.field_values)?;
 
         // Extract session_id from the key
         let session_id = kfv.key.clone();
@@ -464,9 +457,9 @@ impl NpuHaScopeActor {
 
     /// Handle HA state changed messages for this HA scope
     /// Store the new HA state of peer in Npu
-    fn handle_ha_state_change(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
+    fn handle_ha_state_change(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let Some(ref _dash_ha_scope_config) = self.base.dash_ha_scope_config else {
-            return Err("DASH HA scope config is initialized yet!".to_string());
+            return Err(anyhow!("DASH HA scope config is initialized yet!"));
         };
 
         let (internal, incoming, _outgoing) = state.get_all();
@@ -476,7 +469,7 @@ impl NpuHaScopeActor {
         };
         let change: Option<HAStateChanged> = self.base.decode_hascope_actor_message(incoming, key);
         let Some(change) = change else {
-            return Err("Failed to decode HAStateChanged message".to_string());
+            return Err(anyhow!("Failed to decode HAStateChanged message"));
         };
 
         npu_ha_scope_state.peer_ha_state = Some(change.new_state);
@@ -488,7 +481,7 @@ impl NpuHaScopeActor {
         }
 
         // Push Update to DB
-        let fvs = swss_serde::to_field_values(&npu_ha_scope_state).map_err(|e| e.to_string())?;
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
 
         if self.peer_connected {
@@ -574,11 +567,11 @@ impl NpuHaScopeActor {
     /// Hanlde vote reply messages for this HA scope
     /// Folloing procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
     /// Map to HaEvent::VoteCompleted if the reponse is one of [BecomeActive | BecomeStandby | BecomeStandalone ] and set the target state
-    fn handle_vote_reply(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
+    fn handle_vote_reply(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let reply: Option<VoteReply> = self.base.decode_hascope_actor_message(incoming, key);
         let Some(reply) = reply else {
-            return Err("Failed to decode VoteReply message".to_string());
+            return Err(anyhow!("Failed to decode VoteReply message"));
         };
 
         match reply.response.as_str() {
@@ -602,11 +595,11 @@ impl NpuHaScopeActor {
     }
 
     /// Handle async self notification messages
-    fn handle_self_notification(&mut self, state: &mut State, key: &str) -> Result<HaEvent, String> {
+    fn handle_self_notification(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let notification: Option<SelfNotification> = self.base.decode_hascope_actor_message(incoming, key);
         let Some(notification) = notification else {
-            return Err("Failed to decode SelfNotification message".to_string());
+            return Err(anyhow!("Failed to decode SelfNotification message"));
         };
 
         if notification.event == "CheckPeerConnection" {
@@ -616,7 +609,7 @@ impl NpuHaScopeActor {
         if let Some(event) = HaEvent::from_str(&notification.event) {
             Ok(event)
         } else {
-            Err("Unknown event".to_string())
+            Err(anyhow!("Unknown event"))
         }
     }
 }
@@ -931,7 +924,7 @@ impl NpuHaScopeActor {
     /// Check if the peer HA scope is connected
     /// If not, send a self notification to schedule an execution of the same function for later
     /// Upon exceeding retry count threshold, signal a PeerLost event
-    fn check_peer_connection_and_retry(&mut self, state: &mut State) -> Result<HaEvent, String> {
+    fn check_peer_connection_and_retry(&mut self, state: &mut State) -> Result<HaEvent> {
         if !self.peer_connected {
             if self.retry_count < MAX_RETRIES {
                 // retry sending peer with HAStateChanged Registration Message

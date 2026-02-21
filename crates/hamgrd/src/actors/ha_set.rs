@@ -922,7 +922,7 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
             // Verify that haset actor state is sent to ha-scope actor
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
                     addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route},
@@ -942,7 +942,7 @@ mod test {
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
                     addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.vnet_name.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route_bfd_pinned},

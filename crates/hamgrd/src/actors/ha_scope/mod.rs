@@ -213,7 +213,9 @@ mod test {
         let dpu_mon = make_dpu_pmon_state(true);
         let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
         let dpu0 = make_local_dpu_actor_state(0, 0, true, Some(dpu_mon.clone()), Some(bfd_state));
+        let dpu1 = make_remote_dpu_actor_state(1, 0);
         let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+        let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
 
         // Initial state of NPU DASH_HA_SCOPE_STATE
         let npu_ha_scope_state1 = make_npu_ha_scope_state(&vdpu0_state_obj, &ha_set_obj);
@@ -255,11 +257,14 @@ mod test {
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
+            // Recv HaScopeActorState destined to the ha-set actor
+            recv!( key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Dpu as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id)),
+
             // Send vDPU state to actor
             send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
 
             // Send ha-set state to actor
-            send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+            send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
             // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role = active
             recv! { key: &ha_set_id, data: {
@@ -268,6 +273,7 @@ mod test {
                     "field_values": {
                         "version": "1",
                         "ha_role": "active",
+                        "ha_term": "0",
                         "disabled": "true",
                         "ha_set_id": &ha_set_id,
                         "vip_v4": ha_set_obj.vip_v4.clone(),
@@ -302,6 +308,7 @@ mod test {
                     "field_values": {
                         "version": "2",
                         "ha_role": "active",
+                        "ha_term": "0",
                         "disabled": "false",
                         "ha_set_id": &ha_set_id,
                         "vip_v4": ha_set_obj.vip_v4.clone(),
@@ -367,6 +374,7 @@ mod test {
                     "field_values": {
                         "version": "3",
                         "ha_role": "active",
+                        "ha_term": "0",
                         "disabled": "false",
                         "ha_set_id": &ha_set_id,
                         "vip_v4": ha_set_obj.vip_v4.clone(),
@@ -402,6 +410,7 @@ mod test {
                     "field_values": {
                         "version": "3",
                         "ha_role": "active",
+                        "ha_term": "0",
                         "disabled": "false",
                         "ha_set_id": &ha_set_id,
                         "vip_v4": ha_set_obj.vip_v4.clone(),
@@ -438,6 +447,7 @@ mod test {
                     "field_values": {
                         "version": "4",
                         "ha_role": "dead",
+                        "ha_term": "0",
                         "disabled": "false",
                         "ha_set_id": &ha_set_id,
                         "vip_v4": ha_set_obj.vip_v4.clone(),

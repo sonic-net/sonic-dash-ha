@@ -50,7 +50,7 @@ impl HaScopeBase {
     /// Handle first-time config message: decode config, register with vDPU and HaSet actors,
     /// notify HaSet actor of state. Returns the decoded HaOwner for variant selection.
     pub fn handle_first_config_message(&mut self, state: &mut State, key: &str) -> Result<HaOwner> {
-        let (internal, incoming, outgoing) = state.get_all();
+        let (_internal, incoming, outgoing) = state.get_all();
 
         let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
 
@@ -68,7 +68,7 @@ impl HaScopeBase {
             .as_ref()
             .map(|c| c.owner)
             .unwrap_or(HaOwner::Unspecified as i32);
-        let npu_state = self.get_npu_ha_scope_state(internal).unwrap_or_default();
+        let npu_state: NpuDashHaScopeState = Default::default();
         if let Ok(msg) = HaScopeActorState::new_actor_msg(
             &self.id,
             owner,
