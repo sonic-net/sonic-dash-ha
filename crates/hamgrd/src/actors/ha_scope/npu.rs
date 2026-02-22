@@ -155,11 +155,8 @@ impl NpuHaScopeActor {
         let (_internal, incoming, _outgoing) = state.get_all();
 
         // Retrieve the config update from the incoming message
-        let kfv: KeyOpFieldValues = incoming
-            .get_or_fail(key)?
-            .deserialize_data()?;
-        let dash_ha_scope_config: HaScopeConfig =
-            decode_from_field_values(&kfv.field_values)?;
+        let kfv: KeyOpFieldValues = incoming.get_or_fail(key)?.deserialize_data()?;
+        let dash_ha_scope_config: HaScopeConfig = decode_from_field_values(&kfv.field_values)?;
         let old_ha_scope_config = self.base.dash_ha_scope_config.clone().unwrap_or_default();
 
         // Update internal config
@@ -241,8 +238,7 @@ impl NpuHaScopeActor {
                 npu_ha_scope_state.local_ha_state.as_deref().unwrap_or(""),
                 npu_ha_scope_state.local_ha_state_last_updated_time_in_ms.unwrap_or(0),
                 npu_ha_scope_state.local_target_term.as_deref().unwrap_or("0"),
-            )
-            ?;
+            )?;
             outgoing.send(entry.source.clone(), msg);
         }
         Ok(HaEvent::None)
