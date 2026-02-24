@@ -649,7 +649,7 @@ mod test {
             // Shutdown
             #[rustfmt::skip]
             let commands = [
-                // Set the desired statet to Dead
+                // Set the desired state to Dead
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
                         "field_values": {"json": format!(r#"{{"version":"3","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Dead as i32, HaOwner::Switch as i32)},
                         },
@@ -882,7 +882,7 @@ mod test {
             // Shutdown
             #[rustfmt::skip]
             let commands = [
-                // Set the desired statet to Dead
+                // Set the desired state to Dead
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
                         "field_values": {"json": format!(r#"{{"version":"3","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Dead as i32, HaOwner::Switch as i32)},
                         },

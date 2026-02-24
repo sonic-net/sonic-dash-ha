@@ -145,7 +145,7 @@ impl NpuHaScopeActor {
 
 // NPU message handlers
 impl NpuHaScopeActor {
-    /// Hanldes updates to the DASH_HA_SCOPE_CONFIG_TABLE in the case of NPU-driven HA.
+    /// Handles updates to the DASH_HA_SCOPE_CONFIG_TABLE in the case of NPU-driven HA.
     fn handle_dash_ha_scope_config_table_message_npu_driven(
         &mut self,
         state: &mut State,
@@ -223,7 +223,7 @@ impl NpuHaScopeActor {
                     }
                 }
                 Err(_e) => {
-                    error!("Encountered error when updating pending operatios!");
+                    error!("Encountered error when updating pending operations!");
                     return Ok(HaEvent::None);
                 }
             }
@@ -413,8 +413,8 @@ impl NpuHaScopeActor {
     }
 
     /// Handle bulk sync update messages for this HA scope
-    /// On standby DPU, we expect to receive bluk sync update messages that map to BulkSyncCompleted events
-    /// On active DPU, we expect to receive bluk sync update messages that map to BulkSyncCompletedAck events
+    /// On standby DPU, we expect to receive bulk sync update messages that map to BulkSyncCompleted events
+    /// On active DPU, we expect to receive bulk sync update messages that map to BulkSyncCompletedAck events
     fn handle_bulk_sync_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let update: Option<BulkSyncUpdate> = self.base.decode_hascope_actor_message(incoming, key);
@@ -480,7 +480,7 @@ impl NpuHaScopeActor {
     /// Store the new HA state of peer in Npu
     fn handle_ha_state_change(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let Some(ref _dash_ha_scope_config) = self.base.dash_ha_scope_config else {
-            return Err(anyhow!("DASH HA scope config is initialized yet!"));
+            return Err(anyhow!("DASH HA scope config is not initialized yet!"));
         };
 
         let (internal, incoming, _outgoing) = state.get_all();
@@ -515,7 +515,7 @@ impl NpuHaScopeActor {
     }
 
     /// Handle vote request messages for this HA scope
-    /// Folloing procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
+    /// Following procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
     fn handle_vote_request(&mut self, state: &mut State, key: &str) {
         let response: &str;
         let source_actor_id = key.strip_prefix(VoteRequest::msg_key_prefix()).unwrap_or(key);
@@ -585,9 +585,9 @@ impl NpuHaScopeActor {
         }
     }
 
-    /// Hanlde vote reply messages for this HA scope
-    /// Folloing procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
-    /// Map to HaEvent::VoteCompleted if the reponse is one of [BecomeActive | BecomeStandby | BecomeStandalone ] and set the target state
+    /// Handle vote reply messages for this HA scope
+    /// Following procedure documented in <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-hld.md#73-primary-election>
+    /// Map to HaEvent::VoteCompleted if the response is one of [BecomeActive | BecomeStandby | BecomeStandalone ] and set the target state
     fn handle_vote_reply(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (_internal, incoming, _outgoing) = state.get_all();
         let reply: Option<VoteReply> = self.base.decode_hascope_actor_message(incoming, key);
@@ -827,7 +827,7 @@ impl NpuHaScopeActor {
                 // Go to Connected if successfully connected to the peer
                 // Go to Standalone if detecting problem on the peer and the local DPU is healthy
                 if *event == HaEvent::PeerConnected {
-                    Some((HaState::Connected, "connectionn with peer established"))
+                    Some((HaState::Connected, "connection with peer established"))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::Standalone, "remote peer failure while connecting"))
                 } else {
