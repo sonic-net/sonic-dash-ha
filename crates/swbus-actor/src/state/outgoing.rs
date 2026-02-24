@@ -71,7 +71,14 @@ impl Outgoing {
 
     /// Actor logic succeeded, so send out messages.
     pub(crate) async fn send_queued_messages(&mut self) {
+        let mut delayed_messages: Vec<UnackedMessage> = Vec::new();
         for msg in self.queued_messages.drain(..) {
+            if SystemTime::now() < msg.time_sent {
+                // The message hasn't reach its sending time yet
+                delayed_messages.push(msg);
+                continue;
+            }
+
             debug!("Sending message: {msg:?}");
             self.swbus_client
                 .send_raw(msg.swbus_message.clone())
@@ -92,6 +99,11 @@ impl Outgoing {
 
             // Add to unacked messages/resend queue
             self.unacked_messages.insert(id, msg);
+        }
+
+        // requeue all the delayed messages
+        for msg in delayed_messages.drain(..) {
+            self.queued_messages.push(msg);
         }
     }
 
