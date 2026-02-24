@@ -17,8 +17,6 @@ use swss_common::{KeyOpFieldValues, KeyOperation};
 use swss_common_bridge::consumer::ConsumerBridge;
 use tracing::{debug, error, info};
 
-use super::HaScopeActor;
-
 pub struct HaScopeBase {
     pub(super) id: String,
     pub(super) ha_scope_id: String,
@@ -264,19 +262,6 @@ impl HaScopeBase {
         Ok(())
     }
 
-    /// Register HAStateChanged from (peer) HaScopeActor
-    pub fn register_to_hascope_actor(&self, outgoing: &mut Outgoing, active: bool) -> Result<()> {
-        let Some(peer_actor_id) = self.get_peer_actor_id() else {
-            // Haven't received the remote peer vDPU info yet
-            info!("Haven't received peer vDPU info yet");
-            return Ok(());
-        };
-
-        let msg = ActorRegistration::new_actor_msg(active, RegistrationType::HAStateChanged, &self.id)?;
-        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
-        Ok(())
-    }
-
     pub fn delete_dash_ha_scope_table(&self, outgoing: &mut Outgoing) -> Result<()> {
         let kfv = KeyOpFieldValues {
             key: self.ha_scope_id.clone(),
@@ -306,8 +291,7 @@ impl HaScopeBase {
         self.delete_npu_ha_scope_state(internal)?;
         self.register_to_vdpu_actor(outgoing, false)?;
         self.register_to_haset_actor(outgoing, false)?;
-        // TODO: not able to unregister ha scope actors with current actor implementation
-        // self.register_to_hascope_actor(outgoing, false)?;
+
         Ok(())
     }
 }

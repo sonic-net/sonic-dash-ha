@@ -224,7 +224,6 @@ pub enum RegistrationType {
     DPUState,
     VDPUState,
     HaSetState,
-    HAStateChanged,
 }
 
 impl ActorRegistration {
@@ -237,7 +236,6 @@ impl ActorRegistration {
             RegistrationType::DPUState => "DPUStateRegister|",
             RegistrationType::VDPUState => "VDPUStateRegister|",
             RegistrationType::HaSetState => "HaSetStateRegister|",
-            RegistrationType::HAStateChanged => "HAStateChangedRegister|",
         }
     }
 
@@ -262,6 +260,39 @@ impl ActorRegistration {
 
     pub fn is_my_msg(key: &str, reg_type: RegistrationType) -> bool {
         key.starts_with(Self::msg_key_prefix(reg_type))
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeerHeartbeat {
+    // routing info
+    pub dst_actor_id: String,
+}
+
+impl PeerHeartbeat {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "PeerHeartbeat|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
     }
 }
 
