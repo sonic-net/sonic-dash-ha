@@ -44,6 +44,19 @@ impl Outgoing {
         });
     }
 
+    pub fn send_with_delay(&mut self, dest: ServicePath, msg: ActorMessage, delay: Duration) {
+        let swbus_message = actor_msg_to_swbus_msg(&msg, dest, &self.swbus_client);
+        let now = SystemTime::now();
+        let time_sent = now.checked_add(delay).expect("SystemTime overflowed!");
+        self.queued_messages.push({
+            UnackedMessage {
+                actor_message: msg,
+                swbus_message,
+                time_sent,
+            }
+        });
+    }
+
     pub(crate) fn new(swbus_client: Arc<SimpleSwbusEdgeClient>) -> Self {
         let mut resend_interval = interval(RESEND_TIME);
         resend_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -58,7 +71,14 @@ impl Outgoing {
 
     /// Actor logic succeeded, so send out messages.
     pub(crate) async fn send_queued_messages(&mut self) {
+        let mut delayed_messages: Vec<UnackedMessage> = Vec::new();
         for msg in self.queued_messages.drain(..) {
+            if SystemTime::now() < msg.time_sent {
+                // The message hasn't reach its sending time yet
+                delayed_messages.push(msg);
+                continue;
+            }
+
             debug!("Sending message: {msg:?}");
             self.swbus_client
                 .send_raw(msg.swbus_message.clone())
@@ -79,6 +99,11 @@ impl Outgoing {
 
             // Add to unacked messages/resend queue
             self.unacked_messages.insert(id, msg);
+        }
+
+        // requeue all the delayed messages
+        for msg in delayed_messages.drain(..) {
+            self.queued_messages.push(msg);
         }
     }
 

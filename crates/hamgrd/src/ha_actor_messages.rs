@@ -138,11 +138,19 @@ impl VDpuActorState {
 pub struct HaSetActorState {
     pub up: bool,
     pub ha_set: DashHaSetTable,
+    pub vdpu_ids: Vec<String>,
 }
 
 impl HaSetActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), &Self { up: true, ha_set })
+    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable, vdpu_ids: &[String]) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                up: true,
+                ha_set,
+                vdpu_ids: vdpu_ids.to_owned(),
+            },
+        )
     }
 
     pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
@@ -151,6 +159,56 @@ impl HaSetActorState {
 
     pub fn msg_key_prefix() -> &'static str {
         "HaSetStateUpdate|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct HaScopeActorState {
+    pub owner: i32,
+    pub new_state: String,
+    pub timestamp: i64,
+    pub term: String,
+    pub vdpu_id: String,
+    pub peer_vdpu_id: String,
+}
+
+impl HaScopeActorState {
+    pub fn new_actor_msg(
+        my_id: &str,
+        owner: i32,
+        new_state: &str,
+        timestamp: i64,
+        term: &str,
+        vdpu_id: &str,
+        peer_vdpu_id: &str,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                owner,
+                new_state: new_state.to_string(),
+                timestamp,
+                term: term.to_string(),
+                vdpu_id: vdpu_id.to_string(),
+                peer_vdpu_id: peer_vdpu_id.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "HaScopeStateUpdate|"
     }
 
     pub fn msg_key(my_id: &str) -> String {
@@ -208,5 +266,192 @@ impl ActorRegistration {
 
     pub fn is_my_msg(key: &str, reg_type: RegistrationType) -> bool {
         key.starts_with(Self::msg_key_prefix(reg_type))
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeerHeartbeat {
+    // routing info
+    pub dst_actor_id: String,
+}
+
+impl PeerHeartbeat {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "PeerHeartbeat|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct VoteRequest {
+    // routing info
+    pub dst_actor_id: String,
+
+    // state of the source HA scope
+    pub term: String,
+    pub state: String,
+    pub desired_state: String,
+}
+
+impl VoteRequest {
+    pub fn new_actor_msg(
+        my_id: &str,
+        dst_id: &str,
+        my_term: &str,
+        my_state: &str,
+        my_desired_state: &str,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+                term: my_term.to_string(),
+                state: my_state.to_string(),
+                desired_state: my_desired_state.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "VoteRequest|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct VoteReply {
+    // routing info
+    pub dst_actor_id: String,
+
+    // response as a string
+    pub response: String,
+}
+
+impl VoteReply {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, response: &str) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+                response: response.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "VoteReply|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct BulkSyncUpdate {
+    // routing info
+    pub dst_actor_id: String,
+
+    // message meta
+    pub finished: bool,
+}
+
+impl BulkSyncUpdate {
+    pub fn new_actor_msg(my_id: &str, dst_id: &str, finished: bool) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dst_actor_id: dst_id.to_string(),
+                finished,
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "BulkSyncUpdate|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SelfNotification {
+    // notifications of ha_events happening in the background
+    pub event: String,
+}
+
+impl SelfNotification {
+    pub fn new_actor_msg(my_id: &str, event: &str) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                event: event.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "SelfNotification|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
     }
 }

@@ -306,6 +306,36 @@ pub struct DashHaSetTable {
     pub dp_channel_probe_fail_threshold: Option<u32>,
 }
 
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2313-flow-sync-sessions>
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(
+    table_name = "DASH_FLOW_SYNC_SESSION_TABLE",
+    key_separator = ":",
+    db_name = "DPU_APPL_DB",
+    is_dpu = "true"
+)]
+pub struct DashFlowSyncSessionTable {
+    pub ha_set_id: String,
+    pub target_server_ip: String,
+    pub target_server_port: u16,
+}
+
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2343-flow-sync-session-states>
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
+#[sonicdb(
+    table_name = "DASH_FLOW_SYNC_SESSION_STATE",
+    key_separator = "|",
+    db_name = "DPU_STATE_DB",
+    is_dpu = "true"
+)]
+pub struct DashFlowSyncSessionState {
+    pub state: String,
+    pub creation_time_in_ms: i64,
+    pub last_state_start_time_in_ms: i64,
+}
+
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/vxlan/Overlay%20ECMP%20ehancements.md#22-app-db>
 #[skip_serializing_none]
 #[serde_as]
@@ -340,6 +370,7 @@ pub struct DashHaScopeTable {
     pub version: u32,
     pub disabled: bool,
     pub ha_role: String,
+    pub ha_term: String,
     pub ha_set_id: String,
     pub vip_v4: String,
     pub vip_v6: Option<String>,
@@ -377,6 +408,23 @@ pub struct DpuDashHaScopeState {
     pub brainsplit_recover_pending: bool,
 }
 
+/// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2341-ha-set-state>
+#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[sonicdb(
+    table_name = "DASH_HA_SET_STATE_TABLE",
+    key_separator = "|",
+    db_name = "DPU_STATE_DB",
+    is_dpu = "true"
+)]
+pub struct DpuDashHaSetState {
+    // HA set ID
+    pub ha_set_id: String,
+    // The last update time of this state in milliseconds.
+    pub last_updated_time: i64,
+    // Data plane channel is alive or not.
+    pub dp_channel_is_alive: bool,
+}
+
 /// DPU Reset Information written to STATE_DB.
 /// Key format: DPU{dpu_id} (e.g., DPU0, DPU1, ..., DPU7)
 #[skip_serializing_none]
@@ -396,7 +444,7 @@ pub struct DpuResetInfo {
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>
 #[skip_serializing_none]
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize, PartialEq, Default, Clone, SonicDb)]
+#[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Default, Clone, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "STATE_DB")]
 pub struct NpuDashHaScopeState {
     // HA scope creation time in milliseconds.
@@ -414,7 +462,6 @@ pub struct NpuDashHaScopeState {
     pub peer_ip: String,
 
     // The state of the HA state machine. This is the state in NPU hamgrd.
-    // The state of the HA state machine. This is the state in NPU hamgrd.
     pub local_ha_state: Option<String>,
     // The time when local target HA state is set.
     pub local_ha_state_last_updated_time_in_ms: Option<i64>,
@@ -430,6 +477,8 @@ pub struct NpuDashHaScopeState {
     pub local_acked_term: Option<String>,
     // The state of the HA state machine in peer DPU.
     pub peer_ha_state: Option<String>, /*todo: we don't know peer dpu state */
+    // The timestamp of the update of peer_ha_state
+    pub peer_ha_state_last_updated_time_in_ms: Option<i64>,
     // The current term in peer DPU.
     pub peer_term: Option<String>,
 

@@ -48,11 +48,21 @@ pub use send;
 
 #[macro_export]
 macro_rules! recv {
+    (key: $key:expr, data: $data:tt, addr: $addr:expr, exclude: $exclude:expr) => {
+        $crate::actors::test::Command::Recv {
+            key: String::from($key),
+            data: serde_json::json!($data),
+            addr: $addr.clone(),
+            exclude: String::from($exclude),
+        }
+    };
+
     (key: $key:expr, data: $data:tt, addr: $addr:expr) => {
         $crate::actors::test::Command::Recv {
             key: String::from($key),
             data: serde_json::json!($data),
             addr: $addr.clone(),
+            exclude: "".to_string(),
         }
     };
 }
@@ -133,6 +143,7 @@ pub enum Command {
         key: String,
         data: Value,
         addr: ServicePath,
+        exclude: String,
     },
     ChkDb {
         db: String,
@@ -214,7 +225,12 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
                 }
             }
 
-            Recv { key, data, addr } => {
+            Recv {
+                key,
+                data,
+                addr,
+                exclude,
+            } => {
                 let client = &clients[addr];
                 print!("Step {step} - Receiving {key}, ");
                 let (am, request_id) = match timeout(client.recv()).await {
@@ -232,7 +248,24 @@ pub async fn run_commands(runtime: &ActorRuntime, aut: ServicePath, commands: &[
 
                 println!("got {}", am.key);
                 assert_eq!(&am.key, key);
-                assert_eq!(&am.data, data);
+
+                let mut expected_data = data.clone();
+                let mut actual_data = am.data.clone();
+
+                exclude
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .for_each(|id| {
+                        if let Value::Object(map) = &mut expected_data {
+                            map.remove(id);
+                        }
+                        if let Value::Object(map) = &mut actual_data {
+                            map.remove(id);
+                        }
+                    });
+
+                assert_eq!(actual_data, expected_data);
 
                 let ack = OutgoingMessage {
                     destination: aut.clone(),
