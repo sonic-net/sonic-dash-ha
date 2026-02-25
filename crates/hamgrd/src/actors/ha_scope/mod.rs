@@ -263,7 +263,7 @@ mod test {
                 recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // Recv HaScopeActorState destined to the ha-set actor
-                recv!( key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Dpu as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id)),
+                recv!( key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Dpu as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp"),
 
                 // Send vDPU state to actor
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
@@ -541,7 +541,7 @@ mod test {
                 // Expect initial registration messages
                 recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
                 recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
@@ -549,31 +549,27 @@ mod test {
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
-                // Mock the init HaStateChanged from the peer HA scope
-                send! { key: HAStateChanged::msg_key(&peer_scope_id), data: { "prev_state": HaState::Dead.as_str_name(), "new_state": HaState::Dead.as_str_name(), "timestamp": now_in_millis(), "term": "0" } },
-                // Expect a HaStateChanged: dead -> connecting
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Dead.as_str_name(), "new_state": HaState::Connecting.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: Connecting
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Mock the init HaScopeActorState from the peer HA scope
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Dead.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect HaScopeActorState: dead -> connecting
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
                 // Expect a VoteRequest to be sent
                 recv!( key: VoteRequest::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Active.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) ),
-                // Expect a HaStateChanged: connecting -> connected
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Connecting.as_str_name(), "new_state": HaState::Connected.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: connected
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: connecting -> connected
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Mock a VoteReply
                 send! { key: VoteReply::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "response": "BecomeActive" } },
-                // Expect a HaStateChanged: connected -> initializing_to_active
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Connected.as_str_name(), "new_state": HaState::InitializingToActive.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one last HaScopeActorState update: Initializing_to_active
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
-                // Mock the HaStateChanged from the peer HA scope
-                send! { key: HAStateChanged::msg_key(&peer_scope_id), data: { "prev_state": HaState::Connected.as_str_name(), "new_state": HaState::InitializingToStandby.as_str_name(), "timestamp": now_in_millis(), "term": "0" } },
-                // Expect a HaStateChanged: initializing_to_active -> pending_active_activation
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::InitializingToActive.as_str_name(), "new_state": HaState::PendingActiveActivation.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: Pending_active_activation
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: connected -> initializing_to_active
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToActive.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToActive.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Mock the HaScopeActorState from the peer HA scope
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect HaScopeActorState: initializing_to_active -> pending_active_activation
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
                 
 
                 // Expect a pending role activation request in NPU DASH_HA_SCOPE_STATE table
@@ -626,10 +622,9 @@ mod test {
                 // Expect a bulkSyncCompleted message
                 recv! { key: BulkSyncUpdate::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "finished": true }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
 
-                // Expect a HaStateChanged: pending_active_activation -> active
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::PendingActiveActivation.as_str_name(), "new_state": HaState::Active.as_str_name(), "timestamp": now_in_millis(), "term": "1" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: Active
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: pending_active_activation -> active
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
             ];
 
             test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
@@ -674,22 +669,18 @@ mod test {
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
                     },
 
-                // Expect a HaStateChanged: Active -> Destroying
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Active.as_str_name(), "new_state": HaState::Destroying.as_str_name(), "timestamp": now_in_millis(), "term": "1" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-
-                // Expect the HaScopeActorState update: Destroying
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: Active -> Destroying
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Send DPU DASH_HA_SCOPE_STATE with ha_role = dead
                 send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
                         "field_values": serde_json::to_value(to_field_values(&dpu_ha_state_state).unwrap()).unwrap()
                         }},
 
-                // Expect a HaStateChanged: Destroying -> Dead
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Destroying.as_str_name(), "new_state": HaState::Dead.as_str_name(), "timestamp": now_in_millis(), "term": "1" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-
-                // Expect one last HaScopeActorState update: Dead
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: Destroying -> Dead
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Delete the HA scope config entry
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
@@ -756,7 +747,7 @@ mod test {
                 // Expect initial registration messages
                 recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
                 recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
@@ -764,19 +755,17 @@ mod test {
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
-                // Expect a HaStateChanged: dead -> connecting
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Dead.as_str_name(), "new_state": HaState::Connecting.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: Connecting
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: dead -> connecting
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
-                // Mock the init HaStateChanged from the peer HA scope
-                send! { key: HAStateChanged::msg_key(&peer_scope_id), data: { "prev_state": HaState::Dead.as_str_name(), "new_state": HaState::Dead.as_str_name(), "timestamp": now_in_millis(), "term": "0" } },
+                // Mock the init HaScopeActorState from the peer HA scope
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Dead.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
                 // Expect a VoteRequest to be sent
                 recv!( key: VoteRequest::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Unspecified.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) ),
-                // Expect a HaStateChanged: connecting -> connected
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Connecting.as_str_name(), "new_state": HaState::Connected.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: connected
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: connecting -> connected
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Mock a VoteReply
                 send! { key: VoteReply::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "response": "BecomeStandby" } },
@@ -798,20 +787,17 @@ mod test {
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
                     },
-                // Expect a HaStateChanged: connected -> initializing_to_standby
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Connected.as_str_name(), "new_state": HaState::InitializingToStandby.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one last HaScopeActorState update: Initializing_to_standby
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect a HaScopeActorState: connected -> initializing_to_standby
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
                 
                 // Mock a bulkSyncCompleted message from the peer
                 send! { key: BulkSyncUpdate::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "finished": true }},
-                // Expect a HaStateChanged: initializing_to_standby -> pending_standby_activation
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::InitializingToStandby.as_str_name(), "new_state": HaState::PendingStandbyActivation.as_str_name(), "timestamp": now_in_millis(), "term": "0" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Mock the HaStateChanged from the peer HA scope that carries the new term
-                send! { key: HAStateChanged::msg_key(&peer_scope_id), data: { "prev_state": HaState::PendingActiveActivation.as_str_name(), "new_state": HaState::Active.as_str_name(), "timestamp": now_in_millis(), "term": "1" } },
-                // Expect one HaScopeActorState update: Pending_standby_activation
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
-                
+                // Expect a HaScopeActorState: initializing_to_standby -> pending_standby_activation
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingStandbyActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingStandbyActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Mock the HaScopeActorState from the peer HA scope that carries the new term
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": "", "peer_vdpu_id": "" } },
 
                 // Expect a pending role activation request in NPU DASH_HA_SCOPE_STATE table
                 chkdb! { type: NpuDashHaScopeState,
@@ -859,10 +845,9 @@ mod test {
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
                     },
-                // Expect a HaStateChanged: pending_standby_activation -> standby
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::PendingStandbyActivation.as_str_name(), "new_state": HaState::Standby.as_str_name(), "timestamp": now_in_millis(), "term": "1" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                // Expect one HaScopeActorState update: Standby
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect a HaScopeActorState: pending_standby_activation -> standby
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
             ];
 
             test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
@@ -907,22 +892,18 @@ mod test {
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
                     },
 
-                // Expect a HaStateChanged: Standby -> Destroying
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Standby.as_str_name(), "new_state": HaState::Destroying.as_str_name(), "timestamp": now_in_millis(), "term": "1" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-
-                // Expect the HaScopeActorState update: Destroying
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect a HaScopeActorState: Standby -> Destroying
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Send DPU DASH_HA_SCOPE_STATE with ha_role = dead
                 send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
                         "field_values": serde_json::to_value(to_field_values(&dpu_ha_state_state).unwrap()).unwrap()
                         }},
 
-                // Expect a HaStateChanged: Destroying -> Dead
-                recv! { key: HAStateChanged::msg_key(&scope_id), data: { "prev_state": HaState::Destroying.as_str_name(), "new_state": HaState::Dead.as_str_name(), "timestamp": now_in_millis(), "term": "1" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-
-                // Expect one last HaScopeActorState update: Dead
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "ha_scope_state": NpuDashHaScopeState::default(), "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "ha_scope_state" },
+                // Expect HaScopeActorState: Destroying -> Dead
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Delete the HA scope config entry
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",

@@ -60,7 +60,7 @@ impl NpuHaScopeActor {
                 }
             }
         } else if HaSetActorState::is_my_msg(key) {
-            match self.handle_haset_state_update_npu_driven_mode(state) {
+            match self.handle_haset_state_update_npu_driven(state) {
                 Ok(incoming_event) => {
                     event = Some(incoming_event);
                 }
@@ -69,7 +69,7 @@ impl NpuHaScopeActor {
                 }
             }
         } else if VDpuActorState::is_my_msg(key) {
-            match self.handle_vdpu_state_update_npu_driven_mode(state, context).await {
+            match self.handle_vdpu_state_update_npu_driven(state, context).await {
                 Ok(incoming_event) => {
                     event = Some(incoming_event);
                 }
@@ -107,7 +107,7 @@ impl NpuHaScopeActor {
                     error!("Invalid Vote Reply Update!")
                 }
             }
-        } else if HAStateChanged::is_my_msg(key) {
+        } else if HaScopeActorState::is_my_msg(key) {
             match self.handle_ha_state_change(state, key) {
                 Ok(incoming_event) => {
                     event = Some(incoming_event);
@@ -233,7 +233,7 @@ impl NpuHaScopeActor {
     }
 
     /// Handles registration messages from peer HA Scope actor
-    /// Respond with HAStateChanged when the actor-self is ready
+    /// Respond with HaScopeActorState when the actor-self is ready
     async fn handle_peer_heartbeat(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
         let (internal, incoming, outgoing) = state.get_all();
         let entry = incoming
@@ -245,12 +245,20 @@ impl NpuHaScopeActor {
             return Ok(HaEvent::None);
         };
 
-        let msg = HAStateChanged::new_actor_msg(
+        let owner = self
+            .base
+            .dash_ha_scope_config
+            .as_ref()
+            .map(|c| c.owner)
+            .unwrap_or(HaOwner::Unspecified as i32);
+        let msg = HaScopeActorState::new_actor_msg(
             &self.base.id,
-            "",
+            owner,
             npu_ha_scope_state.local_ha_state.as_deref().unwrap_or(""),
             npu_ha_scope_state.local_ha_state_last_updated_time_in_ms.unwrap_or(0),
             npu_ha_scope_state.local_target_term.as_deref().unwrap_or("0"),
+            &self.base.vdpu_id,
+            self.base.peer_vdpu_id.as_deref().unwrap_or(""),
         )?;
         outgoing.send(entry.source.clone(), msg);
 
@@ -260,7 +268,7 @@ impl NpuHaScopeActor {
     /// Handles VDPU state update messages for this HA scope.
     /// If the vdpu is unmanaged, the actor is put in dormant state.
     /// Otherwise, map the update to a HaEvent
-    async fn handle_vdpu_state_update_npu_driven_mode(
+    async fn handle_vdpu_state_update_npu_driven(
         &mut self,
         state: &mut State,
         context: &mut Context,
@@ -332,7 +340,7 @@ impl NpuHaScopeActor {
     /// Handles HaSet state update messages for this HA scope.
     /// Map the update to a HaEvent
     /// Register messages from a peer HA scope actor
-    fn handle_haset_state_update_npu_driven_mode(&mut self, state: &mut State) -> Result<HaEvent> {
+    fn handle_haset_state_update_npu_driven(&mut self, state: &mut State) -> Result<HaEvent> {
         // the ha_scope is not managing the target vDPU. Skip
         if !self.base.vdpu_is_managed(state.incoming()) {
             return Ok(HaEvent::None);
@@ -488,9 +496,9 @@ impl NpuHaScopeActor {
             info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
             return Ok(HaEvent::None);
         };
-        let change: Option<HAStateChanged> = self.base.decode_hascope_actor_message(incoming, key);
+        let change: Option<HaScopeActorState> = self.base.decode_hascope_actor_message(incoming, key);
         let Some(change) = change else {
-            return Err(anyhow!("Failed to decode HAStateChanged message"));
+            return Err(anyhow!("Failed to decode HaScopeActorState message"));
         };
 
         npu_ha_scope_state.peer_ha_state = Some(change.new_state);
@@ -508,7 +516,7 @@ impl NpuHaScopeActor {
         if self.peer_connected {
             Ok(HaEvent::PeerStateChanged)
         } else {
-            // we treat the first HaStateChanged message from the peer as a confirmation of connection
+            // we treat the first HaScopeActorState message from the peer as a confirmation of connection
             self.peer_connected = true;
             Ok(HaEvent::PeerConnected)
         }
@@ -717,6 +725,11 @@ impl NpuHaScopeActor {
             info!("vDPU {} has not been initialized yet", &self.base.vdpu_id);
             return Ok(());
         };
+        let ha_set_id = self.base.get_haset_id().unwrap_or_default();
+        let Some(_haset) = self.base.get_haset(state.incoming()) else {
+            debug!("HA-SET {} has not been initialized yet", &ha_set_id);
+            return Ok(());
+        };
 
         let current_state = self.current_npu_ha_state(state.internal());
         let mut event_to_use = *event;
@@ -744,41 +757,44 @@ impl NpuHaScopeActor {
                 self.apply_pending_state_side_effects(state, &current_state, &pending_state)?;
                 self.set_npu_local_ha_state(state, pending_state, reason)?;
 
-                // send out HAStateChanged message to the peer
+                // send out HaScopeActorState message to the peer and ha-set actor
                 let (internal, _incoming, outgoing) = state.get_all();
                 let npu_state = self.base.get_npu_ha_scope_state(internal);
                 let local_target_term = npu_state.as_ref().and_then(|s| s.local_target_term.as_deref());
-                if let Some(peer_actor_id) = self.base.get_peer_actor_id() {
-                    if let Ok(msg) = HAStateChanged::new_actor_msg(
-                        &self.base.id,
-                        current_state.as_str_name(),
-                        pending_state.as_str_name(),
-                        now_in_millis(),
-                        local_target_term.unwrap_or("0"),
-                    ) {
-                        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
-                    }
-                }
-
-                // Send a state update message to the ha-set actor
                 let owner = self
                     .base
                     .dash_ha_scope_config
                     .as_ref()
                     .map(|c| c.owner)
                     .unwrap_or(HaOwner::Unspecified as i32);
-                if let Some(ref npu_state) = npu_state {
+                let new_state = pending_state.as_str_name();
+                let timestamp = now_in_millis();
+                let term = local_target_term.unwrap_or("0");
+                if let Some(peer_actor_id) = self.base.get_peer_actor_id() {
                     if let Ok(msg) = HaScopeActorState::new_actor_msg(
                         &self.base.id,
                         owner,
-                        npu_state,
+                        new_state,
+                        timestamp,
+                        term,
                         &self.base.vdpu_id,
                         self.base.peer_vdpu_id.as_deref().unwrap_or(""),
                     ) {
-                        if let Some(ha_set_id) = self.base.get_haset_id() {
-                            outgoing.send(outgoing.from_my_sp(HaSetActor::name(), &ha_set_id), msg);
-                        }
+                        outgoing.send(outgoing.from_my_sp(HaScopeActor::name(), &peer_actor_id), msg);
                     }
+                }
+
+                // Send a state update message to the ha-set actor
+                if let Ok(msg) = HaScopeActorState::new_actor_msg(
+                    &self.base.id,
+                    owner,
+                    new_state,
+                    timestamp,
+                    term,
+                    &self.base.vdpu_id,
+                    self.base.peer_vdpu_id.as_deref().unwrap_or(""),
+                ) {
+                    outgoing.send(outgoing.from_my_sp(HaSetActor::name(), &ha_set_id), msg);
                 }
             }
             _ => {
@@ -957,7 +973,7 @@ impl NpuHaScopeActor {
     fn check_peer_connection_and_retry(&mut self, state: &mut State) -> Result<HaEvent> {
         if !self.peer_connected {
             if self.retry_count < MAX_RETRIES {
-                // retry sending peer with HAStateChanged Registration Message
+                // retry sending peer with HaScopeActorState message
                 self.retry_count += 1;
 
                 // send another heartbeat message

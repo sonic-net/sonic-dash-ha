@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::HaScopeConfig;
-use sonic_dash_api_proto::types::HaOwner;
+use sonic_dash_api_proto::types::{HaOwner, HaState};
 use std::collections::HashMap;
 use swbus_actor::{
     state::{incoming::Incoming, internal::Internal, outgoing::Outgoing},
@@ -66,11 +66,12 @@ impl HaScopeBase {
             .as_ref()
             .map(|c| c.owner)
             .unwrap_or(HaOwner::Unspecified as i32);
-        let npu_state: NpuDashHaScopeState = Default::default();
         if let Ok(msg) = HaScopeActorState::new_actor_msg(
             &self.id,
             owner,
-            &npu_state,
+            HaState::Unspecified.as_str_name(),
+            0,
+            "0",
             &self.vdpu_id,
             self.peer_vdpu_id.as_deref().unwrap_or(""),
         ) {

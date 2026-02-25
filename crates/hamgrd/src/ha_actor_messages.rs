@@ -1,6 +1,6 @@
 // temporarily disable unused warning until vdpu/ha-set actors are implemented
 #![allow(unused)]
-use crate::db_structs::{DashBfdProbeState, DashHaSetTable, Dpu, DpuState, NpuDashHaScopeState, RemoteDpu};
+use crate::db_structs::{DashBfdProbeState, DashHaSetTable, Dpu, DpuState, RemoteDpu};
 use anyhow::Result;
 use chrono::{format::ParseError, DateTime, TimeZone, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
@@ -173,7 +173,9 @@ impl HaSetActorState {
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct HaScopeActorState {
     pub owner: i32,
-    pub ha_scope_state: NpuDashHaScopeState,
+    pub new_state: String,
+    pub timestamp: i64,
+    pub term: String,
     pub vdpu_id: String,
     pub peer_vdpu_id: String,
 }
@@ -182,7 +184,9 @@ impl HaScopeActorState {
     pub fn new_actor_msg(
         my_id: &str,
         owner: i32,
-        ha_scope_state: &NpuDashHaScopeState,
+        new_state: &str,
+        timestamp: i64,
+        term: &str,
         vdpu_id: &str,
         peer_vdpu_id: &str,
     ) -> Result<ActorMessage> {
@@ -190,7 +194,9 @@ impl HaScopeActorState {
             Self::msg_key(my_id),
             &Self {
                 owner,
-                ha_scope_state: ha_scope_state.clone(),
+                new_state: new_state.to_string(),
+                timestamp,
+                term: term.to_string(),
                 vdpu_id: vdpu_id.to_string(),
                 peer_vdpu_id: peer_vdpu_id.to_string(),
             },
@@ -406,45 +412,6 @@ impl BulkSyncUpdate {
 
     pub fn msg_key_prefix() -> &'static str {
         "BulkSyncUpdate|"
-    }
-
-    pub fn msg_key(my_id: &str) -> String {
-        format!("{}{}", Self::msg_key_prefix(), my_id)
-    }
-
-    pub fn is_my_msg(key: &str) -> bool {
-        key.starts_with(Self::msg_key_prefix())
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
-pub struct HAStateChanged {
-    // state transition
-    pub prev_state: String,
-    pub new_state: String,
-    pub timestamp: i64,
-    pub term: String,
-}
-
-impl HAStateChanged {
-    pub fn new_actor_msg(my_id: &str, prev_state: &str, new_state: &str, ts: i64, term: &str) -> Result<ActorMessage> {
-        ActorMessage::new(
-            Self::msg_key(my_id),
-            &Self {
-                prev_state: prev_state.to_string(),
-                new_state: new_state.to_string(),
-                timestamp: ts,
-                term: term.to_string(),
-            },
-        )
-    }
-
-    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
-        ActorMessage::new(Self::msg_key(my_id), self)
-    }
-
-    pub fn msg_key_prefix() -> &'static str {
-        "HAStateChanged|"
     }
 
     pub fn msg_key(my_id: &str) -> String {
