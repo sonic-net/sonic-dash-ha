@@ -392,7 +392,7 @@ impl DpuActor {
             .deserialize_data()?;
         let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&ha_global_config_kfv.field_values)?;
 
-        self.set_neigh_resolve(global_cfg.vlan_name.as_deref().unwrap_or(""), outgoing)?;
+        self.set_neigh_resolve(global_cfg.dpu_vlan.as_deref().unwrap_or(""), outgoing)?;
         Ok(())
     }
 
@@ -588,7 +588,7 @@ mod test {
             // Send DashHaGlobalConfig to trigger NeighResolveTable
             send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
             // Check for NeighResolveTable message
-            recv! { key: "switch0_dpu0", data: {"key": format!("{}:{}", dash_global_cfg.vlan_name.as_ref().unwrap(), dpu_actor_state_wo_bfd.pa_ipv4.clone()), "operation": "Set", "field_values": {"mac":"00:00:00:00:00:00"}},
+            recv! { key: "switch0_dpu0", data: {"key": format!("{}:{}", dash_global_cfg.dpu_vlan.as_ref().unwrap(), dpu_actor_state_wo_bfd.pa_ipv4.clone()), "operation": "Set", "field_values": {"mac":"00:00:00:00:00:00"}},
                     addr: crate::common_bridge_sp::<NeighResolveTable>(&runtime.get_swbus_edge()) },
 
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },
