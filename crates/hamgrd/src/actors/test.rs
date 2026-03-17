@@ -486,7 +486,7 @@ pub fn string_to_ip(s: String) -> Option<IpAddress> {
     }
     if let Ok(v4) = s.parse::<std::net::Ipv4Addr>() {
         Some(IpAddress {
-            ip: Some(Ip::Ipv4(u32::from(v4))),
+            ip: Some(Ip::Ipv4(u32::from(v4).to_be())),
         })
     } else if let Ok(v6) = s.parse::<std::net::Ipv6Addr>() {
         Some(IpAddress {

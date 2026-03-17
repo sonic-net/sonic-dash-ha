@@ -17,7 +17,7 @@ pub mod types {
 
 pub fn ip_to_string(ip: &IpAddress) -> String {
     match &ip.ip {
-        Some(Ip::Ipv4(addr)) => std::net::Ipv4Addr::from(*addr).to_string(),
+        Some(Ip::Ipv4(addr)) => std::net::Ipv4Addr::from(u32::from_be(*addr)).to_string(),
         Some(Ip::Ipv6(addr)) => {
             use std::net::Ipv6Addr;
             let bytes: [u8; 16] = addr.clone().try_into().unwrap_or([0; 16]);
