@@ -56,7 +56,7 @@ test-release:
 clean-release:
 	cargo clean --release
 
-ci-all: | ci-format ci-build ci-doc ci-lint ci-test
+ci-all: | ci-format ci-build ci-doc ci-lint ci-test ci-coverage
 
 ci-format:
 	cargo fmt --check --all
@@ -80,3 +80,8 @@ ci-test:
 	cargo test           --workspace --all-features
 	cargo clean
 	cargo test --release --workspace --all-features
+
+ci-coverage:
+	rustup component add llvm-tools-preview
+	cargo install cargo-llvm-cov --locked || true
+	cargo llvm-cov --workspace --all-features --fail-under-lines 80

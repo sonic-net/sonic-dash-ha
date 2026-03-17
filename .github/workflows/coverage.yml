@@ -1,0 +1,33 @@
+name: Coverage
+
+on:
+  pull_request: {}
+
+jobs:
+  coverage:
+    if: github.repository_owner == 'sonic-net'
+    name: Rust line coverage (>= 80%)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (no submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install LLVM tools for coverage
+        run: rustup component add llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: |
+          cargo install cargo-llvm-cov --locked || true
+          cargo llvm-cov --version
+
+      - name: Run unit tests with coverage (fail under 80% lines)
+        run: cargo llvm-cov --workspace --all-features --fail-under-lines 80
