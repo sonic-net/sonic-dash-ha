@@ -1,6 +1,7 @@
 use crate::actors::{spawn_consumer_bridge_for_actor, ActorCreator};
 use crate::db_structs::{
-    now_in_millis, DashBfdProbeState, Dpu, DpuPmonStateType, DpuResetInfo, DpuState, NeighResolveTable, RemoteDpu,
+    now_in_millis, DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuPmonStateType, DpuResetInfo, DpuState,
+    NeighResolveTable, RemoteDpu,
 };
 use crate::ha_actor_messages::{ActorRegistration, DpuActorState, RegistrationType};
 use crate::ServicePath;
@@ -170,9 +171,17 @@ impl DpuActor {
 
         if is_managed {
             if first_time {
-                if let Err(e) = self.set_neigh_resolve(outgoing) {
-                    error!("Failed to set NEIGH_RESOLVE_TABLE: {}", e);
-                }
+                // DASH_HA_GLOBAL_CONFIG from common-bridge sent to this actor instance only.
+                // Key is DASH_HA_GLOBAL_CONFIG
+                self.bridges.push(
+                    spawn_consumer_bridge_for_actor::<DashHaGlobalConfig>(
+                        context.get_edge_runtime().clone(),
+                        Self::name(),
+                        Some(&self.id),
+                        true,
+                    )
+                    .await?,
+                );
 
                 // DASH_BFD_PROBE_STATE from common-bridge sent to this actor instance only.
                 // Key is DASH_BFD_PROBE_STATE
@@ -376,6 +385,17 @@ impl DpuActor {
         Ok(())
     }
 
+    fn handle_dash_ha_global_config(&mut self, state: &mut State) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+        let ha_global_config_kfv: KeyOpFieldValues = incoming
+            .get_or_fail(DashHaGlobalConfig::table_name())?
+            .deserialize_data()?;
+        let global_cfg: DashHaGlobalConfig = swss_serde::from_field_values(&ha_global_config_kfv.field_values)?;
+
+        self.set_neigh_resolve(global_cfg.dpu_vlan.as_deref().unwrap_or(""), outgoing)?;
+        Ok(())
+    }
+
     fn is_local_managed(&self) -> bool {
         if let Some(DpuData::LocalDpu { is_managed, .. }) = self.dpu {
             return is_managed;
@@ -383,13 +403,13 @@ impl DpuActor {
         false
     }
 
-    fn set_neigh_resolve(&self, outgoing: &mut Outgoing) -> Result<()> {
+    fn set_neigh_resolve(&self, intf_name: &str, outgoing: &mut Outgoing) -> Result<()> {
         let Some(DpuData::LocalDpu { ref dpu, .. }) = self.dpu else {
             debug!("DPU is not managed by this HA instance, do not set NEIGH_RESOLVE_TABLE");
             return Ok(());
         };
 
-        let swss_key = format!("{}:{}", "", dpu.pa_ipv4.clone());
+        let swss_key = format!("{}:{}", intf_name, dpu.pa_ipv4.clone());
         let entry = NeighResolveTable {
             mac: "00:00:00:00:00:00".to_string(),
         };
@@ -479,6 +499,8 @@ impl Actor for DpuActor {
         // the rest of the messages are only for locally managed dpu
         if !self.is_local_managed() {
             return Ok(());
+        } else if key == DashHaGlobalConfig::table_name() {
+            return self.handle_dash_ha_global_config(state);
         } else if key == DpuState::table_name() {
             self.handle_pmon_transition(state)?;
             let (_internal, incoming, outgoing) = state.get_all();
@@ -500,7 +522,9 @@ mod test {
         dpu::DpuActor,
         test::{self, *},
     };
-    use crate::db_structs::{DashBfdProbeState, Dpu, DpuResetInfo, DpuState, NeighResolveTable, RemoteDpu};
+    use crate::db_structs::{
+        DashBfdProbeState, DashHaGlobalConfig, Dpu, DpuResetInfo, DpuState, NeighResolveTable, RemoteDpu,
+    };
     use crate::ha_actor_messages::DpuActorState;
     use sonic_common::SonicDbTable;
     use std::time::Duration;
@@ -520,6 +544,8 @@ mod test {
         let dpu_bfd_up_state = make_dpu_bfd_state(vec!["10.0.0.0", "10.0.1.0", "10.0.2.0", "10.0.3.0"], vec![]);
         let dpu_bfd_down_state = make_dpu_bfd_state(vec![], vec![]);
         let dpu_actor_state_wo_bfd = make_local_dpu_actor_state(0, 0, true, Some(dpu_pmon_up_state.clone()), None);
+        let dash_global_cfg = make_dash_ha_global_config();
+        let dash_global_cfg_fvs = serde_json::to_value(to_field_values(&dash_global_cfg).unwrap()).unwrap();
 
         let mut dpu_actor_up_state = dpu_actor_state_wo_bfd.clone();
         dpu_actor_up_state.up = true;
@@ -559,8 +585,10 @@ mod test {
             // Receiving DPU config-db object from swss-common bridge
             send! { key: Dpu::table_name(), data: { "key": "switch0_dpu0", "operation": "Set", "field_values": dpu_fvs},
                     addr: crate::common_bridge_sp::<Dpu>(&runtime.get_swbus_edge()) },
+            // Send DashHaGlobalConfig to trigger NeighResolveTable
+            send! { key: DashHaGlobalConfig::table_name(), data: { "key": DashHaGlobalConfig::table_name(), "operation": "Set", "field_values": dash_global_cfg_fvs} },
             // Check for NeighResolveTable message
-            recv! { key: "switch0_dpu0", data: {"key": format!("{}:{}", "".to_string(), dpu_actor_state_wo_bfd.pa_ipv4.clone()), "operation": "Set", "field_values": {"mac":"00:00:00:00:00:00"}},
+            recv! { key: "switch0_dpu0", data: {"key": format!("{}:{}", dash_global_cfg.dpu_vlan.as_ref().unwrap(), dpu_actor_state_wo_bfd.pa_ipv4.clone()), "operation": "Set", "field_values": {"mac":"00:00:00:00:00:00"}},
                     addr: crate::common_bridge_sp::<NeighResolveTable>(&runtime.get_swbus_edge()) },
 
             send! { key: "DPUStateRegister|vdpu/test-vdpu", data: { "active": true}, addr: runtime.sp("vdpu", "test-vdpu") },

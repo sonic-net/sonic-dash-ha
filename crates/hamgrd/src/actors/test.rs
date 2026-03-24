@@ -361,7 +361,8 @@ pub fn make_dash_ha_global_config() -> DashHaGlobalConfig {
         dp_channel_src_port_max: Some(45678),
         dp_channel_probe_fail_threshold: Some(3),
         dp_channel_probe_interval_ms: Some(1000),
-        vnet_name: Some("vnet0".to_string()),
+        dpu_vnet: Some("vnet0".to_string()),
+        dpu_vlan: Some("Vlan55".to_string()),
     }
 }
 
