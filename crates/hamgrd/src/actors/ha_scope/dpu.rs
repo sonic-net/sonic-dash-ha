@@ -302,8 +302,8 @@ impl DpuHaScopeActor {
         npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_state.clone());
 
         // The current target term of the HA state machine. in dpu-driven mode, use the term acked by asic
-        npu_ha_scope_state.local_target_term = Some(dpu_ha_scope_state.ha_term.clone());
-        npu_ha_scope_state.local_acked_term = Some(dpu_ha_scope_state.ha_term);
+        npu_ha_scope_state.local_target_term = dpu_ha_scope_state.ha_term.clone();
+        npu_ha_scope_state.local_acked_term = dpu_ha_scope_state.ha_term;
 
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
         internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);

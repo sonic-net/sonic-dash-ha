@@ -230,7 +230,7 @@ where
 
             Ok(sessions)
         }
-        None => Ok(Vec::new()), // Use empty vector when field is missing
+        _ => Ok(Vec::new()), // Use empty vector when field is missing
     }
 }
 
@@ -260,7 +260,7 @@ where
             let naive = chrono::NaiveDateTime::parse_from_str(s, TIMESTAMP_FORMAT).map_err(de::Error::custom)?;
             Ok(naive.and_utc().timestamp_millis())
         }
-        None => Ok(now_in_millis()), // Use default when field is missing
+        _ => Ok(now_in_millis()), // Use default when field is missing
     }
 }
 
@@ -402,7 +402,7 @@ pub struct DpuDashHaScopeState {
     // The time when HA role is moved into current one in milliseconds.
     pub ha_role_start_time: i64,
     // The current term confirmed by ASIC.
-    pub ha_term: String,
+    pub ha_term: Option<String>,
     // The DPU ha state.
     pub ha_state: String,
     // The time when HA state is moved into current one in milliseconds.
@@ -911,5 +911,24 @@ mod test {
         let bfd_state2: DashBfdProbeState = swss_serde::from_field_values(&serialized_fvs).unwrap();
         assert_eq!(bfd_state.v4_bfd_up_sessions, bfd_state2.v4_bfd_up_sessions);
         assert_eq!(bfd_state.v6_bfd_up_sessions, bfd_state2.v6_bfd_up_sessions);
+    }
+
+    #[test]
+    fn test_deserialize_dpu_ha_scope_state_without_term() {
+        let json = r#"
+        {
+            "last_updated_time": "100",
+            "ha_role": "standby",
+            "ha_role_start_time": "101",
+            "ha_state": "standby",
+            "ha_state_start_time": "102"
+        }"#;
+
+        let fvs: FieldValues = serde_json::from_str(json).unwrap();
+        let ha_scope_state: DpuDashHaScopeState = swss_serde::from_field_values(&fvs).unwrap();
+
+        assert_eq!(ha_scope_state.ha_term, None);
+        assert_eq!(ha_scope_state.ha_role, "standby");
+        assert_eq!(ha_scope_state.ha_state, "standby");
     }
 }

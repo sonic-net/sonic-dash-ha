@@ -372,7 +372,7 @@ mod test {
             let npu_ha_scope_state_fvs4 = to_field_values(&npu_ha_scope_state4).unwrap();
 
             let mut dpu_ha_state_state5 = make_dpu_ha_scope_state("active");
-            dpu_ha_state_state5.ha_term = "2".to_string();
+            dpu_ha_state_state5.ha_term = Some("2".to_string());
             let mut npu_ha_scope_state5: NpuDashHaScopeState = npu_ha_scope_state4.clone();
             update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state5, &dpu_ha_state_state5, "active");
             let npu_ha_scope_state_fvs5 = to_field_values(&npu_ha_scope_state5).unwrap();
@@ -656,7 +656,7 @@ mod test {
             assert_eq!(npu_ha_scope_state.local_target_term.as_deref(), Some("1"));
 
             let mut dpu_ha_state_state = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
-            dpu_ha_state_state.ha_term = "1".to_string();
+            dpu_ha_state_state.ha_term = Some("1".to_string());
 
             // Shutdown
             // Note: Active node can only be forced shutdown by setting disabled to true
@@ -858,7 +858,7 @@ mod test {
             assert_eq!(npu_ha_scope_state.local_target_term.as_deref(), Some("1"));
 
             let mut dpu_ha_state_state = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
-            dpu_ha_state_state.ha_term = "1".to_string();
+            dpu_ha_state_state.ha_term = Some("1".to_string());
 
             // Planned Shutdown: Standby sends ShutdownRequest to peer, waits for acceptance
             #[rustfmt::skip]
@@ -1437,7 +1437,7 @@ mod test {
             // Active node uses disabled=true for forced shutdown
             // ============================================================
             let mut dpu_ha_state_state = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
-            dpu_ha_state_state.ha_term = "2".to_string();
+            dpu_ha_state_state.ha_term = Some("2".to_string());
 
             #[rustfmt::skip]
             let commands = [

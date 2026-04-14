@@ -463,13 +463,13 @@ impl NpuHaScopeActor {
         };
 
         info!(
-            "Received New DPU_HA_SCOPE_STATE_TABLE: ha_role-{}, ha_term-{}",
+            "Received New DPU_HA_SCOPE_STATE_TABLE: ha_role-{}, ha_term-{:?}",
             new_dpu_ha_scope_state.ha_role.clone(),
             new_dpu_ha_scope_state.ha_term.clone()
         );
 
         npu_ha_scope_state.local_acked_asic_ha_state = Some(new_dpu_ha_scope_state.ha_role.clone());
-        npu_ha_scope_state.local_acked_term = Some(new_dpu_ha_scope_state.ha_term.clone());
+        npu_ha_scope_state.local_acked_term = new_dpu_ha_scope_state.ha_term.clone();
         self.base.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;

@@ -723,8 +723,8 @@ pub fn update_npu_ha_scope_state_by_dpu_scope_state(
     npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
     npu_ha_scope_state.local_target_asic_ha_state = Some(target_ha_state.to_string());
     npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
-    npu_ha_scope_state.local_target_term = Some(dpu_ha_scope_state.ha_term.clone());
-    npu_ha_scope_state.local_acked_term = Some(dpu_ha_scope_state.ha_term.clone());
+    npu_ha_scope_state.local_target_term = dpu_ha_scope_state.ha_term.clone();
+    npu_ha_scope_state.local_acked_term = dpu_ha_scope_state.ha_term.clone();
 }
 
 pub fn update_npu_ha_scope_state_pending_ops(
@@ -750,7 +750,7 @@ pub fn make_dpu_ha_scope_state(role: &str) -> DpuDashHaScopeState {
         // The time when HA role is moved into current one in milliseconds.
         ha_role_start_time: now_in_millis(),
         // The current term confirmed by ASIC.
-        ha_term: "1".to_string(),
+        ha_term: Some("1".to_string()),
         // The DPU HA state.
         ha_state: role.to_string(),
         // The time when HA state is moved into current one in milliseconds.
