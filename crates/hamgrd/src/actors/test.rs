@@ -753,6 +753,8 @@ pub fn make_dpu_ha_scope_state(role: &str) -> DpuDashHaScopeState {
         ha_term: "1".to_string(),
         // The DPU HA state.
         ha_state: role.to_string(),
+        // The time when HA state is moved into current one in milliseconds.
+        ha_state_start_time: now_in_millis(),
         activate_role_pending: false,
         flow_reconcile_pending: false,
         brainsplit_recover_pending: false,
