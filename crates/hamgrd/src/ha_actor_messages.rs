@@ -139,16 +139,24 @@ pub struct HaSetActorState {
     pub up: bool,
     pub ha_set: DashHaSetTable,
     pub vdpu_ids: Vec<String>,
+    pub pinned_vdpu_bfd_probe_states: Vec<String>,
 }
 
 impl HaSetActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable, vdpu_ids: &[String]) -> Result<ActorMessage> {
+    pub fn new_actor_msg(
+        up: bool,
+        my_id: &str,
+        ha_set: DashHaSetTable,
+        vdpu_ids: &[String],
+        pinned_vdpu_bfd_probe_states: Vec<String>,
+    ) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
             &Self {
                 up,
                 ha_set,
                 vdpu_ids: vdpu_ids.to_owned(),
+                pinned_vdpu_bfd_probe_states,
             },
         )
     }

@@ -399,6 +399,15 @@ impl NpuHaScopeActor {
         };
         let peer_vdpu_id = self.base.get_remote_vdpu_id(&ha_set);
 
+        // Extract the pinned BFD state for the local vDPU from the HA set state
+        self.base.pinned_bfd_state = ha_set
+            .vdpu_ids
+            .iter()
+            .position(|id| id == &self.base.vdpu_id)
+            .and_then(|idx| ha_set.pinned_vdpu_bfd_probe_states.get(idx))
+            .filter(|s| !s.is_empty())
+            .cloned();
+
         let first_time = self.base.peer_vdpu_id.is_none();
         if first_time {
             // bookkeep the SP of local HA set actor at the first time
