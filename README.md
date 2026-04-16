@@ -6,7 +6,7 @@
 
 1. Install Rust using [rustup](https://rustup.rs/).
 
-2. Install Protobuf compiler (`protoc`)
+2. Install Protobuf compiler (`protoc`).
 
     ```sh
     # Ubuntu
