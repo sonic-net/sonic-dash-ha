@@ -169,6 +169,24 @@ impl NpuHaScopeActor {
                     error!("Invalid Shutdown Reply!")
                 }
             }
+        } else if DPURequestEnterStandalone::is_my_msg(key) {
+            match self.handle_dpu_request_enter_standalone(state, key) {
+                Ok(incoming_event) => {
+                    event = Some(incoming_event);
+                }
+                Err(_e) => {
+                    error!("Invalid DPURequestEnterStandalone!")
+                }
+            }
+        } else if DPURequestEnterStandaloneReply::is_my_msg(key) {
+            match self.handle_dpu_request_enter_standalone_reply(state, key) {
+                Ok(incoming_event) => {
+                    event = Some(incoming_event);
+                }
+                Err(_e) => {
+                    error!("Invalid DPURequestEnterStandaloneReply!")
+                }
+            }
         } else if SelfNotification::is_my_msg(key) {
             match self.handle_self_notification(state, key, context).await {
                 Ok(incoming_event) => {
@@ -855,6 +873,78 @@ impl NpuHaScopeActor {
             Err(anyhow!("Unknown event"))
         }
     }
+
+    /// Handle a DPURequestEnterStandalone message from the peer HA scope actor.
+    fn handle_dpu_request_enter_standalone(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
+        let (_internal, incoming, _outgoing) = state.get_all();
+        let request: Option<DPURequestEnterStandalone> = self.base.decode_hascope_actor_message(incoming, key);
+        let Some(request) = request else {
+            return Err(anyhow!("Failed to decode DPURequestEnterStandalone message"));
+        };
+
+        let local_dpu_up = self.base.get_vdpu(incoming).map(|v| v.up).unwrap_or(false);
+        let local_pinned_bfd_up = self.base.pinned_bfd_state.as_deref() == Some("up");
+
+        if !request.local_dpu_up {
+            info!("Asking peer HA scope to become standby because of remote DPU down!");
+            self.send_dpu_request_enter_standalone_reply(state, "EnterStandby");
+            return Ok(HaEvent::EnterStandalone);
+        }
+
+        if local_dpu_up && local_pinned_bfd_up {
+            // Local DPU is healthy and pinned BFD is up
+            info!("Denying DPURequestEnterStandalone because both DPU are healthy!");
+            self.send_dpu_request_enter_standalone_reply(state, "Deny");
+            return Ok(HaEvent::None);
+        }
+
+        if !local_dpu_up {
+            // Peer DPU is healthy while local DPU is not — allow the request
+            info!("Asking peer HA scope to become standalone because of local DPU down!");
+            self.send_dpu_request_enter_standalone_reply(state, "EnterStandalone");
+            return Ok(HaEvent::EnterStandby);
+        }
+
+        if !local_pinned_bfd_up && request.pinned_vdpu_bfd_probe_state == "up" {
+            info!("Asking peer HA scope to become standalone because of local DPU pinned BFD down!");
+            self.send_dpu_request_enter_standalone_reply(state, "EnterStandalone");
+            return Ok(HaEvent::EnterStandby);
+        }
+
+        // Neither side meets the conditions — deny
+        info!("Denying DPURequestEnterStandalone because peer DPU is not healthy either");
+        self.send_dpu_request_enter_standalone_reply(state, "Deny");
+        Ok(HaEvent::None)
+    }
+
+    /// Handle a DPURequestEnterStandaloneReply from the peer HA scope actor.
+    /// On "Deny", emit LeavingStandalone. Otherwise, enter corresponding state.
+    fn handle_dpu_request_enter_standalone_reply(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
+        let (_internal, incoming, _outgoing) = state.get_all();
+        let reply: Option<DPURequestEnterStandaloneReply> = self.base.decode_hascope_actor_message(incoming, key);
+        let Some(reply) = reply else {
+            return Err(anyhow!("Failed to decode DPURequestEnterStandaloneReply message"));
+        };
+
+        match reply.response.as_str() {
+            "EnterStandalone" => {
+                info!("Peer allowed DPURequestEnterStandalone, entering standalone");
+                Ok(HaEvent::EnterStandalone)
+            }
+            "EnterStandby" => {
+                info!("Peer allowed DPURequestEnterStandalone, entering standby");
+                Ok(HaEvent::EnterStandby)
+            }
+            "Deny" => {
+                info!("Peer denied DPURequestEnterStandalone, leaving standalone");
+                Ok(HaEvent::LeavingStandalone)
+            }
+            other => {
+                error!("Unexpected DPURequestEnterStandaloneReply response: {}", other);
+                Ok(HaEvent::None)
+            }
+        }
+    }
 }
 
 // State machine
@@ -925,7 +1015,8 @@ impl NpuHaScopeActor {
                     // Peer DPU planned shutdown
                     self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else {
-                    // TODO: send DPURequestEnterStandalone to peer
+                    // Send DPURequestEnterStandalone to peer with local health signals
+                    self.send_dpu_request_enter_standalone(state)?;
                 }
             }
             HaState::Active => {
@@ -1241,6 +1332,12 @@ impl NpuHaScopeActor {
             HaState::SwitchingToStandalone => {
                 if *event == HaEvent::EnterStandalone {
                     Some((HaState::Standalone, "won the standalone selection"))
+                } else if *event == HaEvent::LeavingStandalone {
+                    match target_state {
+                        TargetState::Active => Some((HaState::Active, "failed to enter standalone")),
+                        TargetState::Standby => Some((HaState::Standby, "failed to enter standalone")),
+                        _ => None, // Target Dead and Standalone case should not be handled at this place
+                    }
                 } else {
                     None
                 }
@@ -1293,6 +1390,43 @@ impl NpuHaScopeActor {
                 outgoing.send(ha_set_sp.clone(), msg.clone());
             }
         }
+    }
+
+    /// Send a DPURequestEnterStandaloneReply message to the peer HA scope actor.
+    fn send_dpu_request_enter_standalone_reply(&self, state: &mut State, response: &str) {
+        let outgoing = state.outgoing();
+        if let Ok(msg) = DPURequestEnterStandaloneReply::new_actor_msg(&self.base.id, response) {
+            if let Some(peer_sp) = self.peer_sp() {
+                outgoing.send(peer_sp, msg);
+            }
+        }
+    }
+
+    /// Send a DPURequestEnterStandalone message to the peer HA scope actor
+    /// carrying the local DPU's critical health signals.
+    fn send_dpu_request_enter_standalone(&self, state: &mut State) -> Result<()> {
+        let (_internal, incoming, outgoing) = state.get_all();
+
+        let Some(peer_sp) = self.peer_sp() else {
+            info!("Cannot send DPURequestEnterStandalone to peer: peer service path not resolved");
+            return Ok(());
+        };
+
+        let vdpu_up = self.base.get_vdpu(incoming).map(|v| v.up).unwrap_or(false);
+        let dp_channel_is_alive = self.base.get_haset(incoming).map(|h| h.up).unwrap_or(false);
+        let pinned_bfd_state = self.base.pinned_bfd_state.clone().unwrap_or_default();
+
+        let msg =
+            DPURequestEnterStandalone::new_actor_msg(&self.base.id, dp_channel_is_alive, vdpu_up, pinned_bfd_state)?;
+        outgoing.send(peer_sp, msg);
+        info!(
+            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}",
+            dp_channel_is_alive,
+            vdpu_up,
+            self.base.pinned_bfd_state.as_deref().unwrap_or(""),
+        );
+
+        Ok(())
     }
 
     /// Check if the peer HA scope is connected

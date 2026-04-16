@@ -39,6 +39,8 @@ pub enum HaEvent {
     DpuStateChanged,
     EnterStandalone,
     EnterActive,
+    EnterStandby,
+    LeavingStandalone,
     Shutdown,
     PeerShutdownRequested,
 }
@@ -64,6 +66,8 @@ impl HaEvent {
             Self::DpuStateChanged => "DpuStateChanged",
             Self::EnterStandalone => "EnterStandalone",
             Self::EnterActive => "EnterActive",
+            Self::EnterStandby => "EnterStandby",
+            Self::LeavingStandalone => "LeavingStandalone",
             Self::Shutdown => "Shutdown",
             Self::PeerShutdownRequested => "PeerShutdownRequested",
         }
@@ -89,6 +93,8 @@ impl HaEvent {
             "DpuStateChanged" => Some(Self::DpuStateChanged),
             "EnterStandalone" => Some(Self::EnterStandalone),
             "EnterActive" => Some(Self::EnterActive),
+            "EnterStandby" => Some(Self::EnterStandby),
+            "LeavingStandalone" => Some(Self::LeavingStandalone),
             "Shutdown" => Some(Self::Shutdown),
             "PeerShutdownRequested" => Some(Self::PeerShutdownRequested),
             _ => None,

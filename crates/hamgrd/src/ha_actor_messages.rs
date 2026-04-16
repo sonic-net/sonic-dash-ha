@@ -580,3 +580,79 @@ impl ShutdownReply {
         key.starts_with(Self::msg_key_prefix())
     }
 }
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct DPURequestEnterStandaloneReply {
+    pub response: String,
+}
+
+impl DPURequestEnterStandaloneReply {
+    pub fn new_actor_msg(my_id: &str, response: &str) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                response: response.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "DPURequestEnterStandaloneReply|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct DPURequestEnterStandalone {
+    /// Whether the HA set data plane channel is alive.
+    pub dp_channel_is_alive: bool,
+    /// Whether the local DPU is up.
+    pub local_dpu_up: bool,
+    /// Pinned BFD probe state for the local DPU.
+    pub pinned_vdpu_bfd_probe_state: String,
+}
+
+impl DPURequestEnterStandalone {
+    pub fn new_actor_msg(
+        my_id: &str,
+        dp_channel_is_alive: bool,
+        local_dpu_up: bool,
+        pinned_vdpu_bfd_probe_state: String,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dp_channel_is_alive,
+                local_dpu_up,
+                pinned_vdpu_bfd_probe_state,
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "DPURequestEnterStandalone|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
