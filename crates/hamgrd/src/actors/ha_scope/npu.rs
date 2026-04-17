@@ -1227,7 +1227,9 @@ impl NpuHaScopeActor {
             HaState::Standalone => {
                 // Note: PeerActive and PeerStandby events don't exist in HaEvent enum
                 // This branch needs to be updated based on actual event definitions
-                if *event == HaEvent::PeerStateChanged && self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby {
+                if *event == HaEvent::PeerStateChanged
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby
+                {
                     Some((HaState::Active, "peer initializing to standby"))
                 } else {
                     None
