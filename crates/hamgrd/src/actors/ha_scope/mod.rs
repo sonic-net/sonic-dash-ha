@@ -212,7 +212,9 @@ mod test {
             vdpu::VDpuActor,
             DbBasedActor,
         },
-        db_structs::{now_in_millis, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState},
+        db_structs::{
+            now_in_millis, DashFlowSyncSessionTable, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState,
+        },
         ha_actor_messages::*,
     };
     use sonic_common::SonicDbTable;
@@ -1102,15 +1104,46 @@ mod test {
             // Standalone node should transition to Active (term=3)
             // while the new peer enters Standby.
             // ============================================================
+            // Spawn a background client to receive and ack the DashFlowSyncSessionTable
+            // message sent by add_bulk_sync_session during Standalone → Active transition.
+            // Without this, the actor's outgoing queue has an unacked message and won't terminate.
+            {
+                use swbus_edge::simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient};
+                use swbus_edge::swbus_proto::swbus::SwbusErrorCode;
+                let client = SimpleSwbusEdgeClient::new(
+                    runtime.get_swbus_edge(),
+                    crate::common_bridge_sp::<DashFlowSyncSessionTable>(&runtime.get_swbus_edge()),
+                    true,
+                    false,
+                );
+                let aut_sp = runtime.sp(HaScopeActor::name(), &scope_id);
+                tokio::spawn(async move {
+                    while let Some(msg) = client.recv().await {
+                        if let MessageBody::Request { .. } = &msg.body {
+                            let _ = client
+                                .send(OutgoingMessage {
+                                    destination: aut_sp.clone(),
+                                    body: MessageBody::Response {
+                                        request_id: msg.id,
+                                        error_code: SwbusErrorCode::Ok,
+                                        error_message: "".to_string(),
+                                        response_body: None,
+                                    },
+                                })
+                                .await;
+                        }
+                    }
+                });
+            }
             #[rustfmt::skip]
             let commands = [
                 // New peer sends PeerHeartbeat — Standalone node responds with its state
-                send! { key: PeerHeartbeat::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id } },
+                send! { key: PeerHeartbeat::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
 
                 // New peer sends VoteRequest (term=0, state=Connecting)
                 // Standalone node has term=2 > peer term=0, so it replies BecomeStandby
-                send! { key: VoteRequest::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Unspecified.as_str_name() } },
+                send! { key: VoteRequest::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Unspecified.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
                 recv! { key: VoteReply::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "response": "BecomeStandby" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
 
                 // New peer transitions to InitializingToStandby and broadcasts state
