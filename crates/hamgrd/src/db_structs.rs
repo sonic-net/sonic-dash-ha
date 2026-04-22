@@ -5,9 +5,14 @@ use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, Strin
 use sonicdb_derive::SonicDb;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
+use std::collections::HashMap;
 
 /// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
 const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
+
+/// Constant Literals in DBs
+pub const ENI_INLINE_FLOW_SYNC_RX_PKTS: &str = "SAI_ENI_STAT_INLINE_FLOW_SYNC_PACKET_RX_PACKETS";
+pub const ENI_INLINE_FLOW_SYNC_TX_PKTS: &str = "SAI_ENI_STAT_INLINE_FLOW_SYNC_PACKET_TX_PACKETS";
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2112-ha-global-configurations>
 #[derive(Serialize, Deserialize, Default, Debug, SonicDb)]
@@ -591,6 +596,20 @@ pub fn get_remote_dpu_for_vdpu(vdpu_id: &str) -> Result<RemoteDpu> {
 #[sonicdb(table_name = "NEIGH_RESOLVE_TABLE", key_separator = ":", db_name = "APPL_DB")]
 pub struct NeighResolveTable {
     pub mac: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "COUNTERS_ENI_NAME_MAP", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = true)]
+pub struct CountersEniNameMapTable {
+    #[serde(flatten)]
+    pub eni_to_counters_map: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
+#[sonicdb(table_name = "COUNTERS", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = true)]
+pub struct CountersTable {
+    #[serde(flatten)]
+    pub counters_stats: HashMap<String, String>,
 }
 
 #[cfg(test)]

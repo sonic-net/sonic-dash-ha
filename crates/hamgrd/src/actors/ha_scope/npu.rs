@@ -1,3 +1,4 @@
+use crate::actors::ha_scope::INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD;
 use crate::actors::{spawn_consumer_bridge_for_actor, DbBasedActor};
 use crate::db_structs::*;
 use crate::ha_actor_messages::*;
@@ -6,6 +7,7 @@ use sonic_common::SonicDbTable;
 use sonic_dash_api_proto::decode_from_field_values;
 use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
 use sonic_dash_api_proto::types::{HaOwner, HaRole, HaState};
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use swbus_actor::{state::internal::Internal, ActorMessage, Context, State};
 use swss_common::{KeyOpFieldValues, KeyOperation};
@@ -30,6 +32,10 @@ pub struct NpuHaScopeActor {
     pub(super) retry_count: u32,
     /// Is peer connected?
     pub(super) peer_connected: bool,
+    /// Counter object IDs collected from COUNTERS_ENI_NAME_MAP (values of the ENI-to-OID map)
+    pub(super) counter_object_ids: HashSet<String>,
+    /// Counter statistics for tracked object IDs, keyed by object ID
+    pub(super) counter_stats: HashMap<String, HashMap<String, String>>,
 }
 
 impl NpuHaScopeActor {
@@ -39,6 +45,8 @@ impl NpuHaScopeActor {
             target_ha_scope_state: None,
             retry_count: 0,
             peer_connected: false,
+            counter_object_ids: HashSet::new(),
+            counter_stats: HashMap::new(),
         }
     }
 
@@ -194,6 +202,24 @@ impl NpuHaScopeActor {
                 }
                 Err(_e) => {
                     error!("Invalid Self Notification!")
+                }
+            }
+        } else if key.starts_with(CountersEniNameMapTable::table_name()) {
+            match self.handle_counters_eni_name_map_update(state, key) {
+                Ok(incoming_event) => {
+                    event = Some(incoming_event);
+                }
+                Err(e) => {
+                    error!("Invalid CountersEniNameMap Update: {}", e)
+                }
+            }
+        } else if key.starts_with(CountersTable::table_name()) {
+            match self.handle_counters_table_update(state, key) {
+                Ok(incoming_event) => {
+                    event = Some(incoming_event);
+                }
+                Err(e) => {
+                    error!("Invalid Counters Table Update: {}", e)
                 }
             }
         }
@@ -382,7 +408,27 @@ impl NpuHaScopeActor {
                     context.get_edge_runtime().clone(),
                     HaScopeActor::name(),
                     Some(&self.base.id),
+                    false,
+                )
+                .await?,
+            );
+            // subscribe to dpu COUNTERS_ENI_NAME_MAP
+            self.base.bridges.push(
+                spawn_consumer_bridge_for_actor::<CountersEniNameMapTable>(
+                    context.get_edge_runtime().clone(),
+                    HaScopeActor::name(),
+                    Some(&self.base.id),
                     true,
+                )
+                .await?,
+            );
+            // subscribe to dpu COUNTERS
+            self.base.bridges.push(
+                spawn_consumer_bridge_for_actor::<CountersTable>(
+                    context.get_edge_runtime().clone(),
+                    HaScopeActor::name(),
+                    Some(&self.base.id),
+                    false,
                 )
                 .await?,
             );
@@ -906,9 +952,26 @@ impl NpuHaScopeActor {
         }
 
         if !local_pinned_bfd_up && request.pinned_vdpu_bfd_probe_state == "up" {
+            // Remote DPU has BFD pinned up while local DPU has BFD pinned down
+            // Yield to the remote DPU
             info!("Asking peer HA scope to become standalone because of local DPU pinned BFD down!");
             self.send_dpu_request_enter_standalone_reply(state, "EnterStandalone");
             return Ok(HaEvent::EnterStandby);
+        }
+
+        if request.inline_sync_packet_drops {
+            // Dataplane gray failures detected, pick the DPU with higher desired state to become Standalone
+            let desired_ha_state = self.base.dash_ha_scope_config.as_ref().unwrap().desired_ha_state;
+            if desired_ha_state == DesiredHaState::Standalone as i32 || desired_ha_state == DesiredHaState::Active as i32 {
+                info!("Asking peer HA scope to become standby because local DPU is preferred!");
+                self.send_dpu_request_enter_standalone_reply(state, "EnterStandby");
+                return Ok(HaEvent::EnterStandalone);
+            }
+            else {
+                info!("Asking peer HA scope to become standalone because remote DPU is preferred!");
+                self.send_dpu_request_enter_standalone_reply(state, "EnterStandalone");
+                return Ok(HaEvent::EnterStandby);
+            }
         }
 
         // Neither side meets the conditions — deny
@@ -944,6 +1007,68 @@ impl NpuHaScopeActor {
                 Ok(HaEvent::None)
             }
         }
+    }
+
+    /// Handle COUNTERS_ENI_NAME_MAP updates.
+    /// Collects all counter object IDs (the map values) so we can match them against
+    /// incoming COUNTERS table entries.
+    fn handle_counters_eni_name_map_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
+        let (_internal, incoming, _outgoing) = state.get_all();
+        let msg = incoming
+            .get(key)
+            .ok_or_else(|| anyhow!("Failed to get CountersEniNameMapTable message"))?;
+        let kfv = msg.deserialize_data::<KeyOpFieldValues>()?;
+
+        let eni_name_map: CountersEniNameMapTable = swss_serde::from_field_values(&kfv.field_values)?;
+
+        // Collect all counter object IDs (map values)
+        self.counter_object_ids.clear();
+        for oid in eni_name_map.eni_to_counters_map.values() {
+            self.counter_object_ids.insert(oid.clone());
+        }
+
+        info!(
+            "Updated counter object IDs from COUNTERS_ENI_NAME_MAP: {} entries",
+            self.counter_object_ids.len()
+        );
+
+        Ok(HaEvent::None)
+    }
+
+    /// Handle COUNTERS table updates.
+    /// If the entry key matches a tracked counter object ID from COUNTERS_ENI_NAME_MAP,
+    /// store the counter statistics.
+    fn handle_counters_table_update(&mut self, state: &mut State, key: &str) -> Result<HaEvent> {
+        let (_internal, incoming, _outgoing) = state.get_all();
+        let msg = incoming
+            .get(key)
+            .ok_or_else(|| anyhow!("Failed to get CountersTable message"))?;
+        let kfv = msg.deserialize_data::<KeyOpFieldValues>()?;
+
+        // Check if this counter entry's key matches a tracked object ID
+        if self.counter_object_ids.contains(&kfv.key) {
+            let counters: CountersTable = swss_serde::from_field_values(&kfv.field_values)?;
+            info!(
+                "Storing counter stats for object ID {}: {} fields",
+                kfv.key,
+                counters.counters_stats.len()
+            );
+            let new_rx = counters.counters_stats.get(ENI_INLINE_FLOW_SYNC_RX_PKTS).and_then(|v| v.parse::<i64>().ok());
+            let new_tx = counters.counters_stats.get(ENI_INLINE_FLOW_SYNC_TX_PKTS).and_then(|v| v.parse::<i64>().ok());
+            if let Some(old_stats) = self.counter_stats.insert(kfv.key.clone(), counters.counters_stats) {
+                let old_rx = old_stats.get(ENI_INLINE_FLOW_SYNC_RX_PKTS).and_then(|v| v.parse::<i64>().ok());
+                let old_tx = old_stats.get(ENI_INLINE_FLOW_SYNC_TX_PKTS).and_then(|v| v.parse::<i64>().ok());
+                if let (Some(new_rx), Some(new_tx), Some(old_rx), Some(old_tx)) = (new_rx, new_tx, old_rx, old_tx) {
+                    let rx_diff = new_rx - old_rx;
+                    let tx_diff = new_tx - old_tx;
+                    if tx_diff - rx_diff > INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD {
+                        return Ok(HaEvent::HighInlineSyncDrops);
+                    }
+                }
+            }
+        }
+
+        Ok(HaEvent::None)
     }
 }
 
@@ -1263,6 +1388,8 @@ impl NpuHaScopeActor {
                     Some((HaState::SwitchingToStandalone, "local failure while active"))
                 } else if *event == HaEvent::PeerShutdownRequested {
                     Some((HaState::SwitchingToStandalone, "peer requested shutdown"))
+                } else if *event == HaEvent::HighInlineSyncDrops {
+                    Some((HaState::SwitchingToStandalone, "high inline-sync packet drops"))
                 } else {
                     None
                 }
@@ -1404,7 +1531,7 @@ impl NpuHaScopeActor {
 
     /// Send a DPURequestEnterStandalone message to the peer HA scope actor
     /// carrying the local DPU's critical health signals.
-    fn send_dpu_request_enter_standalone(&self, state: &mut State) -> Result<()> {
+    fn send_dpu_request_enter_standalone(&self, state: &mut State, inline_sync_drops_detected: bool) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
 
         let Some(peer_sp) = self.peer_sp() else {
@@ -1417,13 +1544,14 @@ impl NpuHaScopeActor {
         let pinned_bfd_state = self.base.pinned_bfd_state.clone().unwrap_or_default();
 
         let msg =
-            DPURequestEnterStandalone::new_actor_msg(&self.base.id, dp_channel_is_alive, vdpu_up, pinned_bfd_state)?;
+            DPURequestEnterStandalone::new_actor_msg(&self.base.id, dp_channel_is_alive, vdpu_up, pinned_bfd_state, inline_sync_drops_detected)?;
         outgoing.send(peer_sp, msg);
         info!(
-            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}",
+            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}, inline_sync_packet_drops={}",
             dp_channel_is_alive,
             vdpu_up,
             self.base.pinned_bfd_state.as_deref().unwrap_or(""),
+            inline_sync_drops_detected
         );
 
         Ok(())

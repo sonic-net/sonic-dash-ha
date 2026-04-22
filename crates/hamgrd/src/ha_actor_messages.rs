@@ -621,6 +621,8 @@ pub struct DPURequestEnterStandalone {
     pub local_dpu_up: bool,
     /// Pinned BFD probe state for the local DPU.
     pub pinned_vdpu_bfd_probe_state: String,
+    /// High inline sync packet drop rate detected or not
+    pub inline_sync_packet_drops: bool 
 }
 
 impl DPURequestEnterStandalone {
@@ -629,6 +631,7 @@ impl DPURequestEnterStandalone {
         dp_channel_is_alive: bool,
         local_dpu_up: bool,
         pinned_vdpu_bfd_probe_state: String,
+        inline_sync_packet_drops: bool,
     ) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
@@ -636,6 +639,7 @@ impl DPURequestEnterStandalone {
                 dp_channel_is_alive,
                 local_dpu_up,
                 pinned_vdpu_bfd_probe_state,
+                inline_sync_packet_drops,
             },
         )
     }

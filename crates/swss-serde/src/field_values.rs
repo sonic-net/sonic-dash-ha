@@ -83,11 +83,15 @@ impl<'de: 'a, 'a> Deserializer<'de> for FieldValuesDeserializer<'a> {
 
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string bytes byte_buf option unit
-        unit_struct newtype_struct seq tuple tuple_struct map enum ignored_any identifier
+        unit_struct newtype_struct seq tuple tuple_struct enum ignored_any identifier
     }
 
     fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
         Err(Error::new("FieldValues can only be deserialized into a struct"))
+    }
+
+    fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        visitor.visit_map(FieldValuesMapAccess::new(self.fvs))
     }
 }
 

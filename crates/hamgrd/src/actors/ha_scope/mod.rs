@@ -18,6 +18,7 @@ use npu::NpuHaScopeActor;
 const MAX_RETRIES: u32 = 3;
 const RETRY_INTERVAL: u32 = 30; // seconds
 const BULK_SYNC_TIMEOUT: u32 = 150; // seconds
+const INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD: u32 = 30; // packets
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum HaEvent {
@@ -43,6 +44,7 @@ pub enum HaEvent {
     LeavingStandalone,
     Shutdown,
     PeerShutdownRequested,
+    HighInlineSyncDrops,
 }
 
 impl HaEvent {
