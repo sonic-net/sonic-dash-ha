@@ -1061,7 +1061,7 @@ impl NpuHaScopeActor {
                 if let (Some(new_rx), Some(new_tx), Some(old_rx), Some(old_tx)) = (new_rx, new_tx, old_rx, old_tx) {
                     let rx_diff = new_rx - old_rx;
                     let tx_diff = new_tx - old_tx;
-                    if tx_diff - rx_diff > INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD {
+                    if tx_diff - rx_diff > INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD as i64 {
                         return Ok(HaEvent::HighInlineSyncDrops);
                     }
                 }
@@ -1141,7 +1141,8 @@ impl NpuHaScopeActor {
                     self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else {
                     // Send DPURequestEnterStandalone to peer with local health signals
-                    self.send_dpu_request_enter_standalone(state)?;
+                    let inline_sync_drops = *event == HaEvent::HighInlineSyncDrops;
+                    self.send_dpu_request_enter_standalone(state, inline_sync_drops)?;
                 }
             }
             HaState::Active => {

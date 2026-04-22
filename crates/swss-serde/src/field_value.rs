@@ -295,8 +295,9 @@ impl<'de> Deserializer<'de> for FieldValueDeserializer<'_> {
         char unit unit_struct newtype_struct tuple tuple_struct map struct
     }
 
-    fn deserialize_any<V: Visitor<'de>>(self, _visitor: V) -> Result<V::Value, Self::Error> {
-        Err(Error::new("deserializing an unsupported type"))
+    fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, Self::Error> {
+        // All Redis values are strings, so treat unknown types as strings
+        visitor.visit_string(self.parse()?)
     }
 }
 

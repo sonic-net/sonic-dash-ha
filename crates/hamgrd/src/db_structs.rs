@@ -599,14 +599,14 @@ pub struct NeighResolveTable {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "COUNTERS_ENI_NAME_MAP", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = true)]
+#[sonicdb(table_name = "COUNTERS_ENI_NAME_MAP", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = "true")]
 pub struct CountersEniNameMapTable {
     #[serde(flatten)]
     pub eni_to_counters_map: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "COUNTERS", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = true)]
+#[sonicdb(table_name = "COUNTERS", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = "true")]
 pub struct CountersTable {
     #[serde(flatten)]
     pub counters_stats: HashMap<String, String>,
