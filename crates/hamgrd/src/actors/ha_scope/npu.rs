@@ -1057,22 +1057,22 @@ impl NpuHaScopeActor {
             let new_rx = counters
                 .counters_stats
                 .get(ENI_INLINE_FLOW_SYNC_RX_PKTS)
-                .and_then(|v| v.parse::<i64>().ok());
+                .and_then(|v| v.parse::<u64>().ok());
             let new_tx = counters
                 .counters_stats
                 .get(ENI_INLINE_FLOW_SYNC_TX_PKTS)
-                .and_then(|v| v.parse::<i64>().ok());
+                .and_then(|v| v.parse::<u64>().ok());
             if let Some(old_stats) = self.counter_stats.insert(kfv.key.clone(), counters.counters_stats) {
                 let old_rx = old_stats
                     .get(ENI_INLINE_FLOW_SYNC_RX_PKTS)
-                    .and_then(|v| v.parse::<i64>().ok());
+                    .and_then(|v| v.parse::<u64>().ok());
                 let old_tx = old_stats
                     .get(ENI_INLINE_FLOW_SYNC_TX_PKTS)
-                    .and_then(|v| v.parse::<i64>().ok());
+                    .and_then(|v| v.parse::<u64>().ok());
                 if let (Some(new_rx), Some(new_tx), Some(old_rx), Some(old_tx)) = (new_rx, new_tx, old_rx, old_tx) {
                     let rx_diff = new_rx - old_rx;
                     let tx_diff = new_tx - old_tx;
-                    if tx_diff - rx_diff > INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD as i64 {
+                    if tx_diff - rx_diff > INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD as u64 {
                         return Ok(HaEvent::HighInlineSyncDrops);
                     }
                 }
