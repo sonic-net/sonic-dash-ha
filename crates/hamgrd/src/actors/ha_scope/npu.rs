@@ -1153,7 +1153,11 @@ impl NpuHaScopeActor {
                 } else {
                     // Send DPURequestEnterStandalone to peer with local health signals
                     let inline_sync_drops = *event == HaEvent::HighInlineSyncDrops;
-                    self.send_dpu_request_enter_standalone(state, inline_sync_drops)?;
+                    if let Err(e) = self.send_dpu_request_enter_standalone(state, inline_sync_drops) {
+                        // Cannot connect with peer, enter standalone right away
+                        error!("Failed to send DPURequestEnterStandalone to peer: {e}");
+                        self.send_self_notification(state, "EnterStandalone", 0)?;
+                    }
                 }
             }
             HaState::Active => {
@@ -1555,8 +1559,11 @@ impl NpuHaScopeActor {
         let (_internal, incoming, outgoing) = state.get_all();
 
         let Some(peer_sp) = self.peer_sp() else {
-            info!("Cannot send DPURequestEnterStandalone to peer: peer service path not resolved");
-            return Ok(());
+            let err = anyhow!(
+                "Cannot send DPURequestEnterStandalone to peer: peer service path not resolved"
+            );
+            info!("{err}");
+            return Err(err);
         };
 
         let vdpu_up = self.base.get_vdpu(incoming).map(|v| v.up).unwrap_or(false);
