@@ -223,9 +223,8 @@ mod test {
             DbBasedActor,
         },
         db_structs::{
-            now_in_millis, CountersEniNameMapTable, CountersTable, DashHaScopeTable, DpuDashHaScopeState,
-            NpuDashHaScopeState, ENI_INLINE_FLOW_SYNC_RX_PKTS, ENI_INLINE_FLOW_SYNC_TX_PKTS,
-            DashFlowSyncSessionTable,
+            now_in_millis, CountersEniNameMapTable, CountersTable, DashFlowSyncSessionTable, DashHaScopeTable,
+            DpuDashHaScopeState, NpuDashHaScopeState, ENI_INLINE_FLOW_SYNC_RX_PKTS, ENI_INLINE_FLOW_SYNC_TX_PKTS,
         },
         ha_actor_messages::*,
     };
