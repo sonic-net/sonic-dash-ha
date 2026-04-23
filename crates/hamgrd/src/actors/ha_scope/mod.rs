@@ -225,6 +225,7 @@ mod test {
         db_structs::{
             now_in_millis, CountersEniNameMapTable, CountersTable, DashHaScopeTable, DpuDashHaScopeState,
             NpuDashHaScopeState, ENI_INLINE_FLOW_SYNC_RX_PKTS, ENI_INLINE_FLOW_SYNC_TX_PKTS,
+            DashFlowSyncSessionTable,
         },
         ha_actor_messages::*,
     };
@@ -934,7 +935,7 @@ mod test {
         }
 
         #[tokio::test]
-        async fn ha_scope_npu_active_to_standalone_on_peer_shutdown() {
+        async fn ha_scope_npu_active_to_standalone_on_peer_shutdown_and_peer_rejoin() {
             sonic_common::log::init_logger_for_test();
             let _redis = Redis::start_config_db();
             test::setup_remote_dpu_in_db(1, 0);
@@ -1111,35 +1112,123 @@ mod test {
             );
 
             // ============================================================
-            // Phase 3: Cleanup — shutdown the actor
+            // Phase 3: New peer launches from Dead state and rejoins.
+            // Standalone node should transition to Active (term=3)
+            // while the new peer enters Standby.
             // ============================================================
+            // Spawn a background client to receive and ack the DashFlowSyncSessionTable
+            // message sent by add_bulk_sync_session during Standalone → Active transition.
+            // Without this, the actor's outgoing queue has an unacked message and won't terminate.
+            {
+                use swbus_edge::simple_client::{MessageBody, OutgoingMessage, SimpleSwbusEdgeClient};
+                use swbus_edge::swbus_proto::swbus::SwbusErrorCode;
+                let client = SimpleSwbusEdgeClient::new(
+                    runtime.get_swbus_edge(),
+                    crate::common_bridge_sp::<DashFlowSyncSessionTable>(&runtime.get_swbus_edge()),
+                    true,
+                    false,
+                );
+                let aut_sp = runtime.sp(HaScopeActor::name(), &scope_id);
+                tokio::spawn(async move {
+                    while let Some(msg) = client.recv().await {
+                        if let MessageBody::Request { .. } = &msg.body {
+                            let _ = client
+                                .send(OutgoingMessage {
+                                    destination: aut_sp.clone(),
+                                    body: MessageBody::Response {
+                                        request_id: msg.id,
+                                        error_code: SwbusErrorCode::Ok,
+                                        error_message: "".to_string(),
+                                        response_body: None,
+                                    },
+                                })
+                                .await;
+                        }
+                    }
+                });
+            }
             #[rustfmt::skip]
             let commands = [
-                // Set the disabled to true for forced shutdown
-                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
-                        "field_values": {"json": format!(r#"{{"version":"3","disabled":true,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
-                        },
-                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+                // New peer sends PeerHeartbeat — Standalone node responds with its state
+                send! { key: PeerHeartbeat::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
 
-                // Expect a DPU DASH_HA_SCOPE_TABLE update with Dead role
+                // New peer sends VoteRequest (term=0, state=Connecting)
+                // Standalone node has term=2 > peer term=0, so it replies BecomeStandby
+                send! { key: VoteRequest::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Unspecified.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                recv! { key: VoteReply::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "response": "BecomeStandby" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+
+                // New peer transitions to InitializingToStandby and broadcasts state
+                // This triggers PeerStateChanged on the Standalone node → transitions to Active
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+
+                // Expect DPU HA scope table update with Active role and term=3
                 recv! { key: &ha_set_id, data: {
                         "key": &ha_set_id,
                         "operation": "Set",
                         "field_values": {
-                            "version": "3",
-                            "ha_role": "dead",
-                            "ha_term": "2",
+                            "version": "2",
+                            "ha_role": "active",
+                            "ha_term": "3",
                             "ha_set_id": &ha_set_id
                         },
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
                     },
 
-                // Expect HaScopeActorState: Standalone -> Dead
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
-                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Expect HaScopeActorState: Standalone -> Active with term=3
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "3", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "3", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
 
-                // Delete the HA scope config entry
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify state is Active with term=3
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Active.as_str_name()),
+                "Standalone node should transition to Active when peer rejoins"
+            );
+            assert_eq!(
+                npu_ha_scope_state.local_target_term.as_deref(),
+                Some("3"),
+                "Term should be incremented to 3 after Standalone -> Active"
+            );
+            assert_eq!(
+                npu_ha_scope_state.peer_ha_state.as_deref(),
+                Some(HaState::InitializingToStandby.as_str_name()),
+                "Peer should be in InitializingToStandby state"
+            );
+
+            // ============================================================
+            // Phase 4: Cleanup — force shutdown the actor
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"3","disabled":true,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "3",
+                            "ha_role": "dead",
+                            "ha_term": "3",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                    },
+
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "3", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "3", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
                         "field_values": {"json": format!(r#"{{"version":"3","disabled":true,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
                         },
