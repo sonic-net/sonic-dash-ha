@@ -1460,6 +1460,8 @@ impl NpuHaScopeActor {
             HaState::SwitchingToStandalone => {
                 if *event == HaEvent::EnterStandalone {
                     Some((HaState::Standalone, "won the standalone selection"))
+                } else if *event == HaEvent::EnterStandby {
+                    Some((HaState::Standby, "peer became standalone, entering standby"))
                 } else if *event == HaEvent::LeavingStandalone {
                     match target_state {
                         TargetState::Active => Some((HaState::Active, "failed to enter standalone")),
