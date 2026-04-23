@@ -962,12 +962,13 @@ impl NpuHaScopeActor {
         if request.inline_sync_packet_drops {
             // Dataplane gray failures detected, pick the DPU with higher desired state to become Standalone
             let desired_ha_state = self.base.dash_ha_scope_config.as_ref().unwrap().desired_ha_state;
-            if desired_ha_state == DesiredHaState::Standalone as i32 || desired_ha_state == DesiredHaState::Active as i32 {
+            if desired_ha_state == DesiredHaState::Standalone as i32
+                || desired_ha_state == DesiredHaState::Active as i32
+            {
                 info!("Asking peer HA scope to become standby because local DPU is preferred!");
                 self.send_dpu_request_enter_standalone_reply(state, "EnterStandby");
                 return Ok(HaEvent::EnterStandalone);
-            }
-            else {
+            } else {
                 info!("Asking peer HA scope to become standalone because remote DPU is preferred!");
                 self.send_dpu_request_enter_standalone_reply(state, "EnterStandalone");
                 return Ok(HaEvent::EnterStandby);
@@ -1053,11 +1054,21 @@ impl NpuHaScopeActor {
                 kfv.key,
                 counters.counters_stats.len()
             );
-            let new_rx = counters.counters_stats.get(ENI_INLINE_FLOW_SYNC_RX_PKTS).and_then(|v| v.parse::<i64>().ok());
-            let new_tx = counters.counters_stats.get(ENI_INLINE_FLOW_SYNC_TX_PKTS).and_then(|v| v.parse::<i64>().ok());
+            let new_rx = counters
+                .counters_stats
+                .get(ENI_INLINE_FLOW_SYNC_RX_PKTS)
+                .and_then(|v| v.parse::<i64>().ok());
+            let new_tx = counters
+                .counters_stats
+                .get(ENI_INLINE_FLOW_SYNC_TX_PKTS)
+                .and_then(|v| v.parse::<i64>().ok());
             if let Some(old_stats) = self.counter_stats.insert(kfv.key.clone(), counters.counters_stats) {
-                let old_rx = old_stats.get(ENI_INLINE_FLOW_SYNC_RX_PKTS).and_then(|v| v.parse::<i64>().ok());
-                let old_tx = old_stats.get(ENI_INLINE_FLOW_SYNC_TX_PKTS).and_then(|v| v.parse::<i64>().ok());
+                let old_rx = old_stats
+                    .get(ENI_INLINE_FLOW_SYNC_RX_PKTS)
+                    .and_then(|v| v.parse::<i64>().ok());
+                let old_tx = old_stats
+                    .get(ENI_INLINE_FLOW_SYNC_TX_PKTS)
+                    .and_then(|v| v.parse::<i64>().ok());
                 if let (Some(new_rx), Some(new_tx), Some(old_rx), Some(old_tx)) = (new_rx, new_tx, old_rx, old_tx) {
                     let rx_diff = new_rx - old_rx;
                     let tx_diff = new_tx - old_tx;
@@ -1546,8 +1557,13 @@ impl NpuHaScopeActor {
         let dp_channel_is_alive = self.base.get_haset(incoming).map(|h| h.up).unwrap_or(false);
         let pinned_bfd_state = self.base.pinned_bfd_state.clone().unwrap_or_default();
 
-        let msg =
-            DPURequestEnterStandalone::new_actor_msg(&self.base.id, dp_channel_is_alive, vdpu_up, pinned_bfd_state, inline_sync_drops_detected)?;
+        let msg = DPURequestEnterStandalone::new_actor_msg(
+            &self.base.id,
+            dp_channel_is_alive,
+            vdpu_up,
+            pinned_bfd_state,
+            inline_sync_drops_detected,
+        )?;
         outgoing.send(peer_sp, msg);
         info!(
             "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}, inline_sync_packet_drops={}",

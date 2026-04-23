@@ -3,9 +3,9 @@ use chrono::DateTime;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{formats::CommaSeparator, serde_as, skip_serializing_none, StringWithSeparator};
 use sonicdb_derive::SonicDb;
+use std::collections::HashMap;
 use swss_common::{DbConnector, Table};
 use swss_serde::from_table;
-use std::collections::HashMap;
 
 /// Format: "Tue Jun 04 09:00:00 PM UTC 2024"
 const TIMESTAMP_FORMAT: &str = "%a %b %d %I:%M:%S %p UTC %Y";
@@ -599,14 +599,24 @@ pub struct NeighResolveTable {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "COUNTERS_ENI_NAME_MAP", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = "true")]
+#[sonicdb(
+    table_name = "COUNTERS_ENI_NAME_MAP",
+    key_separator = ":",
+    db_name = "DPU_COUNTERS_DB",
+    is_dpu = "true"
+)]
 pub struct CountersEniNameMapTable {
     #[serde(flatten)]
     pub eni_to_counters_map: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, SonicDb)]
-#[sonicdb(table_name = "COUNTERS", key_separator = ":", db_name = "DPU_COUNTERS_DB", is_dpu = "true")]
+#[sonicdb(
+    table_name = "COUNTERS",
+    key_separator = ":",
+    db_name = "DPU_COUNTERS_DB",
+    is_dpu = "true"
+)]
 pub struct CountersTable {
     #[serde(flatten)]
     pub counters_stats: HashMap<String, String>,

@@ -622,7 +622,7 @@ pub struct DPURequestEnterStandalone {
     /// Pinned BFD probe state for the local DPU.
     pub pinned_vdpu_bfd_probe_state: String,
     /// High inline sync packet drop rate detected or not
-    pub inline_sync_packet_drops: bool 
+    pub inline_sync_packet_drops: bool,
 }
 
 impl DPURequestEnterStandalone {

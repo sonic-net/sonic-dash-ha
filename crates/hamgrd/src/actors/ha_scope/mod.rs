@@ -223,9 +223,8 @@ mod test {
             DbBasedActor,
         },
         db_structs::{
-            now_in_millis, CountersEniNameMapTable, CountersTable, DashHaScopeTable,
-            DpuDashHaScopeState, NpuDashHaScopeState, ENI_INLINE_FLOW_SYNC_RX_PKTS,
-            ENI_INLINE_FLOW_SYNC_TX_PKTS,
+            now_in_millis, CountersEniNameMapTable, CountersTable, DashHaScopeTable, DpuDashHaScopeState,
+            NpuDashHaScopeState, ENI_INLINE_FLOW_SYNC_RX_PKTS, ENI_INLINE_FLOW_SYNC_TX_PKTS,
         },
         ha_actor_messages::*,
     };
@@ -1650,16 +1649,13 @@ mod test {
             // Verify the state is now SwitchingToStandalone
             let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
             let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
-            let npu_ha_scope_state: NpuDashHaScopeState =
-                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
             assert_eq!(
                 npu_ha_scope_state.local_ha_state.as_deref(),
                 Some(HaState::SwitchingToStandalone.as_str_name())
             );
             assert_eq!(
-                npu_ha_scope_state
-                    .local_ha_state_last_updated_reason
-                    .as_deref(),
+                npu_ha_scope_state.local_ha_state_last_updated_reason.as_deref(),
                 Some("local failure while active")
             );
 
@@ -1695,8 +1691,7 @@ mod test {
             // Verify final state is Standby
             let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
             let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
-            let npu_ha_scope_state: NpuDashHaScopeState =
-                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
             assert_eq!(
                 npu_ha_scope_state.local_ha_state.as_deref(),
                 Some(HaState::Standby.as_str_name()),
@@ -1900,9 +1895,7 @@ mod test {
                 "Term should be incremented after entering Standalone"
             );
             assert_eq!(
-                npu_ha_scope_state
-                    .local_ha_state_last_updated_reason
-                    .as_deref(),
+                npu_ha_scope_state.local_ha_state_last_updated_reason.as_deref(),
                 Some("won the standalone selection"),
                 "Reason should reflect standalone selection"
             );
@@ -2016,8 +2009,7 @@ mod test {
             // Verify we're in Active state
             let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
             let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
-            let npu_ha_scope_state: NpuDashHaScopeState =
-                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
             assert_eq!(
                 npu_ha_scope_state.local_ha_state.as_deref(),
                 Some(HaState::Active.as_str_name())
@@ -2073,16 +2065,13 @@ mod test {
             // Verify the state is now SwitchingToStandalone
             let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
             let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
-            let npu_ha_scope_state: NpuDashHaScopeState =
-                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
             assert_eq!(
                 npu_ha_scope_state.local_ha_state.as_deref(),
                 Some(HaState::SwitchingToStandalone.as_str_name())
             );
             assert_eq!(
-                npu_ha_scope_state
-                    .local_ha_state_last_updated_reason
-                    .as_deref(),
+                npu_ha_scope_state.local_ha_state_last_updated_reason.as_deref(),
                 Some("high inline-sync packet drops")
             );
 
@@ -2108,8 +2097,7 @@ mod test {
             // Verify the final state is Standalone
             let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
             let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
-            let npu_ha_scope_state: NpuDashHaScopeState =
-                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
             assert_eq!(
                 npu_ha_scope_state.local_ha_state.as_deref(),
                 Some(HaState::Standalone.as_str_name())
