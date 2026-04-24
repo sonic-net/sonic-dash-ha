@@ -422,25 +422,23 @@ impl NpuHaScopeActor {
                     error!("Failed to resolve peer SP: {e}. Will retry on next heartbeat.");
                 }
             }
-        } else {
-            if self.base.peer_vdpu_id != peer_vdpu_id {
-                // Got a new peer HA scope actor other than the old one
-                info!("Got a new HA Peer: {:?}", peer_vdpu_id);
-                // update the peer vDPU ID
-                self.base.peer_vdpu_id = peer_vdpu_id.clone();
-                self.base.peer_sp = None;
-                // Resolve the remote peer's ServicePath via REMOTE_DPU + swbusd
-                match self.base.resolve_peer_sp(context.get_edge_runtime()).await {
-                    Ok(sp) => {
-                        info!("Resolved peer HA scope SP: {}", sp.to_longest_path());
-                        self.base.peer_sp = Some(sp);
-                    }
-                    Err(e) => {
-                        error!("Failed to resolve peer SP: {e}. Will retry on next heartbeat.");
-                        self.peer_connected = false;
-                        // Send a signal to itself to schedule a check later
-                        self.send_self_notification(state, "CheckPeerConnection", RETRY_INTERVAL)?;
-                    }
+        } else if self.base.peer_vdpu_id != peer_vdpu_id {
+            // Got a new peer HA scope actor other than the old one
+            info!("Got a new HA Peer: {:?}", peer_vdpu_id);
+            // update the peer vDPU ID
+            self.base.peer_vdpu_id = peer_vdpu_id.clone();
+            self.base.peer_sp = None;
+            // Resolve the remote peer's ServicePath via REMOTE_DPU + swbusd
+            match self.base.resolve_peer_sp(context.get_edge_runtime()).await {
+                Ok(sp) => {
+                    info!("Resolved peer HA scope SP: {}", sp.to_longest_path());
+                    self.base.peer_sp = Some(sp);
+                }
+                Err(e) => {
+                    error!("Failed to resolve peer SP: {e}. Will retry on next heartbeat.");
+                    self.peer_connected = false;
+                    // Send a signal to itself to schedule a check later
+                    self.send_self_notification(state, "CheckPeerConnection", RETRY_INTERVAL)?;
                 }
             }
         }
