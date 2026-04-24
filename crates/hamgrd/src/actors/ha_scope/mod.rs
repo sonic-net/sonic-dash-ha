@@ -1753,7 +1753,6 @@ mod test {
             // This triggers the new peer vDPU inflight logic:
             //   - peer_vdpu_id changes from vdpu1-0 to vdpu3-0
             //   - peer_sp is re-resolved
-            //   - peer_connected is reset
             // Then the new peer connects and Standalone → Active
             // ============================================================
             {
