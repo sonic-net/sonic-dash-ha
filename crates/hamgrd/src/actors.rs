@@ -9,7 +9,10 @@ pub mod vdpu;
 #[cfg(test)]
 pub mod test;
 use anyhow::Result as AnyhowResult;
+use futures_util::FutureExt;
 use sonic_common::SonicDbTable;
+use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use swbus_actor::{spawn, Actor, ActorMessage};
 use swbus_edge::swbus_proto::message_id_generator::MessageIdGenerator;
@@ -23,6 +26,17 @@ use swss_common_bridge::{consumer::ConsumerBridge, producer::spawn_producer_brid
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
+
+/// Best-effort extraction of a panic message from `catch_unwind`'s payload.
+fn panic_payload_to_string(payload: &(dyn Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "<non-string panic payload>".to_string()
+    }
+}
 
 pub trait DbBasedActor: Actor {
     fn name() -> &'static str;
@@ -101,38 +115,95 @@ where
 
     pub async fn run(mut self) {
         loop {
-            let msg = self.handler_rx.recv().await.unwrap();
-            if let Err(swbus_err) = self.handle_received_message(&msg).await {
-                let (code, err_msg) = match swbus_err {
-                    SwbusError::ConnectionError { code, detail } => (code, detail.to_string()),
-                    SwbusError::InternalError { code, detail } => (code, detail),
-                    SwbusError::InputError { code, detail } => (code, detail),
-                    SwbusError::RouteError { code, detail } => (code, detail),
-                };
-                let response = SwbusMessage::new_response(
-                    msg.header.as_ref().unwrap(),
-                    Some(&self.sp),
-                    code,
-                    &err_msg,
-                    self.id_generator.generate(),
-                    None,
-                );
-                if self.rt.send(response).await.is_err() {
-                    error!("Failed to send response to swbus");
+            let msg = match self.handler_rx.recv().await {
+                Some(m) => m,
+                None => {
+                    // All senders dropped; the route is gone, so we can safely exit.
+                    error!(
+                        "ActorCreator {}: handler channel closed, exiting",
+                        self.sp.to_swbusd_service_path()
+                    );
+                    return;
                 }
-            } else {
-                // forward the message to the actor that is just spawned
-                if self.rt.send(msg).await.is_err() {
-                    error!("Failed to send response to swbus");
+            };
+
+            // Per-message handling must never panic, otherwise the run task
+            // dies, the receiver is dropped, and the still-registered route
+            // returns "channel closed" forever after.
+            let result = AssertUnwindSafe(self.handle_received_message(&msg))
+                .catch_unwind()
+                .await;
+
+            match result {
+                Ok(Ok(())) => {
+                    // forward the message to the actor that is just spawned
+                    if self.rt.send(msg).await.is_err() {
+                        error!("Failed to send response to swbus");
+                    }
+                }
+                Ok(Err(swbus_err)) => {
+                    let (code, err_msg) = match swbus_err {
+                        SwbusError::ConnectionError { code, detail } => (code, detail.to_string()),
+                        SwbusError::InternalError { code, detail } => (code, detail),
+                        SwbusError::InputError { code, detail } => (code, detail),
+                        SwbusError::RouteError { code, detail } => (code, detail),
+                    };
+                    let Some(req_header) = msg.header.as_ref() else {
+                        error!("Cannot send error response: incoming message has no header");
+                        continue;
+                    };
+                    let response = SwbusMessage::new_response(
+                        req_header,
+                        Some(&self.sp),
+                        code,
+                        &err_msg,
+                        self.id_generator.generate(),
+                        None,
+                    );
+                    if self.rt.send(response).await.is_err() {
+                        error!("Failed to send response to swbus");
+                    }
+                }
+                Err(panic) => {
+                    let panic_msg = panic_payload_to_string(&panic);
+                    error!(
+                        "ActorCreator {}: panic while handling message: {}",
+                        self.sp.to_swbusd_service_path(),
+                        panic_msg
+                    );
+                    // Best-effort: tell the sender we failed so it doesn't hang.
+                    if let Some(req_header) = msg.header.as_ref() {
+                        let response = SwbusMessage::new_response(
+                            req_header,
+                            Some(&self.sp),
+                            SwbusErrorCode::Fail,
+                            &format!("ActorCreator panicked: {panic_msg}"),
+                            self.id_generator.generate(),
+                            None,
+                        );
+                        if self.rt.send(response).await.is_err() {
+                            error!("Failed to send panic response to swbus");
+                        }
+                    }
+                    // Continue the loop; the route stays valid.
                 }
             }
         }
     }
 
     async fn handle_received_message(&self, msg: &SwbusMessage) -> Result<()> {
-        let header = msg.header.as_ref().unwrap();
-        let source = header.source.as_ref().unwrap();
-        let destination = header.destination.as_ref().unwrap();
+        let header = msg.header.as_ref().ok_or_else(|| {
+            SwbusError::input(SwbusErrorCode::InvalidPayload, "missing message header".to_string())
+        })?;
+        let source = header.source.as_ref().ok_or_else(|| {
+            SwbusError::input(SwbusErrorCode::InvalidPayload, "missing message source".to_string())
+        })?;
+        let destination = header.destination.as_ref().ok_or_else(|| {
+            SwbusError::input(
+                SwbusErrorCode::InvalidPayload,
+                "missing message destination".to_string(),
+            )
+        })?;
         // todo: alternatively, check message type
         if source.resource_type != "swss-common-bridge" {
             // todo: log a message
@@ -152,20 +223,53 @@ where
                     })?;
 
                     if kfv.operation == KeyOperation::Del {
-                        return Err(SwbusError::input(
+                        return Err(SwbusError::route(
                             SwbusErrorCode::NoRoute,
                             "actor doesn't exist: won't create actor for DEL kfv".to_string(),
                         ));
                     }
-                    let actor = (self.create_fn)(kfv.key.clone()).map_err(|e| {
-                        let mut sp = self.sp.clone();
-                        sp.resource_id = kfv.key.clone();
-                        SwbusError::input(
+                    // create_fn / spawn are user-supplied and must not be allowed to
+                    // panic the run loop. Catch any panic and turn it into a Fail.
+                    let key = kfv.key.clone();
+                    let create_result = std::panic::catch_unwind(AssertUnwindSafe(|| (self.create_fn)(key)));
+                    let actor = match create_result {
+                        Ok(Ok(actor)) => actor,
+                        Ok(Err(e)) => {
+                            let mut sp = self.sp.clone();
+                            sp.resource_id = kfv.key.clone();
+                            return Err(SwbusError::internal(
+                                SwbusErrorCode::Fail,
+                                format!("Failed to create actor {}. Error: {}", sp.to_swbusd_service_path(), e),
+                            ));
+                        }
+                        Err(panic) => {
+                            let mut sp = self.sp.clone();
+                            sp.resource_id = kfv.key.clone();
+                            return Err(SwbusError::internal(
+                                SwbusErrorCode::Fail,
+                                format!(
+                                    "Panic while creating actor {}: {}",
+                                    sp.to_swbusd_service_path(),
+                                    panic_payload_to_string(&panic)
+                                ),
+                            ));
+                        }
+                    };
+                    let res_type = destination.resource_type.clone();
+                    let res_id = destination.resource_id.clone();
+                    if let Err(panic) =
+                        std::panic::catch_unwind(AssertUnwindSafe(|| spawn(actor, &res_type, &res_id)))
+                    {
+                        return Err(SwbusError::internal(
                             SwbusErrorCode::Fail,
-                            format!("Failed to create actor {}. Error: {}", sp.to_swbusd_service_path(), e),
-                        )
-                    })?;
-                    spawn(actor, &destination.resource_type, &destination.resource_id);
+                            format!(
+                                "Panic while spawning actor {}/{}: {}",
+                                res_type,
+                                res_id,
+                                panic_payload_to_string(&panic)
+                            ),
+                        ));
+                    }
                 }
                 Err(_) => {
                     // log a message
