@@ -139,16 +139,24 @@ pub struct HaSetActorState {
     pub up: bool,
     pub ha_set: DashHaSetTable,
     pub vdpu_ids: Vec<String>,
+    pub pinned_vdpu_bfd_probe_states: Vec<String>,
 }
 
 impl HaSetActorState {
-    pub fn new_actor_msg(up: bool, my_id: &str, ha_set: DashHaSetTable, vdpu_ids: &[String]) -> Result<ActorMessage> {
+    pub fn new_actor_msg(
+        up: bool,
+        my_id: &str,
+        ha_set: DashHaSetTable,
+        vdpu_ids: &[String],
+        pinned_vdpu_bfd_probe_states: Vec<String>,
+    ) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
             &Self {
                 up,
                 ha_set,
                 vdpu_ids: vdpu_ids.to_owned(),
+                pinned_vdpu_bfd_probe_states,
             },
         )
     }
@@ -562,6 +570,86 @@ impl ShutdownReply {
 
     pub fn msg_key_prefix() -> &'static str {
         "ShutdownReply|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct DPURequestEnterStandaloneReply {
+    pub response: String,
+}
+
+impl DPURequestEnterStandaloneReply {
+    pub fn new_actor_msg(my_id: &str, response: &str) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                response: response.to_string(),
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "DPURequestEnterStandaloneReply|"
+    }
+
+    pub fn msg_key(my_id: &str) -> String {
+        format!("{}{}", Self::msg_key_prefix(), my_id)
+    }
+
+    pub fn is_my_msg(key: &str) -> bool {
+        key.starts_with(Self::msg_key_prefix())
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
+pub struct DPURequestEnterStandalone {
+    /// Whether the HA set data plane channel is alive.
+    pub dp_channel_is_alive: bool,
+    /// Whether the local DPU is up.
+    pub local_dpu_up: bool,
+    /// Pinned BFD probe state for the local DPU.
+    pub pinned_vdpu_bfd_probe_state: String,
+    /// High inline sync packet drop rate detected or not
+    pub inline_sync_packet_drops: bool,
+}
+
+impl DPURequestEnterStandalone {
+    pub fn new_actor_msg(
+        my_id: &str,
+        dp_channel_is_alive: bool,
+        local_dpu_up: bool,
+        pinned_vdpu_bfd_probe_state: String,
+        inline_sync_packet_drops: bool,
+    ) -> Result<ActorMessage> {
+        ActorMessage::new(
+            Self::msg_key(my_id),
+            &Self {
+                dp_channel_is_alive,
+                local_dpu_up,
+                pinned_vdpu_bfd_probe_state,
+                inline_sync_packet_drops,
+            },
+        )
+    }
+
+    pub fn to_actor_msg(&self, my_id: &str) -> Result<ActorMessage> {
+        ActorMessage::new(Self::msg_key(my_id), self)
+    }
+
+    pub fn msg_key_prefix() -> &'static str {
+        "DPURequestEnterStandalone|"
     }
 
     pub fn msg_key(my_id: &str) -> String {

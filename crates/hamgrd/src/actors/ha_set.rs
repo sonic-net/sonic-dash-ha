@@ -181,7 +181,19 @@ impl HaSetActor {
             .as_ref()
             .map(|c| c.vdpu_ids.clone())
             .unwrap_or_default();
-        let msg = HaSetActorState::new_actor_msg(self.dp_channel_is_alive, &self.id, dash_ha_set, &vdpu_ids).unwrap();
+        let pinned_vdpu_bfd_probe_states = self
+            .dash_ha_set_config
+            .as_ref()
+            .map(|c| c.pinned_vdpu_bfd_probe_states.clone())
+            .unwrap_or_default();
+        let msg = HaSetActorState::new_actor_msg(
+            self.dp_channel_is_alive,
+            &self.id,
+            dash_ha_set,
+            &vdpu_ids,
+            pinned_vdpu_bfd_probe_states,
+        )
+        .unwrap();
         let peer_actors = ActorRegistration::get_registered_actors(incoming, RegistrationType::HaSetState);
         for actor_sp in peer_actors {
             outgoing.send(actor_sp, msg.clone());
@@ -670,8 +682,19 @@ impl HaSetActor {
                 .as_ref()
                 .map(|c| c.vdpu_ids.clone())
                 .unwrap_or_default();
-            let msg =
-                HaSetActorState::new_actor_msg(self.dp_channel_is_alive, &self.id, dash_ha_set, &vdpu_ids).unwrap();
+            let pinned_vdpu_bfd_probe_states = self
+                .dash_ha_set_config
+                .as_ref()
+                .map(|c| c.pinned_vdpu_bfd_probe_states.clone())
+                .unwrap_or_default();
+            let msg = HaSetActorState::new_actor_msg(
+                self.dp_channel_is_alive,
+                &self.id,
+                dash_ha_set,
+                &vdpu_ids,
+                pinned_vdpu_bfd_probe_states,
+            )
+            .unwrap();
 
             outgoing.send(entry.source.clone(), msg);
         }
@@ -958,7 +981,7 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
             // Verify that haset actor state is sent to ha-scope actor
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route},
@@ -978,7 +1001,7 @@ mod test {
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg_bfd_pinned.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &format!("vdpu0:{ha_set_id}")) },
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route_bfd_pinned},
@@ -1330,7 +1353,7 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
             // Verify that haset actor state is sent to ha-scope actor
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
             // NPU mode: NO VnetRouteTunnelTable update expected here (unlike DPU mode)
             // Only BFD sessions should be created
@@ -1351,7 +1374,7 @@ mod test {
             // Verify DashHaSetTable updated after ha_scope state update
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
 
             // === Phase 3: ha_scope Standalone — triggers VnetRoute with only primary ===
@@ -1366,7 +1389,7 @@ mod test {
             // Verify DashHaSetTable updated after ha_scope state update
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
 
             // === Phase 4: Cleanup ===
@@ -1464,7 +1487,7 @@ mod test {
             // Verify DashHaSetTable + HaSetActorState + BFD (NO VnetRoute)
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
             recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
@@ -1477,7 +1500,7 @@ mod test {
             // Verify DashHaSetTable is updated
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
                     addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
-            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
             // NO VnetRoute expected — only BFD sessions re-created
             recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},

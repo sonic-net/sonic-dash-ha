@@ -18,6 +18,7 @@ use npu::NpuHaScopeActor;
 const MAX_RETRIES: u32 = 3;
 const RETRY_INTERVAL: u32 = 30; // seconds
 const BULK_SYNC_TIMEOUT: u32 = 150; // seconds
+const INLINE_SYNC_PKT_DROP_ALERT_THRESHOLD: u32 = 30; // packets
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum HaEvent {
@@ -39,8 +40,11 @@ pub enum HaEvent {
     DpuStateChanged,
     EnterStandalone,
     EnterActive,
+    EnterStandby,
+    LeavingStandalone,
     Shutdown,
     PeerShutdownRequested,
+    HighInlineSyncDrops,
 }
 
 impl HaEvent {
@@ -64,8 +68,11 @@ impl HaEvent {
             Self::DpuStateChanged => "DpuStateChanged",
             Self::EnterStandalone => "EnterStandalone",
             Self::EnterActive => "EnterActive",
+            Self::EnterStandby => "EnterStandby",
+            Self::LeavingStandalone => "LeavingStandalone",
             Self::Shutdown => "Shutdown",
             Self::PeerShutdownRequested => "PeerShutdownRequested",
+            Self::HighInlineSyncDrops => "HighInlineSyncDrops",
         }
     }
 
@@ -89,8 +96,11 @@ impl HaEvent {
             "DpuStateChanged" => Some(Self::DpuStateChanged),
             "EnterStandalone" => Some(Self::EnterStandalone),
             "EnterActive" => Some(Self::EnterActive),
+            "EnterStandby" => Some(Self::EnterStandby),
+            "LeavingStandalone" => Some(Self::LeavingStandalone),
             "Shutdown" => Some(Self::Shutdown),
             "PeerShutdownRequested" => Some(Self::PeerShutdownRequested),
+            "HighInlineSyncDrops" => Some(Self::HighInlineSyncDrops),
             _ => None,
         }
     }
@@ -213,7 +223,8 @@ mod test {
             DbBasedActor,
         },
         db_structs::{
-            now_in_millis, DashFlowSyncSessionTable, DashHaScopeTable, DpuDashHaScopeState, NpuDashHaScopeState,
+            now_in_millis, CountersEniNameMapTable, CountersTable, DashFlowSyncSessionTable, DashHaScopeTable,
+            DpuDashHaScopeState, NpuDashHaScopeState, ENI_INLINE_FLOW_SYNC_RX_PKTS, ENI_INLINE_FLOW_SYNC_TX_PKTS,
         },
         ha_actor_messages::*,
     };
@@ -291,7 +302,7 @@ mod test {
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
 
                 // Send ha-set state to actor
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // Recv update to DPU DASH_HA_SCOPE_TABLE with ha_role = active
                 recv! { key: &ha_set_id, data: {
@@ -569,7 +580,7 @@ mod test {
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
@@ -759,7 +770,7 @@ mod test {
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
@@ -963,7 +974,7 @@ mod test {
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
@@ -1275,7 +1286,7 @@ mod test {
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
@@ -1569,6 +1580,618 @@ mod test {
             }
         }
 
+        /// Tests that an Active HA scope actor detects local DPU down (vDPU goes down)
+        /// and transitions to SwitchingToStandalone, sends DPURequestEnterStandalone to the peer,
+        /// and upon receiving "EnterStandby" reply, transitions to Standby (peer becomes standalone).
+        ///
+        /// Flow:
+        /// 1. Launch the actor and bring it to Active state
+        /// 2. Send a vDPU state update with up=false → LocalFailure event
+        /// 3. Active → SwitchingToStandalone (sends DPURequestEnterStandalone to peer with local_dpu_up=false)
+        /// 4. Peer replies "EnterStandby" → SwitchingToStandalone → Standby
+        #[tokio::test]
+        async fn ha_scope_npu_active_local_dpu_down_to_standby() {
+            sonic_common::log::init_logger_for_test();
+            let _redis = Redis::start_config_db();
+            test::setup_remote_dpu_in_db(1, 0);
+            let runtime = test::create_actor_runtime(12, "10.0.12.0", "10:0:12::").await;
+            test::setup_mock_swbusd_resolve_peer_sp(&runtime.get_swbus_edge());
+
+            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(12, 0);
+            let dpu_mon = make_dpu_pmon_state(true);
+            let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
+            let dpu0 = make_local_dpu_actor_state(0, 0, true, Some(dpu_mon), Some(bfd_state));
+            let dpu1 = make_remote_dpu_actor_state(1, 0);
+            let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+            let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+
+            let scope_id = format!("{vdpu0_id}:{ha_set_id}");
+            let scope_id_in_state = format!("{vdpu0_id}|{ha_set_id}");
+            let peer_scope_id = format!("{vdpu1_id}:{ha_set_id}");
+
+            let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
+            let _handle = runtime.spawn(ha_scope_actor, HaScopeActor::name(), &scope_id);
+
+            // ============================================================
+            // Phase 1: Launch to Active (same as other tests)
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                // Init HA Scope Config with owner as Switch and desired state Active
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"1","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                // Expect initial registration messages
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // Mock initial DPU & HA set updates
+                send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+
+                // A PeerHeartbeat should be triggered
+                recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                // Mock the init HaScopeActorState from the peer HA scope
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Dead.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect HaScopeActorState: dead -> connecting
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Expect a VoteRequest to be sent
+                recv!( key: VoteRequest::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Active.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) ),
+                // Expect HaScopeActorState: connecting -> connected
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // Mock a VoteReply: BecomeActive
+                send! { key: VoteReply::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "response": "BecomeActive" } },
+                // Expect HaScopeActorState: connected -> initializing_to_active
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToActive.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToActive.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Mock the HaScopeActorState from the peer HA scope
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect HaScopeActorState: initializing_to_active -> pending_active_activation
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Approve pending activation to reach Active state
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let mut npu_ha_scope_state: NpuDashHaScopeState =
+                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let op_id = npu_ha_scope_state
+                .pending_operation_ids
+                .as_mut()
+                .unwrap()
+                .pop()
+                .unwrap();
+
+            #[rustfmt::skip]
+            let commands = [
+                // New HA scope config containing approved op_id
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":["{op_id}"]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                // Expect a DPU DASH_HA_SCOPE_TABLE update
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "2",
+                            "ha_role": "active",
+                            "ha_term": "1",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                    },
+
+                // Expect a bulkSyncCompleted message
+                recv! { key: BulkSyncUpdate::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "finished": true }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+
+                // Expect HaScopeActorState: pending_active_activation -> active
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify we are in Active state
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Active.as_str_name())
+            );
+            assert_eq!(npu_ha_scope_state.local_target_term.as_deref(), Some("1"));
+
+            // ============================================================
+            // Phase 2: Local DPU goes down → Active transitions to
+            // SwitchingToStandalone and sends DPURequestEnterStandalone
+            // to peer with local_dpu_up=false
+            // ============================================================
+
+            // Create a vDPU state with up=false (local DPU down)
+            let (_, vdpu0_down_state_obj) = make_vdpu_actor_state(false, &dpu0);
+
+            #[rustfmt::skip]
+            let commands = [
+                // Send vDPU state update with up=false → triggers LocalFailure event
+                send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_down_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+
+                // Side effect: DPURequestEnterStandalone sent to peer with local_dpu_up=false
+                recv! { key: DPURequestEnterStandalone::msg_key(&scope_id), data: { "dp_channel_is_alive": true, "local_dpu_up": false, "pinned_vdpu_bfd_probe_state": "", "inline_sync_packet_drops": false }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+
+                // Expect HaScopeActorState: Active -> SwitchingToStandalone
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify the state is now SwitchingToStandalone
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::SwitchingToStandalone.as_str_name())
+            );
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state_last_updated_reason.as_deref(),
+                Some("local failure while active")
+            );
+
+            // ============================================================
+            // Phase 3: Peer replies "EnterStandby" → SwitchingToStandalone → Standby
+            // (peer becomes standalone, this node enters standby)
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                // Peer replies EnterStandby (peer will become standalone)
+                send! { key: DPURequestEnterStandaloneReply::msg_key(&peer_scope_id), data: { "response": "EnterStandby" } },
+
+                // Expect DPU DASH_HA_SCOPE_TABLE update with standby role (term stays the same)
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "2",
+                            "ha_role": "standby",
+                            "ha_term": "1",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                    },
+
+                // Expect HaScopeActorState: SwitchingToStandalone -> Standby
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify final state is Standby
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Standby.as_str_name()),
+                "Node should be in Standby state after local DPU down and peer becoming standalone"
+            );
+            assert_eq!(
+                npu_ha_scope_state.local_target_term.as_deref(),
+                Some("1"),
+                "Term should remain unchanged when entering Standby from SwitchingToStandalone"
+            );
+        }
+
+        /// Tests that a Standby HA scope actor detects peer DPU down via PeerLost event
+        /// (HA set goes down) and transitions to Standalone.
+        ///
+        /// Flow:
+        /// 1. Launch the actor and bring it to Standby state
+        /// 2. Send an HaSetActorState update with up=false → PeerLost event
+        /// 3. Standby → SwitchingToStandalone (self-notification EnterStandalone, no peer negotiation)
+        /// 4. SwitchingToStandalone → Standalone (term incremented)
+        #[tokio::test]
+        async fn ha_scope_npu_standby_to_standalone_on_peer_lost() {
+            sonic_common::log::init_logger_for_test();
+            let _redis = Redis::start_config_db();
+            test::setup_remote_dpu_in_db(1, 0);
+            let runtime = test::create_actor_runtime(14, "10.0.14.0", "10:0:14::").await;
+            test::setup_mock_swbusd_resolve_peer_sp(&runtime.get_swbus_edge());
+
+            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(14, 0);
+            let dpu_mon = make_dpu_pmon_state(true);
+            let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
+            let dpu0 = make_local_dpu_actor_state(0, 0, true, Some(dpu_mon), Some(bfd_state));
+            let dpu1 = make_remote_dpu_actor_state(1, 0);
+            let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+            let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+
+            let scope_id = format!("{vdpu0_id}:{ha_set_id}");
+            let scope_id_in_state = format!("{vdpu0_id}|{ha_set_id}");
+            let peer_scope_id = format!("{vdpu1_id}:{ha_set_id}");
+
+            let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
+            let _handle = runtime.spawn(ha_scope_actor, HaScopeActor::name(), &scope_id);
+
+            // ============================================================
+            // Phase 1: Launch to Standby
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                // Init HA Scope Config with owner as Switch and desired_ha_state = Unspecified (will become standby)
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"1","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Unspecified as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                // Expect initial registration messages
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // Mock initial DPU & HA set updates
+                send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+
+                // A PeerHeartbeat should be triggered
+                recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                // Expect HaScopeActorState: dead -> connecting
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // Mock the init HaScopeActorState from the peer HA scope
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Dead.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect a VoteRequest to be sent
+                recv!( key: VoteRequest::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Unspecified.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) ),
+                // Expect HaScopeActorState: connecting -> connected
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // Mock a VoteReply: BecomeStandby
+                send! { key: VoteReply::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "response": "BecomeStandby" } },
+                // Expect DPU DASH_HA_SCOPE_TABLE update with standby role
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "1",
+                            "ha_role": "standby",
+                            "ha_term": "0",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                    },
+                // Expect HaScopeActorState: connected -> initializing_to_standby
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // Mock a BulkSyncCompleted message from the peer
+                send! { key: BulkSyncUpdate::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "finished": true }},
+                // Expect HaScopeActorState: initializing_to_standby -> pending_standby_activation
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingStandbyActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingStandbyActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Mock the HaScopeActorState from the peer with new term (peer is now Active)
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": "", "peer_vdpu_id": "" } },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Approve pending standby activation
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let mut npu_ha_scope_state: NpuDashHaScopeState =
+                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let op_id = npu_ha_scope_state
+                .pending_operation_ids
+                .as_mut()
+                .unwrap()
+                .pop()
+                .unwrap();
+
+            #[rustfmt::skip]
+            let commands = [
+                // Approve the pending standby activation
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":["{op_id}"]}}"#, DesiredHaState::Unspecified as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+                // Expect DPU update for standby term
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "2",
+                            "ha_role": "standby",
+                            "ha_term": "1",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                    },
+                // Expect HaScopeActorState: pending_standby_activation -> standby
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify we are in Standby state
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Standby.as_str_name())
+            );
+            assert_eq!(npu_ha_scope_state.local_target_term.as_deref(), Some("1"));
+
+            // ============================================================
+            // Phase 2: Peer DPU goes down (HA set down) → Standby detects
+            // PeerLost → SwitchingToStandalone → Standalone
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                // Send HaSetActorState with up=false → triggers PeerLost event
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+
+                // Expect HaScopeActorState: Standby -> SwitchingToStandalone
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // EnterStandalone self-notification is processed immediately (PeerLost path):
+                // Expect DPU DASH_HA_SCOPE_TABLE update with standalone role and incremented term
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "2",
+                            "ha_role": "standalone",
+                            "ha_term": "2",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
+                    },
+
+                // Expect HaScopeActorState: SwitchingToStandalone -> Standalone
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify final state is Standalone with incremented term
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Standalone.as_str_name()),
+                "Node should be in Standalone state after peer DPU down"
+            );
+            assert_eq!(
+                npu_ha_scope_state.local_target_term.as_deref(),
+                Some("2"),
+                "Term should be incremented after entering Standalone"
+            );
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state_last_updated_reason.as_deref(),
+                Some("won the standalone selection"),
+                "Reason should reflect standalone selection"
+            );
+        }
+
+        /// Tests that an Active HA scope actor detects high inline sync packet drops
+        /// from the COUNTERS table and transitions to SwitchingToStandalone.
+        ///
+        /// Flow:
+        /// 1. Launch the actor and bring it to Active state (same as ha_scope_npu_launch_to_active_then_down)
+        /// 2. Send a COUNTERS_ENI_NAME_MAP update to register counter object IDs
+        /// 3. Send a first COUNTERS update (baseline) for one of the tracked OIDs
+        /// 4. Send a second COUNTERS update with tx_pkts - rx_pkts diff > threshold (31 > 30)
+        /// 5. Verify the actor transitions from Active to SwitchingToStandalone
+        #[tokio::test]
+        async fn ha_scope_npu_active_high_inline_sync_drops_to_standalone() {
+            sonic_common::log::init_logger_for_test();
+            let _redis = Redis::start_config_db();
+            test::setup_remote_dpu_in_db(1, 0);
+            let runtime = test::create_actor_runtime(10, "10.0.10.0", "10:0:10::").await;
+            test::setup_mock_swbusd_resolve_peer_sp(&runtime.get_swbus_edge());
+
+            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(10, 0);
+            let dpu_mon = make_dpu_pmon_state(true);
+            let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
+            let dpu0 = make_local_dpu_actor_state(0, 0, true, Some(dpu_mon), Some(bfd_state));
+            let dpu1 = make_remote_dpu_actor_state(1, 0);
+            let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+            let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+
+            let scope_id = format!("{vdpu0_id}:{ha_set_id}");
+            let scope_id_in_state = format!("{vdpu0_id}|{ha_set_id}");
+            let peer_scope_id = format!("{vdpu1_id}:{ha_set_id}");
+
+            let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
+            let _handle = runtime.spawn(ha_scope_actor, HaScopeActor::name(), &scope_id);
+
+            // ============================================================
+            // Phase 1: Launch to Active (same sequence as the existing test)
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                // Init HA Scope Config with owner as Switch, desired_ha_state = Active
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"1","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+                // Expect initial registration messages
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Mock initial DPU & HA set updates
+                send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                // PeerHeartbeat
+                recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                // Peer sends HaScopeActorState
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Dead.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect: Dead -> Connecting
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // VoteRequest
+                recv!( key: VoteRequest::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "term": "0", "state": HaState::Connecting.as_str_name(), "desired_state": DesiredHaState::Active.as_str_name() }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) ),
+                // Expect: Connecting -> Connected
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // VoteReply: BecomeActive
+                send! { key: VoteReply::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "response": "BecomeActive" } },
+                // Expect: Connected -> InitializingToActive
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToActive.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToActive.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+                // Peer moves to InitializingToStandby
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": "", "peer_vdpu_id": "" } },
+                // Expect: InitializingToActive -> PendingActiveActivation
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Get the pending operation ID for approval
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let mut npu_ha_scope_state: NpuDashHaScopeState =
+                swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let op_id = npu_ha_scope_state
+                .pending_operation_ids
+                .as_mut()
+                .unwrap()
+                .pop()
+                .unwrap();
+
+            // Approve the pending operation to transition to Active
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":["{op_id}"]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id, "operation": "Set",
+                        "field_values": { "version": "2", "ha_role": "active", "ha_term": "1", "ha_set_id": &ha_set_id },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                recv! { key: BulkSyncUpdate::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "finished": true }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                // PendingActiveActivation -> Active
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify we're in Active state
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Active.as_str_name())
+            );
+
+            // ============================================================
+            // Phase 2: Send counter updates to trigger HighInlineSyncDrops
+            // ============================================================
+            let eni_oid = "oid:0x03000000000001";
+
+            // Step 2a: Send COUNTERS_ENI_NAME_MAP to register the ENI OID
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: CountersEniNameMapTable::table_name(), data: {
+                        "key": CountersEniNameMapTable::table_name(), "operation": "Set",
+                        "field_values": { "eni1": eni_oid }
+                        }},
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Step 2b: Send first COUNTERS update (baseline)
+            let counters_key = format!("{}|{}", CountersTable::table_name(), eni_oid);
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: &counters_key, data: {
+                        "key": eni_oid, "operation": "Set",
+                        "field_values": {
+                            ENI_INLINE_FLOW_SYNC_TX_PKTS: "100",
+                            ENI_INLINE_FLOW_SYNC_RX_PKTS: "100"
+                        }
+                        }},
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Step 2c: Send second COUNTERS update with high drops (tx=200, rx=169 → diff 31 > threshold 30)
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: &counters_key, data: {
+                        "key": eni_oid, "operation": "Set",
+                        "field_values": {
+                            ENI_INLINE_FLOW_SYNC_TX_PKTS: "200",
+                            ENI_INLINE_FLOW_SYNC_RX_PKTS: "169"
+                        }
+                        }},
+                // Side effect runs first: DPURequestEnterStandalone sent to peer
+                recv! { key: DPURequestEnterStandalone::msg_key(&scope_id), data: { "dp_channel_is_alive": true, "local_dpu_up": true, "pinned_vdpu_bfd_probe_state": "", "inline_sync_packet_drops": true }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                // Then broadcast: Active -> SwitchingToStandalone
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify the state is now SwitchingToStandalone
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::SwitchingToStandalone.as_str_name())
+            );
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state_last_updated_reason.as_deref(),
+                Some("high inline-sync packet drops")
+            );
+
+            // ============================================================
+            // Phase 3: Peer replies EnterStandalone -> Standalone
+            // ============================================================
+            #[rustfmt::skip]
+            let commands = [
+                // Peer allows entering standalone
+                send! { key: DPURequestEnterStandaloneReply::msg_key(&peer_scope_id), data: { "response": "EnterStandalone" } },
+                // Expect DPU DASH_HA_SCOPE_TABLE update with standalone role
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id, "operation": "Set",
+                        "field_values": { "version": "2", "ha_role": "standalone", "ha_term": "2", "ha_set_id": &ha_set_id },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                // Expect: SwitchingToStandalone -> Standalone
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // Verify the final state is Standalone
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                npu_ha_scope_state.local_ha_state.as_deref(),
+                Some(HaState::Standalone.as_str_name())
+            );
+        }
+
         /// Verify the scenario where an Active DPU has its standby peer shutdown and then
         /// a new standby peer (different vDPU) is paired to replace the old one.
         ///
@@ -1583,7 +2206,7 @@ mod test {
             let _redis = Redis::start_config_db();
             test::setup_remote_dpu_in_db(1, 0);
             test::setup_remote_dpu_in_db(3, 0); // new peer
-            let runtime = test::create_actor_runtime(10, "10.0.10.0", "10:0:10::").await;
+            let runtime = test::create_actor_runtime(16, "10.0.16.0", "10:0:16::").await;
             test::setup_mock_swbusd_resolve_peer_sp(&runtime.get_swbus_edge());
 
             let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(10, 0);
