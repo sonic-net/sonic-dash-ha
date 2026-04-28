@@ -192,12 +192,14 @@ where
     }
 
     async fn handle_received_message(&self, msg: &SwbusMessage) -> Result<()> {
-        let header = msg.header.as_ref().ok_or_else(|| {
-            SwbusError::input(SwbusErrorCode::InvalidPayload, "missing message header".to_string())
-        })?;
-        let source = header.source.as_ref().ok_or_else(|| {
-            SwbusError::input(SwbusErrorCode::InvalidPayload, "missing message source".to_string())
-        })?;
+        let header = msg
+            .header
+            .as_ref()
+            .ok_or_else(|| SwbusError::input(SwbusErrorCode::InvalidPayload, "missing message header".to_string()))?;
+        let source = header
+            .source
+            .as_ref()
+            .ok_or_else(|| SwbusError::input(SwbusErrorCode::InvalidPayload, "missing message source".to_string()))?;
         let destination = header.destination.as_ref().ok_or_else(|| {
             SwbusError::input(
                 SwbusErrorCode::InvalidPayload,
@@ -257,8 +259,7 @@ where
                     };
                     let res_type = destination.resource_type.clone();
                     let res_id = destination.resource_id.clone();
-                    if let Err(panic) =
-                        std::panic::catch_unwind(AssertUnwindSafe(|| spawn(actor, &res_type, &res_id)))
+                    if let Err(panic) = std::panic::catch_unwind(AssertUnwindSafe(|| spawn(actor, &res_type, &res_id)))
                     {
                         return Err(SwbusError::internal(
                             SwbusErrorCode::Fail,
