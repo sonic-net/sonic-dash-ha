@@ -2209,7 +2209,7 @@ mod test {
             let runtime = test::create_actor_runtime(16, "10.0.16.0", "10:0:16::").await;
             test::setup_mock_swbusd_resolve_peer_sp(&runtime.get_swbus_edge());
 
-            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(10, 0);
+            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(16, 0);
             let dpu_mon = make_dpu_pmon_state(true);
             let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
             let dpu0 = make_local_dpu_actor_state(0, 0, true, Some(dpu_mon), Some(bfd_state));
@@ -2245,7 +2245,7 @@ mod test {
 
                 // Mock initial DPU & HA set updates
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // A PeerHeartbeat should be triggered
                 recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
@@ -2410,7 +2410,7 @@ mod test {
             let commands = [
                 // HA set update arrives with the NEW peer vdpu3-0 (replacing vdpu1-0)
                 // This is not the first HA set update, so it triggers the new peer inflight logic
-                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu3_id.clone()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu3_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
                 // New peer sends PeerHeartbeat — Standalone node responds with its state
                 // Note: now messages go to/from the new peer scope ID
