@@ -512,7 +512,10 @@ mod actor_creator_tests {
         let behaviour_cl = behaviour.clone();
         let ac = ActorCreator::<_, TestActor>::new(creator_sp.clone(), edge.clone(), true, move |_key| {
             create_calls_cl.fetch_add(1, Ordering::SeqCst);
-            match *behaviour_cl.lock().unwrap() {
+            // Copy the behaviour out and drop the lock guard *before* doing
+            // anything that may panic, otherwise the panic poisons the Mutex.
+            let b = *behaviour_cl.lock().unwrap_or_else(|poison| poison.into_inner());
+            match b {
                 CreateBehaviour::Ok => Ok(TestActor),
                 CreateBehaviour::Err => anyhow::bail!("create_fn intentionally failed"),
                 CreateBehaviour::Panic => panic!("create_fn intentionally panicked"),
