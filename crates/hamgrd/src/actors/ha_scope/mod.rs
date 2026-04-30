@@ -668,7 +668,7 @@ mod test {
             );
             assert_eq!(npu_ha_scope_state.local_target_term.as_deref(), Some("1"));
 
-            let mut dpu_ha_state_state = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
+            let mut dpu_ha_state_state = make_dpu_ha_scope_state("dead");
             dpu_ha_state_state.ha_term = Some("1".to_string());
 
             // Shutdown
@@ -870,7 +870,7 @@ mod test {
             );
             assert_eq!(npu_ha_scope_state.local_target_term.as_deref(), Some("1"));
 
-            let mut dpu_ha_state_state = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
+            let mut dpu_ha_state_state = make_dpu_ha_scope_state("dead");
             dpu_ha_state_state.ha_term = Some("1".to_string());
 
             // Planned Shutdown: Standby sends ShutdownRequest to peer, waits for acceptance
@@ -1537,7 +1537,7 @@ mod test {
             // Phase 5: Cleanup — shutdown the actor
             // Active node uses disabled=true for forced shutdown
             // ============================================================
-            let mut dpu_ha_state_state = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
+            let mut dpu_ha_state_state = make_dpu_ha_scope_state("dead");
             dpu_ha_state_state.ha_term = Some("2".to_string());
 
             #[rustfmt::skip]
@@ -2894,7 +2894,7 @@ mod test {
             // ============================================================
             // Phase 2: Planned Shutdown — Standby → Destroying → Dead
             // ============================================================
-            let mut dpu_ha_state_dead = make_dpu_ha_scope_state(HaRole::Dead.as_str_name());
+            let mut dpu_ha_state_dead = make_dpu_ha_scope_state("dead");
             dpu_ha_state_dead.ha_term = Some("1".to_string());
 
             #[rustfmt::skip]
