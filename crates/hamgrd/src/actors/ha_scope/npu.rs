@@ -1356,9 +1356,7 @@ impl NpuHaScopeActor {
                 HaState::Dead => None,
                 HaState::Destroying => {
                     let dead_role = ha_role_to_string(HaRole::Dead.as_str_name());
-                    if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str())
-                        == Some(dead_role.as_str())
-                    {
+                    if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str()) {
                         // When the DPU is in dead role, all traffic is drained
                         Some((HaState::Dead, "destroy completed"))
                     } else {
@@ -1539,8 +1537,7 @@ impl NpuHaScopeActor {
             }
             HaState::Destroying => {
                 let dead_role = ha_role_to_string(HaRole::Dead.as_str_name());
-                if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str())
-                {
+                if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str()) {
                     // HaEvent::DpuStateChanged should trigger this branch
                     Some((HaState::Dead, "resources drained"))
                 } else {
