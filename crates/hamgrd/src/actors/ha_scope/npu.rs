@@ -1227,11 +1227,8 @@ impl NpuHaScopeActor {
                 let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Standby.as_str_name());
             }
             HaState::PendingActiveActivation | HaState::PendingStandbyActivation => {
-                // Re-create pending operation for SDN approval
+                // No need to re-create pending operation for SDN approval
                 self.send_heartbeat_to_peer(state)?;
-                let operations: Vec<(String, String)> = vec![(Uuid::new_v4().to_string(), "activate_role".to_string())];
-                self.base
-                    .update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
             }
             HaState::Active => {
                 // Re-activate Active role on DPU with persisted term (no increment)
