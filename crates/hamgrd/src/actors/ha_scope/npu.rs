@@ -32,6 +32,8 @@ pub struct NpuHaScopeActor {
     pub(super) retry_count: u32,
     /// Is peer connected?
     pub(super) peer_connected: bool,
+    /// Is rehydration needed?
+    pub(super) rehydration_needed: bool,
     /// Counter object IDs collected from COUNTERS_ENI_NAME_MAP (values of the ENI-to-OID map)
     pub(super) counter_object_ids: HashSet<String>,
     /// Counter statistics for tracked object IDs, keyed by object ID
@@ -45,6 +47,7 @@ impl NpuHaScopeActor {
             target_ha_scope_state: None,
             retry_count: 0,
             peer_connected: false,
+            rehydration_needed: false,
             counter_object_ids: HashSet::new(),
             counter_stats: HashMap::new(),
         }
@@ -453,6 +456,7 @@ impl NpuHaScopeActor {
                     state=%persisted_state.as_str_name(),
                     "Rehydrating HA scope from persisted state"
                 );
+                self.rehydration_needed = true;
 
                 // Restore target_ha_scope_state from persisted local_target_asic_ha_state
                 // in STATE_DB, since it is in-memory only and lost on crash.
@@ -546,7 +550,10 @@ impl NpuHaScopeActor {
         let _ = self.base.update_npu_ha_scope_state_base(state);
 
         if first_time {
-            Ok(HaEvent::Launch)
+            match self.rehydration_needed {
+                true => Ok(HaEvent::Rehydration),
+                false => Ok(HaEvent::Launch)
+            }
         } else {
             match ha_set.up {
                 true => Ok(HaEvent::None),
@@ -1454,6 +1461,9 @@ impl NpuHaScopeActor {
         if event_to_use == HaEvent::Rehydration {
             self.apply_rehydration_side_effects(state, &current_state)?;
             self.broadcast_ha_scope_state(state, current_state);
+
+            // Rehydration completed, reset the flag
+            self.rehydration_needed = false;
             return Ok(());
         }
 
