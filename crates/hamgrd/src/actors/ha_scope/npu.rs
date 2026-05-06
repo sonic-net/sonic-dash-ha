@@ -552,7 +552,7 @@ impl NpuHaScopeActor {
         if first_time {
             match self.rehydration_needed {
                 true => Ok(HaEvent::Rehydration),
-                false => Ok(HaEvent::Launch)
+                false => Ok(HaEvent::Launch),
             }
         } else {
             match ha_set.up {
