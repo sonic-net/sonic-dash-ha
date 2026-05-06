@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use swbus_actor::{state::internal::Internal, ActorMessage, Context, State};
 use swss_common::{KeyOpFieldValues, KeyOperation};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::base::HaScopeBase;
@@ -32,6 +32,8 @@ pub struct NpuHaScopeActor {
     pub(super) retry_count: u32,
     /// Is peer connected?
     pub(super) peer_connected: bool,
+    /// Is rehydration needed?
+    pub(super) rehydration_needed: bool,
     /// Counter object IDs collected from COUNTERS_ENI_NAME_MAP (values of the ENI-to-OID map)
     pub(super) counter_object_ids: HashSet<String>,
     /// Counter statistics for tracked object IDs, keyed by object ID
@@ -45,6 +47,7 @@ impl NpuHaScopeActor {
             target_ha_scope_state: None,
             retry_count: 0,
             peer_connected: false,
+            rehydration_needed: false,
             counter_object_ids: HashSet::new(),
             counter_stats: HashMap::new(),
         }
@@ -278,6 +281,7 @@ impl NpuHaScopeActor {
                 }
                 _ => {}
             }
+            self.persist_target_state_if_changed(state);
             return Ok(HaEvent::DesiredStateChanged);
         }
 
@@ -412,26 +416,30 @@ impl NpuHaScopeActor {
                 )
                 .await?,
             );
-            // subscribe to dpu COUNTERS_ENI_NAME_MAP
-            self.base.bridges.push(
-                spawn_consumer_bridge_for_actor::<CountersEniNameMapTable>(
-                    context.get_edge_runtime().clone(),
-                    HaScopeActor::name(),
-                    Some(&self.base.id),
-                    true,
-                )
-                .await?,
-            );
-            // subscribe to dpu COUNTERS
-            self.base.bridges.push(
-                spawn_consumer_bridge_for_actor::<CountersTable>(
-                    context.get_edge_runtime().clone(),
-                    HaScopeActor::name(),
-                    Some(&self.base.id),
-                    false,
-                )
-                .await?,
-            );
+            // subscribe to dpu COUNTERS_ENI_NAME_MAP (observability-only; best-effort)
+            match spawn_consumer_bridge_for_actor::<CountersEniNameMapTable>(
+                context.get_edge_runtime().clone(),
+                HaScopeActor::name(),
+                Some(&self.base.id),
+                true,
+            )
+            .await
+            {
+                Ok(b) => self.base.bridges.push(b),
+                Err(e) => warn!("Failed to subscribe to COUNTERS_ENI_NAME_MAP: {e}"),
+            }
+            // subscribe to dpu COUNTERS (observability-only; best-effort)
+            match spawn_consumer_bridge_for_actor::<CountersTable>(
+                context.get_edge_runtime().clone(),
+                HaScopeActor::name(),
+                Some(&self.base.id),
+                false,
+            )
+            .await
+            {
+                Ok(b) => self.base.bridges.push(b),
+                Err(e) => warn!("Failed to subscribe to COUNTERS: {e}"),
+            }
             first_time = true;
         }
 
@@ -439,7 +447,25 @@ impl NpuHaScopeActor {
         self.base.update_npu_ha_scope_state_base(state)?;
 
         if first_time {
-            Ok(HaEvent::Launch)
+            // Check if we are rehydrating from a previously persisted state (hamgrd crash recovery).
+            // InternalTableEntry::new() already read the persisted NpuDashHaScopeState from Redis.
+            let persisted_state = self.current_npu_ha_state(state.internal());
+            if persisted_state != HaState::Dead && persisted_state != HaState::Unspecified {
+                info!(
+                    scope=%self.base.id,
+                    state=%persisted_state.as_str_name(),
+                    "Rehydrating HA scope from persisted state"
+                );
+                self.rehydration_needed = true;
+
+                // Restore target_ha_scope_state from persisted local_target_asic_ha_state
+                // in STATE_DB, since it is in-memory only and lost on crash.
+                self.restore_target_state_from_persisted(state.internal());
+
+                Ok(HaEvent::Rehydration)
+            } else {
+                Ok(HaEvent::Launch)
+            }
         } else {
             match vdpu.up {
                 true => Ok(HaEvent::None),
@@ -524,7 +550,10 @@ impl NpuHaScopeActor {
         let _ = self.base.update_npu_ha_scope_state_base(state);
 
         if first_time {
-            Ok(HaEvent::Launch)
+            match self.rehydration_needed {
+                true => Ok(HaEvent::Rehydration),
+                false => Ok(HaEvent::Launch),
+            }
         } else {
             match ha_set.up {
                 true => Ok(HaEvent::None),
@@ -834,6 +863,7 @@ impl NpuHaScopeActor {
                 return Ok(HaEvent::None);
             }
         }
+        self.persist_target_state_if_changed(state);
         Ok(HaEvent::VoteCompleted)
     }
 
@@ -1124,6 +1154,146 @@ impl NpuHaScopeActor {
             .unwrap_or(HaState::Dead)
     }
 
+    /// Restore `target_ha_scope_state` from persisted `local_target_asic_ha_state` in
+    /// STATE_DB. This is used during rehydration because `target_ha_scope_state` is
+    /// in-memory only and lost on crash.
+    fn restore_target_state_from_persisted(&mut self, internal: &Internal) {
+        self.target_ha_scope_state = self
+            .base
+            .get_npu_ha_scope_state(internal)
+            .and_then(|s| s.local_target_asic_ha_state)
+            .and_then(|s| match s.as_str() {
+                "active" => Some(TargetState::Active),
+                "standby" => Some(TargetState::Standby),
+                "standalone" => Some(TargetState::Standalone),
+                "dead" => Some(TargetState::Dead),
+                _ => None,
+            });
+    }
+
+    /// Persist `target_ha_scope_state` to `local_target_asic_ha_state` in STATE_DB
+    /// so it survives hamgrd crashes. Only writes when the value has changed.
+    fn persist_target_state_if_changed(&self, state: &mut State) {
+        let internal = state.internal();
+        let Some(mut npu_state) = self.base.get_npu_ha_scope_state(internal) else {
+            return;
+        };
+
+        let new_value = self.target_ha_scope_state.map(|ts| match ts {
+            TargetState::Active => "active".to_string(),
+            TargetState::Standby => "standby".to_string(),
+            TargetState::Standalone => "standalone".to_string(),
+            TargetState::Dead => "dead".to_string(),
+            TargetState::Unspecified => "unspecified".to_string(),
+        });
+
+        if npu_state.local_target_asic_ha_state == new_value {
+            return;
+        }
+
+        npu_state.local_target_asic_ha_state = new_value;
+        if let Ok(fvs) = swss_serde::to_field_values(&npu_state) {
+            internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+        }
+    }
+
+    /// Re-apply idempotent side effects for the persisted state during rehydration.
+    ///
+    /// Per HLD Section 7.4: All actions during state transition are idempotent, so
+    /// after crash recovery we can safely retry them. This function re-establishes
+    /// the runtime state (DPU role activation, peer communication, pending operations)
+    /// for the persisted HA state without triggering a state transition.
+    fn apply_rehydration_side_effects(&mut self, state: &mut State, persisted_state: &HaState) -> Result<()> {
+        info!(
+            scope=%self.base.id,
+            state=%persisted_state.as_str_name(),
+            "Applying rehydration side effects"
+        );
+
+        match persisted_state {
+            HaState::Connecting => {
+                // Re-send heartbeat and schedule peer connection check
+                self.send_heartbeat_to_peer(state)?;
+                self.send_self_notification(state, "CheckPeerConnection", RETRY_INTERVAL)?;
+            }
+            HaState::Connected => {
+                // Re-send VoteRequest to resume primary election
+                self.send_heartbeat_to_peer(state)?;
+                self.send_vote_request_to_peer(state, false)?;
+            }
+            HaState::InitializingToActive => {
+                // Re-activate DPU role and check if peer is already in InitializingToStandby
+                self.send_heartbeat_to_peer(state)?;
+                if self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby {
+                    self.send_self_notification(state, "EnterActive", 0)?;
+                }
+            }
+            HaState::InitializingToStandby => {
+                // Re-activate Standby role on DPU
+                self.send_heartbeat_to_peer(state)?;
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Standby.as_str_name());
+            }
+            HaState::PendingActiveActivation | HaState::PendingStandbyActivation => {
+                // No need to re-create pending operation for SDN approval
+                self.send_heartbeat_to_peer(state)?;
+            }
+            HaState::Active => {
+                // Re-activate Active role on DPU with persisted term (no increment)
+                self.send_heartbeat_to_peer(state)?;
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Active.as_str_name());
+            }
+            HaState::Standby => {
+                // Re-activate Standby role on DPU
+                self.send_heartbeat_to_peer(state)?;
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Standby.as_str_name());
+            }
+            HaState::Standalone => {
+                // Re-activate Standalone role on DPU with persisted term (no increment)
+                self.send_heartbeat_to_peer(state)?;
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Standalone.as_str_name());
+            }
+            HaState::SwitchingToStandalone => {
+                // Re-evaluate standalone entry conditions
+                self.send_heartbeat_to_peer(state)?;
+                let desired = self
+                    .base
+                    .dash_ha_scope_config
+                    .as_ref()
+                    .map(|c| c.desired_ha_state)
+                    .unwrap_or(0);
+                if desired == DesiredHaState::Standalone as i32 {
+                    self.send_self_notification(state, "EnterStandalone", 0)?;
+                } else if let Err(e) = self.send_dpu_request_enter_standalone(state, false) {
+                    error!("Failed to send DPURequestEnterStandalone to peer during rehydration: {e}");
+                    self.send_self_notification(state, "EnterStandalone", 0)?;
+                }
+            }
+            HaState::SwitchingToActive => {
+                // Re-activate switching_to_active role and re-send SwitchoverRequest
+                self.send_heartbeat_to_peer(state)?;
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::SwitchingToActive.as_str_name());
+                let switchover_id = self
+                    .base
+                    .get_npu_ha_scope_state(state.internal())
+                    .and_then(|s| s.switchover_id)
+                    .unwrap_or_default();
+                let _ = self.send_switchover_request_to_peer(state, &switchover_id, MessageMetaFlags::Syn, false);
+            }
+            HaState::SwitchingToStandby => {
+                // Re-activate standby role on DPU
+                self.send_heartbeat_to_peer(state)?;
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Standby.as_str_name());
+            }
+            HaState::Destroying => {
+                // Re-activate Dead role on the DPU
+                let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Dead.as_str_name());
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     fn apply_pending_state_side_effects(
         &mut self,
         state: &mut State,
@@ -1283,6 +1453,18 @@ impl NpuHaScopeActor {
         } else if event_to_use == HaEvent::AdminStateChanged {
             // Equivalent to launch
             event_to_use = HaEvent::Launch;
+        }
+
+        // Per HLD Section 7.4: On crash recovery, read persisted state from Redis and
+        // retry all idempotent actions safely. We skip `next_state()` since we are
+        // restoring, not transitioning.
+        if event_to_use == HaEvent::Rehydration {
+            self.apply_rehydration_side_effects(state, &current_state)?;
+            self.broadcast_ha_scope_state(state, current_state);
+
+            // Rehydration completed, reset the flag
+            self.rehydration_needed = false;
+            return Ok(());
         }
 
         let target_state = self.target_ha_scope_state.unwrap_or(TargetState::Unspecified);
