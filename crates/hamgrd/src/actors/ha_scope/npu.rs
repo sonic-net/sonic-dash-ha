@@ -270,13 +270,15 @@ impl NpuHaScopeActor {
                 DesiredHaState::Active => {
                     self.target_ha_scope_state = Some(TargetState::Active);
                 }
+                DesiredHaState::Standalone => {
+                    self.target_ha_scope_state = Some(TargetState::Standalone);
+                }
                 DesiredHaState::Unspecified => {
-                    self.target_ha_scope_state = Some(TargetState::Standby);
+                    self.target_ha_scope_state = Some(TargetState::Unspecified);
                 }
                 DesiredHaState::Dead => {
                     self.target_ha_scope_state = Some(TargetState::Dead);
                 }
-                _ => {}
             }
             return Ok(HaEvent::DesiredStateChanged);
         }
@@ -1170,8 +1172,10 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerLost {
                     // Peer DPU lost
                     self.send_self_notification(state, "EnterStandalone", 0)?;
-                } else if *event == HaEvent::PeerShutdownRequested {
-                    // Peer DPU planned shutdown
+                } else if *event == HaEvent::PeerShutdownRequested
+                    || self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
+                {
+                    // Peer DPU planned shutdown or forced shutdown
                     self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else {
                     // Send DPURequestEnterStandalone to peer with local health signals
@@ -1301,12 +1305,12 @@ impl NpuHaScopeActor {
                 // No state transition. Handle special cases that require side effects
                 // without an immediate state change.
 
-                // Per HLD Section 8.2.1 Steps 1-2: When in Standby and desired state changes
-                // to Active, create a pending "switchover" operation and wait for upstream approval.
                 if current_state == HaState::Standby
                     && event_to_use == HaEvent::DesiredStateChanged
                     && target_state == TargetState::Active
                 {
+                    // Per HLD Section 8.2.1 Steps 1-2: When in Standby and desired state changes
+                    // to Active, create a pending "switchover" operation and wait for upstream approval.
                     let switchover_id = Uuid::new_v4().to_string();
                     info!("Creating pending switchover operation: {}", &switchover_id);
 
@@ -1318,15 +1322,21 @@ impl NpuHaScopeActor {
                     self.base
                         .update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
                 } else if event_to_use == HaEvent::DesiredStateChanged && target_state == TargetState::Dead {
-                    let outgoing = state.outgoing();
-                    let Some(peer_sp) = self.peer_sp() else {
-                        // Haven't received the remote peer vDPU info yet
-                        info!("Haven't received peer vDPU info yet");
-                        return Ok(());
-                    };
+                    // When desired state is changed a to Dead, a planned shutdown is triggered
+                    if self.current_npu_ha_state(state.internal()) == HaState::Standby {
+                        let outgoing = state.outgoing();
+                        let Some(peer_sp) = self.peer_sp() else {
+                            // Haven't received the remote peer vDPU info yet
+                            info!("Haven't received peer vDPU info yet");
+                            return Ok(());
+                        };
 
-                    let msg = ShutdownRequest::new_actor_msg(&self.base.id, "planned shutdown")?;
-                    outgoing.send(peer_sp, msg);
+                        let msg = ShutdownRequest::new_actor_msg(&self.base.id, "planned shutdown")?;
+                        outgoing.send(peer_sp, msg);
+                    } else {
+                        error!("Non-standby HA Scope cannot be planned shutdown in NPU-driven mode");
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -1345,9 +1355,8 @@ impl NpuHaScopeActor {
             return match current_state {
                 HaState::Dead => None,
                 HaState::Destroying => {
-                    if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str())
-                        == Some(HaRole::Dead.as_str_name())
-                    {
+                    let dead_role = ha_role_to_string(HaRole::Dead.as_str_name());
+                    if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str()) {
                         // When the DPU is in dead role, all traffic is drained
                         Some((HaState::Dead, "destroy completed"))
                     } else {
@@ -1363,6 +1372,12 @@ impl NpuHaScopeActor {
                 // On launch
                 if *event == HaEvent::Launch {
                     Some((HaState::Connecting, "ha scope initializing"))
+                } else if *event == HaEvent::DesiredStateChanged {
+                    if *target_state != TargetState::Dead {
+                        Some((HaState::Connecting, "ha scope initializing"))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -1429,6 +1444,8 @@ impl NpuHaScopeActor {
                     Some((HaState::SwitchingToStandalone, "peer requested shutdown"))
                 } else if *event == HaEvent::HighInlineSyncDrops {
                     Some((HaState::SwitchingToStandalone, "high inline-sync packet drops"))
+                } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
+                    Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {
                     None
                 }
@@ -1456,6 +1473,8 @@ impl NpuHaScopeActor {
                     ))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer failure while standby"))
+                } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
+                    Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {
                     None
                 }
@@ -1517,8 +1536,8 @@ impl NpuHaScopeActor {
                 }
             }
             HaState::Destroying => {
-                if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::Dead.as_str_name())
-                {
+                let dead_role = ha_role_to_string(HaRole::Dead.as_str_name());
+                if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str()) {
                     // HaEvent::DpuStateChanged should trigger this branch
                     Some((HaState::Dead, "resources drained"))
                 } else {
