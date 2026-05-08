@@ -13,7 +13,7 @@ use swbus_edge::{
 use tokio::time::{interval, Interval};
 use tracing::debug;
 
-const RESEND_TIME: Duration = Duration::from_secs(60);
+const RESEND_TIME: Duration = Duration::from_secs(15);
 const MAINTENANCE_POLL_TIME: Duration = Duration::from_secs(1);
 
 /// Outgoing state table - messages to send to other actors.
