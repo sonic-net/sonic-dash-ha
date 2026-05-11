@@ -13,7 +13,7 @@ use swbus_edge::{
 use tokio::time::{interval, Interval};
 use tracing::debug;
 
-const RESEND_TIME: Duration = Duration::from_secs(60);
+const RESEND_TIME: Duration = Duration::from_secs(15);
 const MAINTENANCE_POLL_TIME: Duration = Duration::from_secs(1);
 
 /// Outgoing state table - messages to send to other actors.
@@ -159,9 +159,9 @@ impl Outgoing {
             }
             self.last_resend_time = now;
 
-            // Drop messages that have been unacked for over an hour, as a memory leak failsafe
+            // Drop messages that have been unacked for over a minute, as a memory leak failsafe
             self.unacked_messages
-                .retain(|_, msg| Duration::from_secs(get_elapsed_time(&msg.time_sent)) < Duration::from_secs(3600));
+                .retain(|_, msg| Duration::from_secs(get_elapsed_time(&msg.time_sent)) < Duration::from_secs(60));
 
             // Resend unacked messages
             for msg in self.unacked_messages.values() {
