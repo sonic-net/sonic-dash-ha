@@ -1115,7 +1115,7 @@ impl NpuHaScopeActor {
             .get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.local_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
-            .unwrap_or(HaState::Dead)
+            .unwrap_or(HaState::Unspecified)
     }
 
     fn current_npu_peer_ha_state(&self, internal: &Internal) -> HaState {
@@ -1123,7 +1123,7 @@ impl NpuHaScopeActor {
             .get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.peer_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
-            .unwrap_or(HaState::Dead)
+            .unwrap_or(HaState::Unspecified)
     }
 
     fn apply_pending_state_side_effects(
