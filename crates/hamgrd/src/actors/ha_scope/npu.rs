@@ -1204,7 +1204,7 @@ impl NpuHaScopeActor {
 
                 // Bulk sync is triggered after Active role is activated
                 if *current_state == HaState::Standalone {
-                    // If staring from Standalone, do bulk sync
+                    // If starting from Standalone, do bulk sync
                     let _ = self.add_bulk_sync_session(state);
                 }
             }
