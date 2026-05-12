@@ -230,7 +230,7 @@ mod test {
     };
     use sonic_common::SonicDbTable;
     use sonic_dash_api_proto::ha_scope_config::{DesiredHaState, HaScopeConfig};
-    use sonic_dash_api_proto::types::{HaOwner, HaRole, HaState};
+    use sonic_dash_api_proto::types::{HaOwner, HaState};
     use std::time::Duration;
     use swss_common::Table;
     use swss_common_testing::*;
