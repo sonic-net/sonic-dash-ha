@@ -1115,7 +1115,7 @@ impl NpuHaScopeActor {
             .get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.local_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
-            .unwrap_or(HaState::Dead)
+            .unwrap_or(HaState::Unspecified)
     }
 
     fn current_npu_peer_ha_state(&self, internal: &Internal) -> HaState {
@@ -1123,7 +1123,7 @@ impl NpuHaScopeActor {
             .get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.peer_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
-            .unwrap_or(HaState::Dead)
+            .unwrap_or(HaState::Unspecified)
     }
 
     fn apply_pending_state_side_effects(
@@ -1188,10 +1188,7 @@ impl NpuHaScopeActor {
                 }
             }
             HaState::Active => {
-                if *current_state == HaState::Standalone {
-                    // If staring from Standalone, do bulk sync
-                    let _ = self.add_bulk_sync_session(state);
-                } else if *current_state == HaState::PendingActiveActivation {
+                if *current_state == HaState::PendingActiveActivation {
                     // When starting from PendingActiveRoleActivation, no need to do bulk sync.
                     // Send BulkSyncCompleted signal to the peer immediately
                     self.send_bulk_sync_completed_to_peer(state)?;
@@ -1204,6 +1201,12 @@ impl NpuHaScopeActor {
                 // Activate Active role on DPU with a new term
                 let _ = self.increment_npu_ha_scope_state_target_term(state);
                 let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Active.as_str_name());
+
+                // Bulk sync is triggered after Active role is activated
+                if *current_state == HaState::Standalone {
+                    // If starting from Standalone, do bulk sync
+                    let _ = self.add_bulk_sync_session(state);
+                }
             }
             HaState::InitializingToStandby => {
                 // Activate Standby role on DPU
