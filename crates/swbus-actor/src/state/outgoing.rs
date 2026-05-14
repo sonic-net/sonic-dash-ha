@@ -150,6 +150,12 @@ impl Outgoing {
             if !self.queued_messages.is_empty() {
                 self.send_queued_messages().await;
             }
+            else if self.unacked_messages.is_empty() {
+                // if both queued messages and unacked messages queues are empty
+                // there is nothing to do maintenance, we will return to check if
+                // the actor is marked as deleted
+                return;
+            }
 
             // Resend unacked messages periodically
             let now = SystemTime::now();
