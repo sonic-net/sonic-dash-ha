@@ -389,6 +389,7 @@ pub struct DashHaScopeTable {
     pub vip_v6: Option<String>,
     pub flow_reconcile_requested: Option<bool>,
     pub activate_role_requested: Option<bool>,
+    pub brainsplit_recovered: Option<bool>,
 }
 
 /// <https://github.com/sonic-net/SONiC/blob/master/doc/smart-switch/high-availability/smart-switch-ha-detailed-design.md#2342-ha-scope-state>

@@ -1890,6 +1890,7 @@ impl NpuHaScopeActor {
                 .unwrap_or("0".to_string()),
             flow_reconcile_requested: None,
             activate_role_requested: None,
+            brainsplit_recovered: None,
         };
 
         let fv = swss_serde::to_field_values(&dash_ha_scope)?;

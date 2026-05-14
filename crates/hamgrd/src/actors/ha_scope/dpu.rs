@@ -204,6 +204,7 @@ impl DpuHaScopeActor {
 
         let mut activate_role_requested = false;
         let mut flow_reconcile_requested = false;
+        let mut brainsplit_recovered = false;
         let approved_ops = dash_ha_scope_config.approved_pending_operation_ids.clone();
         if !approved_ops.is_empty() {
             let pending_operations = self.base.get_pending_operations(internal, None)?;
@@ -223,7 +224,7 @@ impl DpuHaScopeActor {
                         flow_reconcile_requested = true;
                     }
                     "brainsplit_recover" => {
-                        // todo: what's the action here?
+                        brainsplit_recovered = true;
                     }
                     _ => {
                         error!("Unknown operation type {}", op);
@@ -250,6 +251,7 @@ impl DpuHaScopeActor {
             ha_term: "0".to_string(), // TODO: not clear what need to be done for DPU-driven mode
             flow_reconcile_requested: Some(flow_reconcile_requested),
             activate_role_requested: Some(activate_role_requested),
+            brainsplit_recovered: Some(brainsplit_recovered),
         };
 
         let fv = swss_serde::to_field_values(&dash_ha_scope)?;
