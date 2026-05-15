@@ -14,12 +14,14 @@
 import sys
 import time
 import syslog
+import shutil
 import subprocess
 
 # Configuration
 LOOPBACK_INTERFACE = "Loopback0"
 MAX_RETRIES = 300  # Maximum number of retries
 POLL_INTERVAL = 1  # Poll interval in seconds
+NEIGHSYNCD_READY_WAIT = 1  # Wait time after neighsyncd is running (seconds)
 
 
 def log_info(msg):
@@ -35,6 +37,58 @@ def log_err(msg):
 def log_debug(msg):
     """Log debug message to syslog"""
     syslog.syslog(syslog.LOG_DEBUG, f"wait_for_loopback: {msg}")
+
+
+def wait_for_neighsyncd():
+    """
+    Wait for neighsyncd process to be running in swss container.
+
+    Returns:
+        bool: True if ready, False otherwise.
+    """
+    log_info("Wait for neighsyncd process in swss container...")
+
+    docker_cmd = shutil.which("docker")
+    if not docker_cmd:
+        log_err("docker command not found")
+        return False
+
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
+        try:
+            result = subprocess.run(
+                [docker_cmd, "exec", "swss", "bash", "-c", "supervisorctl status neighsyncd"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                status_line = result.stdout.strip()
+                parts = status_line.split()
+                if len(parts) >= 2 and parts[1] == "RUNNING":
+                    log_info("neighsyncd is running in swss container")
+                    time.sleep(NEIGHSYNCD_READY_WAIT)
+                    return True
+                if status_line:
+                    log_debug(f"neighsyncd not running: {status_line}")
+                else:
+                    log_debug("neighsyncd status returned empty output")
+            else:
+                err = result.stderr.strip() or result.stdout.strip()
+                if err:
+                    log_debug(f"neighsyncd status command failed: {err}")
+                else:
+                    log_debug("neighsyncd status command failed")
+        except subprocess.TimeoutExpired:
+            log_err("Timeout checking neighsyncd status")
+        except Exception as e:
+            log_err(f"Error checking neighsyncd status: {e}")
+
+        retry_count += 1
+        time.sleep(POLL_INTERVAL)
+
+    log_err(f"neighsyncd was not running after {MAX_RETRIES} retries")
+    return False
 
 
 def check_loopback_interface():
@@ -117,6 +171,8 @@ def main():
     syslog.openlog("wait_for_loopback", syslog.LOG_PID)
 
     try:
+        if not wait_for_neighsyncd():
+            sys.exit(1)
         exit_code = wait_for_loopback()
         sys.exit(exit_code)
     except Exception as e:
