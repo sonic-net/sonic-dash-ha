@@ -538,14 +538,13 @@ impl NpuHaScopeActor {
     /// Handles DPU DASH_HA_SCOPE_STATE update messages for this HA scope.
     /// Update NPU DASH_HA_SCOPE_STATE ha_state related fields that need acknowledgements from DPU
     fn handle_dpu_ha_scope_state_update_npu_driven(&mut self, state: &mut State) -> Result<HaEvent> {
-        let (internal, incoming, _) = state.get_all();
         // parse dpu ha scope state
-        let Some(new_dpu_ha_scope_state) = self.base.get_dpu_ha_scope_state(incoming) else {
+        let Some(new_dpu_ha_scope_state) = self.base.get_dpu_ha_scope_state(state.incoming()) else {
             // no valid state received from dpu, skip
             return Ok(HaEvent::None);
         };
         // get the NPU ha scope state
-        let Some(mut npu_ha_scope_state) = self.base.get_npu_ha_scope_state(internal) else {
+        let Some(mut npu_ha_scope_state) = self.base.get_npu_ha_scope_state(state.internal()) else {
             info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
             return Ok(HaEvent::None);
         };
@@ -556,12 +555,21 @@ impl NpuHaScopeActor {
             new_dpu_ha_scope_state.ha_term.clone()
         );
 
+        let old_acked_asic_ha_state = npu_ha_scope_state.local_acked_asic_ha_state;
+
         npu_ha_scope_state.local_acked_asic_ha_state = Some(new_dpu_ha_scope_state.ha_role.clone());
         npu_ha_scope_state.local_acked_term = new_dpu_ha_scope_state.ha_term.clone();
         self.base.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
+        if old_acked_asic_ha_state.as_deref() == Some("standalone") && npu_ha_scope_state.local_acked_asic_ha_state.as_deref() == Some("active") {
+            if let Err(_) = self.add_bulk_sync_session(state) {
+                error!("Failed to initiate the bulk sync session!");
+                return Ok(HaEvent::BulkSyncFailure);
+            }
+        }
+
         let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
-        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+        state.internal().get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
 
         Ok(HaEvent::DpuStateChanged)
     }
@@ -625,6 +633,8 @@ impl NpuHaScopeActor {
         if session_state.state == "completed" {
             let _ = self.send_bulk_sync_completed_to_peer(state);
             return Ok(HaEvent::BulkSyncCompleted);
+        } else if session_state.state == "failed" {
+            return Ok(HaEvent::BulkSyncFailure);
         }
 
         Ok(HaEvent::None)
@@ -974,7 +984,7 @@ impl NpuHaScopeActor {
             return Ok(HaEvent::EnterStandby);
         }
 
-        if request.inline_sync_packet_drops {
+        if request.inline_sync_packet_drops || request.bulk_sync_failure {
             // Dataplane gray failures detected, pick the DPU with higher desired state to become Standalone
             let desired_ha_state = self.base.dash_ha_scope_config.as_ref().unwrap().desired_ha_state;
             if desired_ha_state == DesiredHaState::Standalone as i32
@@ -1180,7 +1190,8 @@ impl NpuHaScopeActor {
                 } else {
                     // Send DPURequestEnterStandalone to peer with local health signals
                     let inline_sync_drops = *event == HaEvent::HighInlineSyncDrops;
-                    if let Err(e) = self.send_dpu_request_enter_standalone(state, inline_sync_drops) {
+                    let bulk_sync_failure = *event == HaEvent::BulkSyncFailure;
+                    if let Err(e) = self.send_dpu_request_enter_standalone(state, inline_sync_drops, bulk_sync_failure) {
                         // Cannot connect with peer, enter standalone right away
                         error!("Failed to send DPURequestEnterStandalone to peer: {e}");
                         self.send_self_notification(state, "EnterStandalone", 0)?;
@@ -1201,12 +1212,6 @@ impl NpuHaScopeActor {
                 // Activate Active role on DPU with a new term
                 let _ = self.increment_npu_ha_scope_state_target_term(state);
                 let _ = self.update_dpu_ha_scope_table_with_params(state, HaRole::Active.as_str_name());
-
-                // Bulk sync is triggered after Active role is activated
-                if *current_state == HaState::Standalone {
-                    // If starting from Standalone, do bulk sync
-                    let _ = self.add_bulk_sync_session(state);
-                }
             }
             HaState::InitializingToStandby => {
                 // Activate Standby role on DPU
@@ -1447,6 +1452,8 @@ impl NpuHaScopeActor {
                     Some((HaState::SwitchingToStandalone, "peer requested shutdown"))
                 } else if *event == HaEvent::HighInlineSyncDrops {
                     Some((HaState::SwitchingToStandalone, "high inline-sync packet drops"))
+                } else if *event == HaEvent::BulkSyncFailure {
+                    Some((HaState::SwitchingToStandalone, "bulk sync failure"))
                 } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
                     Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {
@@ -1600,7 +1607,7 @@ impl NpuHaScopeActor {
 
     /// Send a DPURequestEnterStandalone message to the peer HA scope actor
     /// carrying the local DPU's critical health signals.
-    fn send_dpu_request_enter_standalone(&self, state: &mut State, inline_sync_drops_detected: bool) -> Result<()> {
+    fn send_dpu_request_enter_standalone(&self, state: &mut State, inline_sync_drops_detected: bool, bulk_sync_failure: bool) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
 
         let Some(peer_sp) = self.peer_sp() else {
@@ -1619,14 +1626,16 @@ impl NpuHaScopeActor {
             vdpu_up,
             pinned_bfd_state,
             inline_sync_drops_detected,
+            bulk_sync_failure,
         )?;
         outgoing.send(peer_sp, msg);
         info!(
-            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}, inline_sync_packet_drops={}",
+            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}, inline_sync_packet_drops={}, bulk_sync_failure={}",
             dp_channel_is_alive,
             vdpu_up,
             self.base.pinned_bfd_state.as_deref().unwrap_or(""),
-            inline_sync_drops_detected
+            inline_sync_drops_detected,
+            bulk_sync_failure
         );
 
         Ok(())
