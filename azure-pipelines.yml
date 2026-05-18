@@ -109,6 +109,10 @@ stages:
         make ci-test
       displayName: 'Test'
 
+    - script: |
+        make ci-coverage
+      displayName: 'Coverage (fail under 80% lines)'
+
     - publish: $(System.DefaultWorkingDirectory)/
       artifact: sonic-dash-ha
       displayName: 'Archive release binaries'
