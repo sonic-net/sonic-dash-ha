@@ -256,15 +256,18 @@ mod test {
             let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
 
             // Initial state of NPU DASH_HA_SCOPE_STATE
-            let npu_ha_scope_state1 = make_npu_ha_scope_state(&vdpu0_state_obj, &ha_set_obj);
+            let mut npu_ha_scope_state1 = make_npu_ha_scope_state(&vdpu0_state_obj, &ha_set_obj);
+            npu_ha_scope_state1.version = Some("1".to_string());
             let npu_ha_scope_state_fvs1 = to_field_values(&npu_ha_scope_state1).unwrap();
 
             // NPU DASH_HA_SCOPE_STATE after DPU DASH_HA_SCOPE_STATE update
             let dpu_ha_state_state2 = make_dpu_ha_scope_state("dead");
             let mut npu_ha_scope_state2 = npu_ha_scope_state1.clone();
-            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state2, &dpu_ha_state_state2, "active", "2");
+            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state2, &dpu_ha_state_state2, "active", "1");
             let npu_ha_scope_state_fvs2 = to_field_values(&npu_ha_scope_state2).unwrap();
-
+            let mut npu_ha_scope_state2_1 = npu_ha_scope_state2.clone();
+            npu_ha_scope_state2_1.version = Some("2".to_string());
+            let npu_ha_scope_state_fvs2_1 = to_field_values(&npu_ha_scope_state2_1).unwrap();
             // NPU DASH_HA_SCOPE_STATE after DPU DASH_HA_SCOPE_STATE role activation requestion
             let mut dpu_ha_state_state3 = dpu_ha_state_state2.clone();
             dpu_ha_state_state3.activate_role_pending = true;
@@ -331,8 +334,7 @@ mod test {
                         }},
 
                 // Write to NPU DASH_HA_SCOPE_STATE through internal state
-                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2,
-                        exclude: "version" },
+                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2},
 
                 // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
@@ -359,7 +361,7 @@ mod test {
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
 
                 // Write to NPU DASH_HA_SCOPE_STATE through internal state
-                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
+                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2_1 },
 
                 // Send DPU DASH_HA_SCOPE_STATE with role activation request to the actor
                 send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
@@ -561,6 +563,7 @@ mod test {
             npu_ha_scope_state_pending_active_activation.peer_term = Some("0".to_string());
             npu_ha_scope_state_pending_active_activation.pending_operation_types =
                 Some(vec!["activate_role".to_string()]);
+            npu_ha_scope_state_pending_active_activation.version = Some("1".to_string());
             let npu_ha_scope_state_pending_active_activation_fvs =
                 to_field_values(&npu_ha_scope_state_pending_active_activation).unwrap();
 
@@ -751,6 +754,7 @@ mod test {
             npu_ha_scope_state_pending_standby_activation.peer_term = Some("1".to_string());
             npu_ha_scope_state_pending_standby_activation.pending_operation_types =
                 Some(vec!["activate_role".to_string()]);
+            npu_ha_scope_state_pending_standby_activation.version = Some("1".to_string());
             let npu_ha_scope_state_pending_standby_activation_fvs =
                 to_field_values(&npu_ha_scope_state_pending_standby_activation).unwrap();
 
