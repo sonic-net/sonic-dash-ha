@@ -284,9 +284,11 @@ impl DpuHaScopeActor {
             return Ok(());
         };
 
+        npu_ha_scope_state.version = Some(dash_ha_scope_config.version.clone());
+
         // in dpu driven mode, local_ha_state is same as dpu acked ha state
         npu_ha_scope_state.local_ha_state = Some(dpu_ha_scope_state.ha_state.clone());
-        npu_ha_scope_state.local_ha_state_last_updated_time_in_ms = Some(dpu_ha_scope_state.ha_role_start_time);
+        npu_ha_scope_state.local_ha_state_last_updated_time_in_ms = Some(dpu_ha_scope_state.ha_state_start_time);
         // The reason of the last HA state change.
         npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
 

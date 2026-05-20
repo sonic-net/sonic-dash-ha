@@ -462,6 +462,8 @@ pub struct DpuResetInfo {
 #[derive(Debug, Deserialize, Serialize, Eq, PartialEq, Default, Clone, SonicDb)]
 #[sonicdb(table_name = "DASH_HA_SCOPE_STATE", key_separator = "|", db_name = "STATE_DB")]
 pub struct NpuDashHaScopeState {
+    // Config version.
+    pub version: Option<String>,
     // HA scope creation time in milliseconds.
     pub creation_time_in_ms: i64, /*todo: where is this from */
     // Last heartbeat time in milliseconds. This is used for leak detection.

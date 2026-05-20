@@ -262,7 +262,7 @@ mod test {
             // NPU DASH_HA_SCOPE_STATE after DPU DASH_HA_SCOPE_STATE update
             let dpu_ha_state_state2 = make_dpu_ha_scope_state("dead");
             let mut npu_ha_scope_state2 = npu_ha_scope_state1.clone();
-            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state2, &dpu_ha_state_state2, "active");
+            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state2, &dpu_ha_state_state2, "active", "2");
             let npu_ha_scope_state_fvs2 = to_field_values(&npu_ha_scope_state2).unwrap();
 
             // NPU DASH_HA_SCOPE_STATE after DPU DASH_HA_SCOPE_STATE role activation requestion
@@ -270,7 +270,7 @@ mod test {
             dpu_ha_state_state3.activate_role_pending = true;
             dpu_ha_state_state3.last_updated_time = now_in_millis();
             let mut npu_ha_scope_state3 = npu_ha_scope_state2.clone();
-            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state3, &dpu_ha_state_state3, "active");
+            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state3, &dpu_ha_state_state3, "active", "2");
             update_npu_ha_scope_state_pending_ops(
                 &mut npu_ha_scope_state3,
                 vec![("1".to_string(), "activate_role".to_string())],
@@ -331,7 +331,8 @@ mod test {
                         }},
 
                 // Write to NPU DASH_HA_SCOPE_STATE through internal state
-                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2 },
+                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, data: npu_ha_scope_state_fvs2,
+                        exclude: "version" },
 
                 // Send DASH_HA_SCOPE_CONFIG_TABLE to actor with admin state enabled
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
@@ -381,13 +382,14 @@ mod test {
 
             // continue the test to activate the role
             let mut npu_ha_scope_state4 = npu_ha_scope_state3.clone();
+            npu_ha_scope_state4.version = Some("3".to_string());
             update_npu_ha_scope_state_pending_ops(&mut npu_ha_scope_state4, vec![]);
             let npu_ha_scope_state_fvs4 = to_field_values(&npu_ha_scope_state4).unwrap();
 
             let mut dpu_ha_state_state5 = make_dpu_ha_scope_state("active");
             dpu_ha_state_state5.ha_term = Some("2".to_string());
             let mut npu_ha_scope_state5: NpuDashHaScopeState = npu_ha_scope_state4.clone();
-            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state5, &dpu_ha_state_state5, "active");
+            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state5, &dpu_ha_state_state5, "active", "3");
             let npu_ha_scope_state_fvs5 = to_field_values(&npu_ha_scope_state5).unwrap();
 
             let bfd_state = make_dpu_bfd_state(vec!["10.0.0.0", "10.0.1.0"], Vec::new());
@@ -469,6 +471,7 @@ mod test {
 
             // execute planned shutdown
             let mut npu_ha_scope_state7 = npu_ha_scope_state6.clone();
+            npu_ha_scope_state7.version = Some("4".to_string());
             npu_ha_scope_state7.local_target_asic_ha_state = Some("dead".to_string());
             let npu_ha_scope_state_fvs7 = to_field_values(&npu_ha_scope_state7).unwrap();
             #[rustfmt::skip]
@@ -605,7 +608,7 @@ mod test {
                 // Expect HaScopeActorState: initializing_to_active -> pending_active_activation
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::PendingActiveActivation.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
-                
+
 
                 // Expect a pending role activation request in NPU DASH_HA_SCOPE_STATE table
                 chkdb! { type: NpuDashHaScopeState,
@@ -634,7 +637,7 @@ mod test {
                         "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":["{op_id}"]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
                         },
                         addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
-                
+
                 // Expect a bulkSyncCompleted message
                 recv! { key: BulkSyncUpdate::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id, "finished": true }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
 
@@ -804,7 +807,7 @@ mod test {
                 // Expect a HaScopeActorState: connected -> initializing_to_standby
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::InitializingToStandby.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
-                
+
                 // Mock a bulkSyncCompleted message from the peer
                 send! { key: BulkSyncUpdate::msg_key(&peer_scope_id), data: { "dst_actor_id": &scope_id, "finished": true }},
                 // Expect a HaScopeActorState: initializing_to_standby -> pending_standby_activation
