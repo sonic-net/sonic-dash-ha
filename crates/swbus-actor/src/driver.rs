@@ -75,7 +75,7 @@ impl<A: Actor> ActorDriver<A> {
     }
     #[instrument(name="handle_swbus_message", level="debug", skip_all, fields(actor=self.swbus_edge.get_service_path().to_longest_path(), id=%msg.id))]
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
-        debug!("received message: {msg:?}");
+        debug!(target:"hamgrd-recorder", "received message: {msg:?}");
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
@@ -101,7 +101,7 @@ impl<A: Actor> ActorDriver<A> {
                     eprintln!("Received invalid actor message from {source}");
                     return;
                 };
-                debug!("received from {}: {:?}", source.to_longest_path(), actor_msg);
+                debug!(target:"hamgrd-recorder", "handle an actor message from {}: {:?}", source.to_longest_path(), actor_msg);
                 let res = self.state.incoming.handle_request(id, source.clone(), &payload).await;
                 let (error_code, error_message) = match &res {
                     Ok(_) => (SwbusErrorCode::Ok, String::new()),
