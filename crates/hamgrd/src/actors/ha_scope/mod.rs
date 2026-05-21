@@ -29,6 +29,7 @@ pub enum HaEvent {
     PeerStateChanged,
     LocalFailure,
     BulkSyncCompleted,
+    BulkSyncFailure,
     VoteCompleted,
     PendingRoleActivationApproved,
     FlowReconciliationApproved,
@@ -57,6 +58,7 @@ impl HaEvent {
             Self::PeerStateChanged => "PeerStateChanged",
             Self::LocalFailure => "LocalFailure",
             Self::BulkSyncCompleted => "BulkSyncCompleted",
+            Self::BulkSyncFailure => "BulkSyncFailure",
             Self::VoteCompleted => "VoteCompleted",
             Self::PendingRoleActivationApproved => "PendingRoleActivationApproved",
             Self::FlowReconciliationApproved => "FlowReconciliationApproved",
@@ -85,6 +87,7 @@ impl HaEvent {
             "PeerStateChanged" => Some(Self::PeerStateChanged),
             "LocalFailure" => Some(Self::LocalFailure),
             "BulkSyncCompleted" => Some(Self::BulkSyncCompleted),
+            "BulkSyncFailure" => Some(Self::BulkSyncFailure),
             "VoteCompleted" => Some(Self::VoteCompleted),
             "PendingRoleActivationApproved" => Some(Self::PendingRoleActivationApproved),
             "FlowReconciliationApproved" => Some(Self::FlowReconciliationApproved),
@@ -1726,7 +1729,7 @@ mod test {
                 send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_down_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
 
                 // Side effect: DPURequestEnterStandalone sent to peer with local_dpu_up=false
-                recv! { key: DPURequestEnterStandalone::msg_key(&scope_id), data: { "dp_channel_is_alive": true, "local_dpu_up": false, "pinned_vdpu_bfd_probe_state": "", "inline_sync_packet_drops": false }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                recv! { key: DPURequestEnterStandalone::msg_key(&scope_id), data: { "dp_channel_is_alive": true, "local_dpu_up": false, "pinned_vdpu_bfd_probe_state": "", "inline_sync_packet_drops": false, "bulk_sync_failure": false }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
 
                 // Expect HaScopeActorState: Active -> SwitchingToStandalone
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
@@ -2143,7 +2146,7 @@ mod test {
                         }
                         }},
                 // Side effect runs first: DPURequestEnterStandalone sent to peer
-                recv! { key: DPURequestEnterStandalone::msg_key(&scope_id), data: { "dp_channel_is_alive": true, "local_dpu_up": true, "pinned_vdpu_bfd_probe_state": "", "inline_sync_packet_drops": true }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+                recv! { key: DPURequestEnterStandalone::msg_key(&scope_id), data: { "dp_channel_is_alive": true, "local_dpu_up": true, "pinned_vdpu_bfd_probe_state": "", "inline_sync_packet_drops": true, "bulk_sync_failure": false }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
                 // Then broadcast: Active -> SwitchingToStandalone
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
