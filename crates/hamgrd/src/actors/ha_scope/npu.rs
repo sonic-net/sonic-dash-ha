@@ -559,6 +559,11 @@ impl NpuHaScopeActor {
 
         npu_ha_scope_state.local_acked_asic_ha_state = Some(new_dpu_ha_scope_state.ha_role.clone());
         npu_ha_scope_state.local_acked_term = new_dpu_ha_scope_state.ha_term.clone();
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
+        state
+            .internal()
+            .get_mut(NpuDashHaScopeState::table_name())
+            .clone_from(&fvs);
         self.base.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
         if old_acked_asic_ha_state.as_deref() == Some("standalone")
@@ -569,12 +574,6 @@ impl NpuHaScopeActor {
                 return Ok(HaEvent::BulkSyncFailure);
             }
         }
-
-        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
-        state
-            .internal()
-            .get_mut(NpuDashHaScopeState::table_name())
-            .clone_from(&fvs);
 
         Ok(HaEvent::DpuStateChanged)
     }
@@ -613,12 +612,17 @@ impl NpuHaScopeActor {
 
         // Extract session_id from the key
         let session_id = kfv.key.clone();
-        let npu_session_id = self
-            .base
-            .get_npu_ha_scope_state(internal)
-            .and_then(|s| s.flow_sync_session_id);
+        let npu_state = self.base.get_npu_ha_scope_state(internal);
+        let npu_session_id = npu_state.as_ref().and_then(|s| s.flow_sync_session_id.clone());
+        debug!(
+            "Flow sync session check: incoming_session_id={}, npu_session_id={:?}, npu_state_exists={}",
+            session_id,
+            npu_session_id,
+            npu_state.is_some()
+        );
         if Some(session_id) != npu_session_id {
             // Not a bulk sync session owned by this HA scope
+            info!("Got update about an unexpected flow sync session!");
             return Ok(HaEvent::None);
         }
 
