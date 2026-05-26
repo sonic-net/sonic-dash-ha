@@ -273,13 +273,15 @@ impl NpuHaScopeActor {
                 DesiredHaState::Active => {
                     self.target_ha_scope_state = Some(TargetState::Active);
                 }
+                DesiredHaState::Standalone => {
+                    self.target_ha_scope_state = Some(TargetState::Standalone);
+                }
                 DesiredHaState::Unspecified => {
-                    self.target_ha_scope_state = Some(TargetState::Standby);
+                    self.target_ha_scope_state = Some(TargetState::Unspecified);
                 }
                 DesiredHaState::Dead => {
                     self.target_ha_scope_state = Some(TargetState::Dead);
                 }
-                _ => {}
             }
             self.persist_target_state_if_changed(state);
             return Ok(HaEvent::DesiredStateChanged);
@@ -565,14 +567,13 @@ impl NpuHaScopeActor {
     /// Handles DPU DASH_HA_SCOPE_STATE update messages for this HA scope.
     /// Update NPU DASH_HA_SCOPE_STATE ha_state related fields that need acknowledgements from DPU
     fn handle_dpu_ha_scope_state_update_npu_driven(&mut self, state: &mut State) -> Result<HaEvent> {
-        let (internal, incoming, _) = state.get_all();
         // parse dpu ha scope state
-        let Some(new_dpu_ha_scope_state) = self.base.get_dpu_ha_scope_state(incoming) else {
+        let Some(new_dpu_ha_scope_state) = self.base.get_dpu_ha_scope_state(state.incoming()) else {
             // no valid state received from dpu, skip
             return Ok(HaEvent::None);
         };
         // get the NPU ha scope state
-        let Some(mut npu_ha_scope_state) = self.base.get_npu_ha_scope_state(internal) else {
+        let Some(mut npu_ha_scope_state) = self.base.get_npu_ha_scope_state(state.internal()) else {
             info!("Cannot update STATE_DB/DASH_HA_SCOPE_STATE until it is populated with basic information",);
             return Ok(HaEvent::None);
         };
@@ -583,12 +584,25 @@ impl NpuHaScopeActor {
             new_dpu_ha_scope_state.ha_term.clone()
         );
 
+        let old_acked_asic_ha_state = npu_ha_scope_state.local_acked_asic_ha_state;
+
         npu_ha_scope_state.local_acked_asic_ha_state = Some(new_dpu_ha_scope_state.ha_role.clone());
         npu_ha_scope_state.local_acked_term = new_dpu_ha_scope_state.ha_term.clone();
+        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
+        state
+            .internal()
+            .get_mut(NpuDashHaScopeState::table_name())
+            .clone_from(&fvs);
         self.base.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
-        let fvs = swss_serde::to_field_values(&npu_ha_scope_state)?;
-        internal.get_mut(NpuDashHaScopeState::table_name()).clone_from(&fvs);
+        if old_acked_asic_ha_state.as_deref() == Some("standalone")
+            && npu_ha_scope_state.local_acked_asic_ha_state.as_deref() == Some("active")
+        {
+            if let Err(e) = self.add_bulk_sync_session(state) {
+                error!("Failed to initiate the bulk sync session: {:?}", e);
+                return Ok(HaEvent::BulkSyncFailure);
+            }
+        }
 
         Ok(HaEvent::DpuStateChanged)
     }
@@ -627,12 +641,17 @@ impl NpuHaScopeActor {
 
         // Extract session_id from the key
         let session_id = kfv.key.clone();
-        let npu_session_id = self
-            .base
-            .get_npu_ha_scope_state(internal)
-            .and_then(|s| s.flow_sync_session_id);
+        let npu_state = self.base.get_npu_ha_scope_state(internal);
+        let npu_session_id = npu_state.as_ref().and_then(|s| s.flow_sync_session_id.clone());
+        debug!(
+            "Flow sync session check: incoming_session_id={}, npu_session_id={:?}, npu_state_exists={}",
+            session_id,
+            npu_session_id,
+            npu_state.is_some()
+        );
         if Some(session_id) != npu_session_id {
             // Not a bulk sync session owned by this HA scope
+            info!("Got update about an unexpected flow sync session!");
             return Ok(HaEvent::None);
         }
 
@@ -652,6 +671,8 @@ impl NpuHaScopeActor {
         if session_state.state == "completed" {
             let _ = self.send_bulk_sync_completed_to_peer(state);
             return Ok(HaEvent::BulkSyncCompleted);
+        } else if session_state.state == "failed" {
+            return Ok(HaEvent::BulkSyncFailure);
         }
 
         Ok(HaEvent::None)
@@ -1002,7 +1023,7 @@ impl NpuHaScopeActor {
             return Ok(HaEvent::EnterStandby);
         }
 
-        if request.inline_sync_packet_drops {
+        if request.inline_sync_packet_drops || request.bulk_sync_failure {
             // Dataplane gray failures detected, pick the DPU with higher desired state to become Standalone
             let desired_ha_state = self.base.dash_ha_scope_config.as_ref().unwrap().desired_ha_state;
             if desired_ha_state == DesiredHaState::Standalone as i32
@@ -1143,7 +1164,7 @@ impl NpuHaScopeActor {
             .get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.local_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
-            .unwrap_or(HaState::Dead)
+            .unwrap_or(HaState::Unspecified)
     }
 
     fn current_npu_peer_ha_state(&self, internal: &Internal) -> HaState {
@@ -1151,7 +1172,7 @@ impl NpuHaScopeActor {
             .get_npu_ha_scope_state(internal)
             .and_then(|scope| scope.peer_ha_state)
             .and_then(|s| HaState::from_str_name(&s))
-            .unwrap_or(HaState::Dead)
+            .unwrap_or(HaState::Unspecified)
     }
 
     /// Restore `target_ha_scope_state` from persisted `local_target_asic_ha_state` in
@@ -1340,13 +1361,17 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerLost {
                     // Peer DPU lost
                     self.send_self_notification(state, "EnterStandalone", 0)?;
-                } else if *event == HaEvent::PeerShutdownRequested {
-                    // Peer DPU planned shutdown
+                } else if *event == HaEvent::PeerShutdownRequested
+                    || self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
+                {
+                    // Peer DPU planned shutdown or forced shutdown
                     self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else {
                     // Send DPURequestEnterStandalone to peer with local health signals
                     let inline_sync_drops = *event == HaEvent::HighInlineSyncDrops;
-                    if let Err(e) = self.send_dpu_request_enter_standalone(state, inline_sync_drops) {
+                    let bulk_sync_failure = *event == HaEvent::BulkSyncFailure;
+                    if let Err(e) = self.send_dpu_request_enter_standalone(state, inline_sync_drops, bulk_sync_failure)
+                    {
                         // Cannot connect with peer, enter standalone right away
                         error!("Failed to send DPURequestEnterStandalone to peer: {e}");
                         self.send_self_notification(state, "EnterStandalone", 0)?;
@@ -1354,10 +1379,7 @@ impl NpuHaScopeActor {
                 }
             }
             HaState::Active => {
-                if *current_state == HaState::Standalone {
-                    // If staring from Standalone, do bulk sync
-                    let _ = self.add_bulk_sync_session(state);
-                } else if *current_state == HaState::PendingActiveActivation {
+                if *current_state == HaState::PendingActiveActivation {
                     // When starting from PendingActiveRoleActivation, no need to do bulk sync.
                     // Send BulkSyncCompleted signal to the peer immediately
                     self.send_bulk_sync_completed_to_peer(state)?;
@@ -1483,12 +1505,12 @@ impl NpuHaScopeActor {
                 // No state transition. Handle special cases that require side effects
                 // without an immediate state change.
 
-                // Per HLD Section 8.2.1 Steps 1-2: When in Standby and desired state changes
-                // to Active, create a pending "switchover" operation and wait for upstream approval.
                 if current_state == HaState::Standby
                     && event_to_use == HaEvent::DesiredStateChanged
                     && target_state == TargetState::Active
                 {
+                    // Per HLD Section 8.2.1 Steps 1-2: When in Standby and desired state changes
+                    // to Active, create a pending "switchover" operation and wait for upstream approval.
                     let switchover_id = Uuid::new_v4().to_string();
                     info!("Creating pending switchover operation: {}", &switchover_id);
 
@@ -1500,15 +1522,21 @@ impl NpuHaScopeActor {
                     self.base
                         .update_npu_ha_scope_state_pending_operations(state, operations, Vec::new())?;
                 } else if event_to_use == HaEvent::DesiredStateChanged && target_state == TargetState::Dead {
-                    let outgoing = state.outgoing();
-                    let Some(peer_sp) = self.peer_sp() else {
-                        // Haven't received the remote peer vDPU info yet
-                        info!("Haven't received peer vDPU info yet");
-                        return Ok(());
-                    };
+                    // When desired state is changed a to Dead, a planned shutdown is triggered
+                    if self.current_npu_ha_state(state.internal()) == HaState::Standby {
+                        let outgoing = state.outgoing();
+                        let Some(peer_sp) = self.peer_sp() else {
+                            // Haven't received the remote peer vDPU info yet
+                            info!("Haven't received peer vDPU info yet");
+                            return Ok(());
+                        };
 
-                    let msg = ShutdownRequest::new_actor_msg(&self.base.id, "planned shutdown")?;
-                    outgoing.send(peer_sp, msg);
+                        let msg = ShutdownRequest::new_actor_msg(&self.base.id, "planned shutdown")?;
+                        outgoing.send(peer_sp, msg);
+                    } else {
+                        error!("Non-standby HA Scope cannot be planned shutdown in NPU-driven mode");
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -1527,9 +1555,8 @@ impl NpuHaScopeActor {
             return match current_state {
                 HaState::Dead => None,
                 HaState::Destroying => {
-                    if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str())
-                        == Some(HaRole::Dead.as_str_name())
-                    {
+                    let dead_role = ha_role_to_string(HaRole::Dead.as_str_name());
+                    if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str()) {
                         // When the DPU is in dead role, all traffic is drained
                         Some((HaState::Dead, "destroy completed"))
                     } else {
@@ -1545,6 +1572,12 @@ impl NpuHaScopeActor {
                 // On launch
                 if *event == HaEvent::Launch {
                     Some((HaState::Connecting, "ha scope initializing"))
+                } else if *event == HaEvent::DesiredStateChanged {
+                    if *target_state != TargetState::Dead {
+                        Some((HaState::Connecting, "ha scope initializing"))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -1611,6 +1644,10 @@ impl NpuHaScopeActor {
                     Some((HaState::SwitchingToStandalone, "peer requested shutdown"))
                 } else if *event == HaEvent::HighInlineSyncDrops {
                     Some((HaState::SwitchingToStandalone, "high inline-sync packet drops"))
+                } else if *event == HaEvent::BulkSyncFailure {
+                    Some((HaState::SwitchingToStandalone, "bulk sync failure"))
+                } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
+                    Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {
                     None
                 }
@@ -1638,6 +1675,8 @@ impl NpuHaScopeActor {
                     ))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer failure while standby"))
+                } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
+                    Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {
                     None
                 }
@@ -1699,8 +1738,8 @@ impl NpuHaScopeActor {
                 }
             }
             HaState::Destroying => {
-                if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(HaRole::Dead.as_str_name())
-                {
+                let dead_role = ha_role_to_string(HaRole::Dead.as_str_name());
+                if self.base.dpu_ha_scope_state.as_ref().map(|s| s.ha_role.as_str()) == Some(dead_role.as_str()) {
                     // HaEvent::DpuStateChanged should trigger this branch
                     Some((HaState::Dead, "resources drained"))
                 } else {
@@ -1760,7 +1799,12 @@ impl NpuHaScopeActor {
 
     /// Send a DPURequestEnterStandalone message to the peer HA scope actor
     /// carrying the local DPU's critical health signals.
-    fn send_dpu_request_enter_standalone(&self, state: &mut State, inline_sync_drops_detected: bool) -> Result<()> {
+    fn send_dpu_request_enter_standalone(
+        &self,
+        state: &mut State,
+        inline_sync_drops_detected: bool,
+        bulk_sync_failure: bool,
+    ) -> Result<()> {
         let (_internal, incoming, outgoing) = state.get_all();
 
         let Some(peer_sp) = self.peer_sp() else {
@@ -1779,14 +1823,16 @@ impl NpuHaScopeActor {
             vdpu_up,
             pinned_bfd_state,
             inline_sync_drops_detected,
+            bulk_sync_failure,
         )?;
         outgoing.send(peer_sp, msg);
         info!(
-            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}, inline_sync_packet_drops={}",
+            "Sent DPURequestEnterStandalone to peer: dp_channel_is_alive={}, local_dpu_up={}, pinned_bfd_state={}, inline_sync_packet_drops={}, bulk_sync_failure={}",
             dp_channel_is_alive,
             vdpu_up,
             self.base.pinned_bfd_state.as_deref().unwrap_or(""),
-            inline_sync_drops_detected
+            inline_sync_drops_detected,
+            bulk_sync_failure
         );
 
         Ok(())

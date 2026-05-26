@@ -791,6 +791,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "futures-util",
  "hex",
  "lazy_static",
  "prost",

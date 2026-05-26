@@ -42,7 +42,9 @@ impl<A: Actor> ActorDriver<A> {
 
         loop {
             tokio::select! {
-                _ = self.state.outgoing.drive_maintenance_loop() => unreachable!("drive_maintenance_loop never returns"),
+                _ = self.state.outgoing.drive_maintenance_loop() => {
+                    debug!("Nothing to be done in maintenance loop.")
+                },
                 maybe_msg = self.swbus_edge.recv() => {
                     if let Some(maybe_msg) = maybe_msg {
                         self.handle_swbus_message(maybe_msg).await;
@@ -73,7 +75,7 @@ impl<A: Actor> ActorDriver<A> {
     }
     #[instrument(name="handle_swbus_message", level="debug", skip_all, fields(actor=self.swbus_edge.get_service_path().to_longest_path(), id=%msg.id))]
     async fn handle_swbus_message(&mut self, msg: IncomingMessage) {
-        debug!("received message: {msg:?}");
+        debug!(target:"hamgrd-recorder", "received message: {msg:?}");
         let IncomingMessage { id, source, body, .. } = msg;
         match body {
             MessageBody::Request { payload } => {
@@ -99,7 +101,7 @@ impl<A: Actor> ActorDriver<A> {
                     eprintln!("Received invalid actor message from {source}");
                     return;
                 };
-                debug!("received from {}: {:?}", source.to_longest_path(), actor_msg);
+                debug!(target:"hamgrd-recorder", "handle an actor message from {}: {:?}", source.to_longest_path(), actor_msg);
                 let res = self.state.incoming.handle_request(id, source.clone(), &payload).await;
                 let (error_code, error_message) = match &res {
                     Ok(_) => (SwbusErrorCode::Ok, String::new()),

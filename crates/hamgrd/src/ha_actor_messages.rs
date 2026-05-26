@@ -623,6 +623,8 @@ pub struct DPURequestEnterStandalone {
     pub pinned_vdpu_bfd_probe_state: String,
     /// High inline sync packet drop rate detected or not
     pub inline_sync_packet_drops: bool,
+    /// Bulk sync failure detected or not
+    pub bulk_sync_failure: bool,
 }
 
 impl DPURequestEnterStandalone {
@@ -632,6 +634,7 @@ impl DPURequestEnterStandalone {
         local_dpu_up: bool,
         pinned_vdpu_bfd_probe_state: String,
         inline_sync_packet_drops: bool,
+        bulk_sync_failure: bool,
     ) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
@@ -640,6 +643,7 @@ impl DPURequestEnterStandalone {
                 local_dpu_up,
                 pinned_vdpu_bfd_probe_state,
                 inline_sync_packet_drops,
+                bulk_sync_failure,
             },
         )
     }

@@ -335,7 +335,7 @@ pub struct DashFlowSyncSessionTable {
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, SonicDb)]
 #[sonicdb(
-    table_name = "DASH_FLOW_SYNC_SESSION_STATE",
+    table_name = "DASH_FLOW_SYNC_SESSION_STATE_TABLE",
     key_separator = "|",
     db_name = "DPU_STATE_DB",
     is_dpu = "true"

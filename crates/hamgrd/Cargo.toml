@@ -23,6 +23,7 @@ swbus-config.workspace = true
 sonic-common.workspace = true
 sonicdb-derive.workspace = true
 tokio.workspace = true
+futures-util = { workspace = true }
 anyhow.workspace = true
 serde.workspace = true
 serde_with.workspace = true
