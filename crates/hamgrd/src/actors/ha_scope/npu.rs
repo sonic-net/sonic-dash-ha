@@ -1284,9 +1284,6 @@ impl NpuHaScopeActor {
                     .unwrap_or(0);
                 if desired == DesiredHaState::Standalone as i32 {
                     self.send_self_notification(state, "EnterStandalone", 0)?;
-                } else if let Err(e) = self.send_dpu_request_enter_standalone(state, false) {
-                    error!("Failed to send DPURequestEnterStandalone to peer during rehydration: {e}");
-                    self.send_self_notification(state, "EnterStandalone", 0)?;
                 }
             }
             HaState::SwitchingToActive => {
