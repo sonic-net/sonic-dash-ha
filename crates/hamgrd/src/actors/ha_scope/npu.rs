@@ -1491,6 +1491,8 @@ impl NpuHaScopeActor {
                         HaState::SwitchingToActive,
                         "switchover approved, transitioning to active",
                     ))
+                } else if *event == HaEvent::LocalFailure {
+                    Some((HaState::SwitchingToStandalone, "local DPU failure"))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer failure while standby"))
                 } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
