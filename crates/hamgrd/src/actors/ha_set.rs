@@ -706,7 +706,7 @@ impl HaSetActor {
         let Some(ha_set_state) = self.get_dpu_ha_set_state(incoming) else {
             return Ok(());
         };
-        self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive;
+        self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive == "up";
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
         };
@@ -1600,6 +1600,138 @@ mod test {
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
 
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+        ];
+
+        test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
+        if tokio::time::timeout(Duration::from_secs(3), handle).await.is_err() {
+            panic!("timeout waiting for actor to terminate");
+        }
+    }
+
+    // Test that receiving a DPU HA Set State Table update triggers the correct HaSetActorState
+    // message with the updated dp_channel_is_alive status.
+    #[tokio::test]
+    async fn ha_set_actor_dpu_ha_set_state_update() {
+        sonic_common::log::init_logger_for_test();
+
+        let _redis = Redis::start_config_db();
+        let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
+
+        // prepare test data
+        let global_cfg = make_dash_ha_global_config();
+        let global_cfg_fvs = serde_json::to_value(swss_serde::to_field_values(&global_cfg).unwrap()).unwrap();
+
+        let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
+        let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
+
+        let dpu0 = make_local_dpu_actor_state(0, 0, true, None, None);
+        let dpu1 = make_remote_dpu_actor_state(1, 0);
+        let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+        let (vdpu1_id, vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+        let vdpu0_state = serde_json::to_value(&vdpu0_state_obj).unwrap();
+        let vdpu1_state = serde_json::to_value(&vdpu1_state_obj).unwrap();
+
+        let (_, mut ha_set_obj) = make_dpu_scope_ha_set_obj(0, 0);
+        ha_set_obj.owner = Some("switch".to_string());
+        let ha_set_obj_fvs = serde_json::to_value(swss_serde::to_field_values(&ha_set_obj).unwrap()).unwrap();
+
+        let bfd = BfdSessionTable {
+            tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            multiplier: global_cfg.dpu_bfd_probe_multiplier,
+            multihop: true,
+            local_addr: vdpu0_state_obj.dpu.pa_ipv4.clone(),
+            session_type: Some("passive".to_string()),
+            shutdown: false,
+        };
+        let bfd_fvs = serde_json::to_value(swss_serde::to_field_values(&bfd).unwrap()).unwrap();
+
+        let scope_id = format!("{}:{}", vdpu0_id, ha_set_id);
+
+        // DPU HA Set State: dp_channel down
+        let dpu_ha_set_state_down = DpuDashHaSetState {
+            last_updated_time: 1000,
+            dp_channel_is_alive: "down".to_string(),
+        };
+        let dpu_ha_set_state_down_fvs =
+            serde_json::to_value(swss_serde::to_field_values(&dpu_ha_set_state_down).unwrap()).unwrap();
+
+        // DPU HA Set State: dp_channel up
+        let dpu_ha_set_state_up = DpuDashHaSetState {
+            last_updated_time: 2000,
+            dp_channel_is_alive: "up".to_string(),
+        };
+        let dpu_ha_set_state_up_fvs =
+            serde_json::to_value(swss_serde::to_field_values(&dpu_ha_set_state_up).unwrap()).unwrap();
+
+        // Start with dp_channel_is_alive = true so we can verify it transitions to false
+        let ha_set_actor = HaSetActor {
+            id: ha_set_id.clone(),
+            dash_ha_set_config: None,
+            dp_channel_is_alive: true,
+            ha_owner: HaOwner::Switch,
+            bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
+        };
+
+        let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
+
+        #[rustfmt::skip]
+        let commands = [
+            // === Phase 1: Initial setup ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            send! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true},
+                    addr: runtime.sp("ha-scope", &scope_id) },
+            send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": global_cfg_fvs } },
+            send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state, addr: runtime.sp("vdpu", &vdpu0_id) },
+            send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
+            // Verify initial DashHaSetTable + HaSetActorState (dp_channel up = true)
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+
+            // === Phase 2: Send DPU HA Set State with dp_channel_is_alive = "down" ===
+            send! { key: DpuDashHaSetState::table_name(), data: { "key": DpuDashHaSetState::table_name(), "operation": "Set", "field_values": dpu_ha_set_state_down_fvs } },
+            // Verify HaSetActorState now has up = false
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+
+            // === Phase 3: Send DPU HA Set State with dp_channel_is_alive = "up" ===
+            send! { key: DpuDashHaSetState::table_name(), data: { "key": DpuDashHaSetState::table_name(), "operation": "Set", "field_values": dpu_ha_set_state_up_fvs } },
+            // Verify HaSetActorState now has up = true again
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+
+            // === Phase 4: Cleanup ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                       "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
         ];
