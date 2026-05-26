@@ -2562,7 +2562,7 @@ mod test {
             persisted.local_target_term = Some("1".to_string());
             persisted.local_acked_term = Some("1".to_string());
             persisted.local_target_asic_ha_state = Some("active".to_string());
-            persisted.local_acked_asic_ha_state = Some(HaRole::Active.as_str_name().to_string());
+            persisted.local_acked_asic_ha_state = Some("active".to_string());
             persisted.peer_ha_state = Some(HaState::Standby.as_str_name().to_string());
             persisted.peer_term = Some("1".to_string());
             let persisted_fvs = to_field_values(&persisted).unwrap();
