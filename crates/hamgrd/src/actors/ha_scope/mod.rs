@@ -323,7 +323,8 @@ mod test {
                             "vip_v4": ha_set_obj.vip_v4.clone(),
                             "vip_v6": ha_set_obj.vip_v6.clone(),
                             "activate_role_requested": "false",
-                            "flow_reconcile_requested": "false"
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "false"
                         },
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
@@ -358,7 +359,8 @@ mod test {
                             "vip_v4": ha_set_obj.vip_v4.clone(),
                             "vip_v6": ha_set_obj.vip_v6.clone(),
                             "activate_role_requested": "false",
-                            "flow_reconcile_requested": "false"
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "false"
                         },
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())  },
@@ -383,7 +385,12 @@ mod test {
             let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
             let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
             let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
-            let op_id = npu_ha_scope_state.pending_operation_ids.unwrap().pop().unwrap();
+            let op_id = npu_ha_scope_state
+                .pending_operation_ids
+                .as_ref()
+                .and_then(|ids| ids.first())
+                .cloned()
+                .unwrap();
 
             // continue the test to activate the role
             let mut npu_ha_scope_state4 = npu_ha_scope_state3.clone();
@@ -424,7 +431,8 @@ mod test {
                             "vip_v4": ha_set_obj.vip_v4.clone(),
                             "vip_v6": ha_set_obj.vip_v6.clone(),
                             "activate_role_requested": "true",
-                            "flow_reconcile_requested": "false"
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "false"
                         },
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
@@ -460,7 +468,8 @@ mod test {
                             "vip_v4": ha_set_obj.vip_v4.clone(),
                             "vip_v6": ha_set_obj.vip_v6.clone(),
                             "activate_role_requested": "false",
-                            "flow_reconcile_requested": "false"
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "false"
                         },
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
@@ -497,7 +506,8 @@ mod test {
                             "vip_v4": ha_set_obj.vip_v4.clone(),
                             "vip_v6": ha_set_obj.vip_v6.clone(),
                             "activate_role_requested": "false",
-                            "flow_reconcile_requested": "false"
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "false"
                         },
                         },
                         addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge())
@@ -522,6 +532,142 @@ mod test {
                 recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": false }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
                 recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": false }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
 
+            ];
+
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+            if tokio::time::timeout(Duration::from_secs(3), handle).await.is_err() {
+                panic!("timeout waiting for actor to terminate");
+            }
+        }
+
+        #[tokio::test]
+        async fn ha_scope_brainsplit_recovery_approval_sets_recovered_flag() {
+            sonic_common::log::init_logger_for_test();
+            let _redis = Redis::start_config_db();
+            let runtime = test::create_actor_runtime(24, "10.0.24.0", "10:0:24::").await;
+
+            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(24, 0);
+            let dpu_mon = make_dpu_pmon_state(true);
+            let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
+            let dpu0 = make_local_dpu_actor_state(24, 0, true, Some(dpu_mon), Some(bfd_state));
+            let dpu1 = make_remote_dpu_actor_state(25, 0);
+            let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+            let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+
+            let mut dpu_ha_scope_state = make_dpu_ha_scope_state("dead");
+            dpu_ha_scope_state.brainsplit_recover_pending = true;
+            dpu_ha_scope_state.last_updated_time = now_in_millis();
+
+            let mut npu_ha_scope_state = make_npu_ha_scope_state(&vdpu0_state_obj, &ha_set_obj);
+            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state, &dpu_ha_scope_state, "active");
+            update_npu_ha_scope_state_pending_ops(
+                &mut npu_ha_scope_state,
+                vec![("1".to_string(), "brainsplit_recover".to_string())],
+            );
+            let npu_ha_scope_state_fvs = to_field_values(&npu_ha_scope_state).unwrap();
+
+            let scope_id = format!("{vdpu0_id}:{ha_set_id}");
+            let scope_id_in_state = format!("{vdpu0_id}|{ha_set_id}");
+            let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
+            let handle = runtime.spawn(ha_scope_actor, HaScopeActor::name(), &scope_id);
+
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"1","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Dpu as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv!( key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Dpu as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp"),
+
+                send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp("vdpu", &vdpu0_id) },
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "1",
+                            "ha_role": "active",
+                            "ha_term": "0",
+                            "disabled": "false",
+                            "ha_set_id": &ha_set_id,
+                            "vip_v4": ha_set_obj.vip_v4.clone(),
+                            "vip_v6": ha_set_obj.vip_v6.clone(),
+                            "activate_role_requested": "false",
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "false"
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+
+                send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
+                        "field_values": serde_json::to_value(to_field_values(&dpu_ha_scope_state).unwrap()).unwrap()
+                        }},
+
+                chkdb! { type: NpuDashHaScopeState,
+                        key: &scope_id_in_state, data: npu_ha_scope_state_fvs,
+                        exclude: "pending_operation_ids,pending_operation_list_last_updated_time_in_ms" },
+            ];
+
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let npu_ha_scope_state: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            let op_id = npu_ha_scope_state
+                .pending_operation_ids
+                .as_ref()
+                .and_then(|ids| ids.first())
+                .cloned()
+                .unwrap();
+
+            let mut expected_npu_ha_scope_state = npu_ha_scope_state.clone();
+            update_npu_ha_scope_state_pending_ops(&mut expected_npu_ha_scope_state, vec![]);
+            let expected_npu_ha_scope_state_fvs = to_field_values(&expected_npu_ha_scope_state).unwrap();
+
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":["{op_id}"]}}"#, DesiredHaState::Active as i32, HaOwner::Dpu as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "2",
+                            "ha_role": "active",
+                            "ha_term": "0",
+                            "disabled": "false",
+                            "ha_set_id": &ha_set_id,
+                            "vip_v4": ha_set_obj.vip_v4.clone(),
+                            "vip_v6": ha_set_obj.vip_v6.clone(),
+                            "activate_role_requested": "false",
+                            "flow_reconcile_requested": "false",
+                            "brainsplit_recovered": "true"
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+
+                chkdb! { type: NpuDashHaScopeState,
+                        key: &scope_id_in_state, data: expected_npu_ha_scope_state_fvs,
+                        exclude: "pending_operation_list_last_updated_time_in_ms" },
+
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
+                        "field_values": {"json": format!(r#"{{"version":"2","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Dpu as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, nonexist },
+
+                recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Del", "field_values": {} },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": false }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": false }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
             ];
 
             test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
