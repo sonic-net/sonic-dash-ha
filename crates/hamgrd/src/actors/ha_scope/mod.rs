@@ -46,6 +46,7 @@ pub enum HaEvent {
     Shutdown,
     PeerShutdownRequested,
     HighInlineSyncDrops,
+    Rehydration,
 }
 
 impl HaEvent {
@@ -75,6 +76,7 @@ impl HaEvent {
             Self::Shutdown => "Shutdown",
             Self::PeerShutdownRequested => "PeerShutdownRequested",
             Self::HighInlineSyncDrops => "HighInlineSyncDrops",
+            Self::Rehydration => "Rehydration",
         }
     }
 
@@ -104,6 +106,7 @@ impl HaEvent {
             "Shutdown" => Some(Self::Shutdown),
             "PeerShutdownRequested" => Some(Self::PeerShutdownRequested),
             "HighInlineSyncDrops" => Some(Self::HighInlineSyncDrops),
+            "Rehydration" => Some(Self::Rehydration),
             _ => None,
         }
     }
@@ -559,6 +562,7 @@ mod test {
             npu_ha_scope_state_pending_active_activation.peer_ha_state =
                 Some(HaState::InitializingToStandby.as_str_name().to_string());
             npu_ha_scope_state_pending_active_activation.peer_term = Some("0".to_string());
+            npu_ha_scope_state_pending_active_activation.local_target_asic_ha_state = Some("active".to_string());
             npu_ha_scope_state_pending_active_activation.pending_operation_types =
                 Some(vec!["activate_role".to_string()]);
             let npu_ha_scope_state_pending_active_activation_fvs =
@@ -749,6 +753,7 @@ mod test {
             npu_ha_scope_state_pending_standby_activation.peer_ha_state =
                 Some(HaState::Active.as_str_name().to_string());
             npu_ha_scope_state_pending_standby_activation.peer_term = Some("1".to_string());
+            npu_ha_scope_state_pending_standby_activation.local_target_asic_ha_state = Some("standby".to_string());
             npu_ha_scope_state_pending_standby_activation.pending_operation_types =
                 Some(vec!["activate_role".to_string()]);
             let npu_ha_scope_state_pending_standby_activation_fvs =
@@ -2499,6 +2504,158 @@ mod test {
 
                 send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
                         "field_values": {"json": format!(r#"{{"version":"3","disabled":true,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                chkdb! { type: NpuDashHaScopeState, key: &scope_id_in_state, nonexist },
+                recv! { key: &ha_set_id, data: { "key": &ha_set_id, "operation": "Del", "field_values": {} }, addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": false }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": false }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+            ];
+
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+            if tokio::time::timeout(Duration::from_secs(5), handle).await.is_err() {
+                panic!("timeout waiting for actor to terminate");
+            }
+        }
+
+        /// Verifies the rehydration / crash-recovery path.
+        ///
+        /// Per HLD Section 7.4: after a hamgrd crash, the NPU `DASH_HA_SCOPE_STATE` row in
+        /// STATE_DB still holds the last persisted HA state. On restart, the actor must:
+        ///   1. Load the persisted state from STATE_DB (via `InternalTableEntry::new()`).
+        ///   2. Emit `HaEvent::Rehydration` instead of `HaEvent::Launch`.
+        ///   3. Re-apply idempotent side effects for the persisted state without
+        ///      transitioning to a new state (term must NOT be incremented).
+        ///   4. Restore in-memory `target_ha_scope_state` from `local_target_asic_ha_state`.
+        ///
+        /// This test pre-populates STATE_DB with an Active state, starts the actor, and
+        /// asserts the expected rehydration side effects: peer heartbeat, DPU role
+        /// re-activation with the persisted term, and the broadcast of the persisted
+        /// HA state to the peer and ha-set actors.
+        #[tokio::test]
+        async fn ha_scope_npu_rehydrate_active_after_crash() {
+            sonic_common::log::init_logger_for_test();
+            let _redis = Redis::start_config_db();
+            test::setup_remote_dpu_in_db(1, 0);
+            let runtime = test::create_actor_runtime(18, "10.0.18.0", "10:0:18::").await;
+            test::setup_mock_swbusd_resolve_peer_sp(&runtime.get_swbus_edge());
+
+            let (ha_set_id, ha_set_obj) = make_dpu_scope_ha_set_obj(18, 0);
+            let dpu_mon = make_dpu_pmon_state(true);
+            let bfd_state = make_dpu_bfd_state(Vec::new(), Vec::new());
+            let dpu0 = make_local_dpu_actor_state(0, 0, true, Some(dpu_mon), Some(bfd_state));
+            let dpu1 = make_remote_dpu_actor_state(1, 0);
+            let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+            let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+
+            let scope_id = format!("{vdpu0_id}:{ha_set_id}");
+            let scope_id_in_state = format!("{vdpu0_id}|{ha_set_id}");
+            let peer_scope_id = format!("{vdpu1_id}:{ha_set_id}");
+
+            // Pre-populate STATE_DB with an Active state to simulate a hamgrd crash
+            // that left the persisted HA state behind.
+            let mut persisted = make_npu_ha_scope_state(&vdpu0_state_obj, &ha_set_obj);
+            persisted.local_ha_state = Some(HaState::Active.as_str_name().to_string());
+            persisted.local_ha_state_last_updated_time_in_ms = Some(now_in_millis());
+            persisted.local_ha_state_last_updated_reason = Some("pre-crash persisted".to_string());
+            persisted.local_target_term = Some("1".to_string());
+            persisted.local_acked_term = Some("1".to_string());
+            persisted.local_target_asic_ha_state = Some("active".to_string());
+            persisted.local_acked_asic_ha_state = Some("active".to_string());
+            persisted.peer_ha_state = Some(HaState::Standby.as_str_name().to_string());
+            persisted.peer_term = Some("1".to_string());
+            let persisted_fvs = to_field_values(&persisted).unwrap();
+            {
+                let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+                let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+                table.set(&scope_id_in_state, persisted_fvs).unwrap();
+            }
+
+            let ha_scope_actor = HaScopeActor::new(scope_id.clone()).unwrap();
+            let handle = runtime.spawn(ha_scope_actor, HaScopeActor::name(), &scope_id);
+
+            // Phase 1: drive rehydration. HA Set is sent BEFORE vDPU on purpose so that
+            // when `handle_vdpu_state_update` performs the rehydration check, the
+            // ha-set is already known and `drive_npu_state_machine` will execute the
+            // rehydration side effects (it returns early if no ha-set is present).
+            #[rustfmt::skip]
+            let commands = [
+                // Initial HA scope config (Switch owner, admin enabled)
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Set",
+                        "field_values": {"json": format!(r#"{{"version":"1","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
+                        },
+                        addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
+
+                // Standard initial registrations + first Unspecified broadcast (the
+                // base `handle_first_config_message` runs before any state hydration).
+                recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &scope_id), data: { "active": true }, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+                recv! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Unspecified.as_str_name(), "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
+                // HA set arrives first. It resolves peer SP and registers ha_set_sp,
+                // but produces no event because the vDPU isn't known yet (vdpu_is_managed
+                // returns false), so the state machine does not fire here.
+                send! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": vec!["".to_string()] }, addr: runtime.sp(HaSetActor::name(), &ha_set_id) },
+
+                // vDPU state arrives — this triggers the rehydration path:
+                //   * `InternalTableEntry::new()` loads the persisted Active state
+                //   * `handle_vdpu_state_update` returns `HaEvent::Rehydration`
+                //   * `drive_npu_state_machine` calls `apply_rehydration_side_effects(Active)`
+                send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state_obj, addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+
+                // Side effect 1: heartbeat re-sent to the peer to re-establish liveness.
+                recv! { key: PeerHeartbeat::msg_key(&scope_id), data: { "dst_actor_id": &peer_scope_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id) },
+
+                // Side effect 2: DPU role re-activated as Active using the PERSISTED term
+                // (no increment — rehydration must be idempotent).
+                recv! { key: &ha_set_id, data: {
+                        "key": &ha_set_id,
+                        "operation": "Set",
+                        "field_values": {
+                            "version": "1",
+                            "ha_role": "active",
+                            "ha_term": "1",
+                            "ha_set_id": &ha_set_id
+                        },
+                        },
+                        addr: crate::common_bridge_sp::<DashHaScopeTable>(&runtime.get_swbus_edge()) },
+
+                // Side effect 3: broadcast the persisted (current) HA state to the peer
+                // and ha-set actors. `drive_npu_state_machine` sends the persisted state,
+                // not a new state, since rehydration short-circuits the FSM transition.
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+            ];
+
+            test::run_commands(&runtime, runtime.sp(HaScopeActor::name(), &scope_id), &commands).await;
+
+            // STATE_DB still shows Active with the same term: rehydration must not
+            // perform a state transition or term increment.
+            let db = crate::db_for_table::<NpuDashHaScopeState>().await.unwrap();
+            let table = Table::new(db, NpuDashHaScopeState::table_name()).unwrap();
+            let restored: NpuDashHaScopeState = swss_serde::from_table(&table, &scope_id_in_state).unwrap();
+            assert_eq!(
+                restored.local_ha_state.as_deref(),
+                Some(HaState::Active.as_str_name()),
+                "Rehydration must preserve the persisted HA state (Active)"
+            );
+            assert_eq!(
+                restored.local_target_term.as_deref(),
+                Some("1"),
+                "Rehydration must NOT increment the term — actions are idempotent"
+            );
+            assert_eq!(
+                restored.local_target_asic_ha_state.as_deref(),
+                Some("active"),
+                "Rehydration must preserve the persisted target ASIC HA state"
+            );
+
+            // Phase 2: cleanup — Del the config and confirm the actor terminates cleanly.
+            #[rustfmt::skip]
+            let commands = [
+                send! { key: HaScopeConfig::table_name(), data: { "key": &scope_id, "operation": "Del",
+                        "field_values": {"json": format!(r#"{{"version":"1","disabled":false,"desired_ha_state":{},"owner":{},"ha_set_id":"{ha_set_id}","approved_pending_operation_ids":[]}}"#, DesiredHaState::Active as i32, HaOwner::Switch as i32)},
                         },
                         addr: crate::common_bridge_sp::<HaScopeConfig>(&runtime.get_swbus_edge()) },
 
