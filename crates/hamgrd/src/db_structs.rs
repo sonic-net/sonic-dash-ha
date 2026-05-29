@@ -433,12 +433,10 @@ pub struct DpuDashHaScopeState {
     is_dpu = "true"
 )]
 pub struct DpuDashHaSetState {
-    // HA set ID
-    pub ha_set_id: String,
     // The last update time of this state in milliseconds.
     pub last_updated_time: i64,
-    // Data plane channel is alive or not.
-    pub dp_channel_is_alive: bool,
+    // Data plane channel is alive or not. (up or down)
+    pub dp_channel_is_alive: String,
 }
 
 /// DPU Reset Information written to STATE_DB.
