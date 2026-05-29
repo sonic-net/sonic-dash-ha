@@ -707,7 +707,10 @@ impl HaSetActor {
             return Ok(());
         };
         if ha_set_id != self.id {
-            debug!("Ignoring DASH_HA_SET_STATE update for ha_set_id={}, expected={}", ha_set_id, self.id);
+            debug!(
+                "Ignoring DASH_HA_SET_STATE update for ha_set_id={}, expected={}",
+                ha_set_id, self.id
+            );
             return Ok(());
         }
         self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive == "up";
