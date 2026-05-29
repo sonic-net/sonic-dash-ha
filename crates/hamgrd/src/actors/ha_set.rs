@@ -741,7 +741,7 @@ impl HaSetActor {
                         context.get_edge_runtime().clone(),
                         Self::name(),
                         Some(&self.id),
-                        false,
+                        true,
                     )
                     .await?,
                 );
