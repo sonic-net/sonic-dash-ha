@@ -58,7 +58,7 @@ stages:
           target/debs/bookworm/libnl-route-3-dev_*.deb
           target/debs/bookworm/libnl-nf-3-200_*.deb
           target/debs/bookworm/libnl-nf-3-dev_*.deb
-          target/debs/bookworm/libyang_*.deb
+          target/debs/bookworm/libyang3_*.deb
       displayName: "Download common-libs deb packages"
 
     - task: DownloadPipelineArtifact@2
