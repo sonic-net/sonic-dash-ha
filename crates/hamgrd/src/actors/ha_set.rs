@@ -734,6 +734,13 @@ impl HaSetActor {
 
         self.ha_owner = HaOwner::try_from(ha_scope.owner).unwrap_or(HaOwner::Unspecified);
 
+        // When HA scope is launching (dead -> connecting), reset dp_channel_is_alive to true
+        // so that we start with an optimistic assumption until the DPU reports otherwise.
+        if ha_scope.new_state == HaState::Connecting.as_str_name() {
+            info!("HA scope is launching (connecting), resetting dp_channel_is_alive to true");
+            self.dp_channel_is_alive = true;
+        }
+
         if self.ha_owner == HaOwner::Switch {
             if self.bridges.len() < 2 {
                 self.bridges.push(
