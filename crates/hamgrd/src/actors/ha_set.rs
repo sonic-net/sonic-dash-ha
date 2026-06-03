@@ -33,6 +33,7 @@ pub struct HaSetActor {
     ha_owner: HaOwner,
     bridges: Vec<ConsumerBridge>,
     bfd_session_npu_ips: HashSet<String>,
+    ha_scope_states: HashMap<String, CachedHaScopeState>,
 }
 
 impl DbBasedActor for HaSetActor {
@@ -44,6 +45,7 @@ impl DbBasedActor for HaSetActor {
             ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
         Ok(actor)
     }
@@ -58,8 +60,15 @@ impl DbBasedActor for HaSetActor {
 }
 
 struct VDpuStateExt {
+    id: String,
     vdpu: VDpuActorState,
     is_primary: bool,
+}
+
+struct CachedHaScopeState {
+    new_state: String,
+    vdpu_id: String,
+    peer_vdpu_id: String,
 }
 
 impl HaSetActor {
@@ -281,10 +290,23 @@ impl HaSetActor {
             return Ok(());
         }
 
-        let pinned_state = self
-            .dash_ha_set_config
-            .as_ref()
-            .map(|cfg| cfg.pinned_vdpu_bfd_probe_states.clone());
+        let pinned_state = self.dash_ha_set_config.as_ref().map(|cfg| {
+            let pinned = &cfg.pinned_vdpu_bfd_probe_states;
+            if vdpus.len() < cfg.vdpu_ids.len() && !pinned.is_empty() {
+                // Only preserve pinned states corresponding to VDPUs in the endpoint list
+                vdpus
+                    .iter()
+                    .filter_map(|vdpu_ext| {
+                        cfg.vdpu_ids
+                            .iter()
+                            .position(|vid| vid == &vdpu_ext.id)
+                            .and_then(|idx| pinned.get(idx).cloned())
+                    })
+                    .collect()
+            } else {
+                pinned.clone()
+            }
+        });
 
         // update vnet route tunnel table
         let vnet_route = VnetRouteTunnelTable {
@@ -400,10 +422,11 @@ impl HaSetActor {
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
             {
-                result.push(
-                    self.get_vdpu(incoming, id)
-                        .map(|vdpu| VDpuStateExt { vdpu, is_primary: true }),
-                );
+                result.push(self.get_vdpu(incoming, id).map(|vdpu| VDpuStateExt {
+                    id: id.to_string(),
+                    vdpu,
+                    is_primary: true,
+                }));
                 seen.insert(id.to_string());
             }
         }
@@ -415,6 +438,7 @@ impl HaSetActor {
             .filter(|id| !id.is_empty() && !seen.contains(*id))
         {
             result.push(self.get_vdpu(incoming, id).map(|vdpu| VDpuStateExt {
+                id: id.clone(),
                 vdpu,
                 is_primary: false,
             }));
@@ -446,6 +470,181 @@ impl HaSetActor {
                 error!("Failed to deserialize HaScopeActorState from the message: {}", e);
                 None
             }
+        }
+    }
+
+    fn prune_cached_ha_scope_states(&mut self) {
+        let Some(ref dash_ha_set_config) = self.dash_ha_set_config else {
+            self.ha_scope_states.clear();
+            return;
+        };
+
+        let vdpu_ids: HashSet<String> = dash_ha_set_config
+            .vdpu_ids
+            .iter()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .collect();
+        self.ha_scope_states
+            .retain(|_, state| vdpu_ids.contains(&state.vdpu_id));
+    }
+
+    fn cache_ha_scope_actor_state(&mut self, source_key: &str, ha_scope: &HaScopeActorState) {
+        if ha_scope.vdpu_id.trim().is_empty() {
+            debug!("Ignoring HA scope state update with empty vdpu_id");
+            return;
+        }
+
+        // Keyed by the source HA scope's message key so subsequent updates from the
+        // same HA scope overwrite the prior entry in place.
+        self.ha_scope_states.insert(
+            source_key.to_string(),
+            CachedHaScopeState {
+                new_state: ha_scope.new_state.clone(),
+                vdpu_id: ha_scope.vdpu_id.clone(),
+                peer_vdpu_id: ha_scope.peer_vdpu_id.clone(),
+            },
+        );
+    }
+
+    fn configured_vdpu_ids(&self) -> Vec<String> {
+        self.dash_ha_set_config
+            .as_ref()
+            .map(|cfg| {
+                cfg.vdpu_ids
+                    .iter()
+                    .map(|id| id.trim().to_string())
+                    .filter(|id| !id.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn preferred_vdpu_ids(&self) -> Vec<String> {
+        self.dash_ha_set_config
+            .as_ref()
+            .map(|cfg| {
+                cfg.preferred_vdpu_id
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Append non-primary endpoints after `primary_id`, putting the Active scope's reported
+    /// `peer_vdpu_id` first so the standby endpoint is deterministic rather than config-order.
+    fn add_backup_vdpu_ids(
+        result: &mut Vec<(String, bool)>,
+        primary_id: &str,
+        configured_vdpu_ids: &[String],
+        peer_vdpu_id: &str,
+    ) {
+        if !peer_vdpu_id.trim().is_empty() && configured_vdpu_ids.iter().any(|id| id == peer_vdpu_id) {
+            result.push((peer_vdpu_id.to_string(), false));
+        }
+
+        for vdpu_id in configured_vdpu_ids {
+            if vdpu_id != primary_id && !result.iter().any(|(id, _)| id == vdpu_id) {
+                result.push((vdpu_id.clone(), false));
+            }
+        }
+    }
+
+    fn select_vdpu_ids_from_ha_scope_states(&self) -> Option<Vec<(String, bool)>> {
+        let configured_vdpu_ids = self.configured_vdpu_ids();
+        if configured_vdpu_ids.len() < 2 {
+            return None;
+        }
+
+        let ha_scope_states: Option<Vec<&CachedHaScopeState>> = configured_vdpu_ids
+            .iter()
+            .map(|vdpu_id| {
+                self.ha_scope_states
+                    .values()
+                    .find(|state| &state.vdpu_id == vdpu_id)
+            })
+            .collect();
+        let Some(ha_scope_states) = ha_scope_states else {
+            info!("Not all HA scope state is ready yet");
+            return None;
+        };
+
+        let active_states: Vec<&CachedHaScopeState> = ha_scope_states
+            .iter()
+            .copied()
+            .filter(|state| state.new_state == HaState::Active.as_str_name())
+            .collect();
+        if active_states.len() == 1 {
+            let primary_id = active_states[0].vdpu_id.clone();
+            let mut selected = vec![(primary_id.clone(), true)];
+            Self::add_backup_vdpu_ids(
+                &mut selected,
+                &primary_id,
+                &configured_vdpu_ids,
+                &active_states[0].peer_vdpu_id,
+            );
+            return Some(selected);
+        }
+
+        let standalone_states: Vec<&CachedHaScopeState> = ha_scope_states
+            .iter()
+            .copied()
+            .filter(|state| state.new_state == HaState::Standalone.as_str_name())
+            .collect();
+        if standalone_states.len() == 1 {
+            let primary_id = standalone_states[0].vdpu_id.clone();
+            let mut selected = vec![(primary_id.clone(), true)];
+            // Include the other configured vDPU as a backup endpoint so the route write
+            // always contains the local vDPU (otherwise the any_managed gate in
+            // update_vnet_route_tunnel_table skips the write on the non-winner side).
+            Self::add_backup_vdpu_ids(&mut selected, &primary_id, &configured_vdpu_ids, "");
+            return Some(selected);
+        }
+
+        if standalone_states.len() == configured_vdpu_ids.len() {
+            let standalone_vdpu_ids: HashSet<&str> =
+                standalone_states.iter().map(|state| state.vdpu_id.as_str()).collect();
+            let primary_id = self
+                .preferred_vdpu_ids()
+                .into_iter()
+                .find(|vdpu_id| standalone_vdpu_ids.contains(vdpu_id.as_str()))
+                .or_else(|| standalone_states.first().map(|state| state.vdpu_id.clone()))?;
+            let mut selected = vec![(primary_id.clone(), true)];
+            // All configured vDPUs are Standalone here, and Standalone scopes have no peer,
+            // so this fills in the remaining vDPUs as backups in config order.
+            Self::add_backup_vdpu_ids(&mut selected, &primary_id, &configured_vdpu_ids, "");
+            return Some(selected);
+        }
+
+        None
+    }
+
+    fn get_vdpus_from_ha_scope_states(&self, incoming: &Incoming) -> Option<Vec<VDpuStateExt>> {
+        let selected_vdpu_ids = self.select_vdpu_ids_from_ha_scope_states()?;
+        let mut vdpus = Vec::new();
+
+        for (vdpu_id, is_primary) in selected_vdpu_ids {
+            match self.get_vdpu(incoming, &vdpu_id) {
+                Some(vdpu) => vdpus.push(VDpuStateExt {
+                    id: vdpu_id,
+                    vdpu,
+                    is_primary,
+                }),
+                None if is_primary => {
+                    info!("Primary DPU info is not ready yet");
+                    return None;
+                }
+                None => info!("Backup DPU info is not ready yet"),
+            }
+        }
+
+        if vdpus.is_empty() {
+            None
+        } else {
+            Some(vdpus)
         }
     }
 
@@ -576,6 +775,7 @@ impl HaSetActor {
             .unwrap_or_default();
 
         self.dash_ha_set_config = Some(decode_from_field_values(&dpu_kfv.field_values).unwrap());
+        self.prune_cached_ha_scope_states();
 
         // Subscribe to the DPU Actor for state updates.
         self.register_to_vdpu_actor(outgoing, true)?;
@@ -732,6 +932,7 @@ impl HaSetActor {
             return Ok(());
         };
 
+        self.cache_ha_scope_actor_state(key, &ha_scope);
         self.ha_owner = HaOwner::try_from(ha_scope.owner).unwrap_or(HaOwner::Unspecified);
 
         // When HA scope is launching (dead -> connecting), reset dp_channel_is_alive to true
@@ -754,39 +955,12 @@ impl HaSetActor {
                 );
             }
 
-            let mut vdpus = Vec::new();
-            if ha_scope.new_state == HaState::Active.as_str_name() {
-                // primary (Active) DPU
-                vdpus.push(
-                    self.get_vdpu(incoming, &ha_scope.vdpu_id)
-                        .map(|vdpu| VDpuStateExt { vdpu, is_primary: true }),
-                );
-                // secondary (Standby) DPU
-                vdpus.push(
-                    self.get_vdpu(incoming, &ha_scope.peer_vdpu_id)
-                        .map(|vdpu| VDpuStateExt {
-                            vdpu,
-                            is_primary: false,
-                        }),
-                );
-            } else if ha_scope.new_state == HaState::Standalone.as_str_name() {
-                // primary (Standalone) DPU
-                vdpus.push(
-                    self.get_vdpu(incoming, &ha_scope.vdpu_id)
-                        .map(|vdpu| VDpuStateExt { vdpu, is_primary: true }),
-                );
-            }
-
-            if !vdpus.is_empty() {
+            if let Some(vdpus) = self.get_vdpus_from_ha_scope_states(incoming) {
                 info!(
                     "Received HaScopeStateUpdate with owner={} state={}, updating VNET ROUTE table.",
                     self.ha_owner as i32, &ha_scope.new_state
                 );
-                // update VNET ROUTE Table
-                let vdpus: Vec<VDpuStateExt> = vdpus.into_iter().flatten().collect();
-                if !vdpus.is_empty() {
-                    self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
-                }
+                self.update_vnet_route_tunnel_table(&vdpus, incoming, outgoing).await?;
             }
         }
 
@@ -854,6 +1028,7 @@ impl Actor for HaSetActor {
 
 #[cfg(test)]
 mod test {
+    use super::CachedHaScopeState;
     use crate::actors::KeyOperation;
     use crate::{
         actors::{
@@ -885,6 +1060,47 @@ mod test {
         kfv.field_values.clear();
         kfv.field_values.insert("json".to_string(), json.into());
         kfv.field_values.clone()
+    }
+
+    #[test]
+    fn ha_scope_route_selection_prefers_configured_vdpu_when_both_standalone() {
+        let (ha_set_id, mut ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
+        let vdpu0_id = ha_set_cfg.vdpu_ids[0].clone();
+        let vdpu1_id = ha_set_cfg.vdpu_ids[1].clone();
+        ha_set_cfg.preferred_vdpu_id = vdpu1_id.clone();
+
+        let mut ha_scope_states = HashMap::new();
+        ha_scope_states.insert(
+            format!("HaScopeStateUpdate|{vdpu0_id}:dummy"),
+            CachedHaScopeState {
+                new_state: HaState::Standalone.as_str_name().to_string(),
+                vdpu_id: vdpu0_id.clone(),
+                peer_vdpu_id: String::new(),
+            },
+        );
+        ha_scope_states.insert(
+            format!("HaScopeStateUpdate|{vdpu1_id}:dummy"),
+            CachedHaScopeState {
+                new_state: HaState::Standalone.as_str_name().to_string(),
+                vdpu_id: vdpu1_id.clone(),
+                peer_vdpu_id: String::new(),
+            },
+        );
+
+        let ha_set_actor = HaSetActor {
+            id: ha_set_id,
+            dash_ha_set_config: Some(ha_set_cfg),
+            dp_channel_is_alive: false,
+            ha_owner: HaOwner::Switch,
+            bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states,
+        };
+
+        assert_eq!(
+            ha_set_actor.select_vdpu_ids_from_ha_scope_states(),
+            Some(vec![(vdpu1_id, true), (vdpu0_id, false)])
+        );
     }
 
     #[tokio::test]
@@ -970,6 +1186,7 @@ mod test {
             ha_owner: HaOwner::Dpu,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1177,6 +1394,7 @@ mod test {
             ha_owner: HaOwner::Dpu,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1318,10 +1536,19 @@ mod test {
         };
         let expected_vnet_route_active = swss_serde::to_field_values(&expected_vnet_route_active).unwrap();
 
-        // Expected VnetRoute when ha_scope state is Standalone (only primary)
-        let expected_vnet_route_standalone = VnetRouteTunnelTable {
-            endpoint: vec![vdpu0_state_obj.dpu.pa_ipv4.clone()],
-            endpoint_monitor: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
+        // Expected VnetRoute when only the local ha_scope is Standalone. The selector
+        // still includes the peer vDPU as a backup so the route keeps two endpoints
+        // and the route write isn't skipped on the side whose Standalone winner is
+        // a remote vDPU.
+        let expected_vnet_route_one_standalone = VnetRouteTunnelTable {
+            endpoint: vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.npu_ipv4.clone(),
+            ],
+            endpoint_monitor: Some(vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.pa_ipv4.clone(),
+            ]),
             monitoring: Some("custom_bfd".into()),
             primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
@@ -1329,9 +1556,30 @@ mod test {
             check_directly_connected: Some(true),
             pinned_state: Some(ha_set_cfg.pinned_vdpu_bfd_probe_states.clone()),
         };
-        let expected_vnet_route_standalone = swss_serde::to_field_values(&expected_vnet_route_standalone).unwrap();
+        let expected_vnet_route_one_standalone =
+            swss_serde::to_field_values(&expected_vnet_route_one_standalone).unwrap();
+
+        let expected_vnet_route_both_standalone = VnetRouteTunnelTable {
+            endpoint: vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.npu_ipv4.clone(),
+            ],
+            endpoint_monitor: Some(vec![
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
+                vdpu1_state_obj.dpu.pa_ipv4.clone(),
+            ]),
+            monitoring: Some("custom_bfd".into()),
+            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
+            rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
+            check_directly_connected: Some(true),
+            pinned_state: Some(ha_set_cfg.pinned_vdpu_bfd_probe_states.clone()),
+        };
+        let expected_vnet_route_both_standalone =
+            swss_serde::to_field_values(&expected_vnet_route_both_standalone).unwrap();
 
         let scope_id = format!("{}:{}", vdpu0_id, ha_set_id);
+        let peer_scope_id = format!("{}:{}", vdpu1_id, ha_set_id);
 
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
@@ -1340,6 +1588,7 @@ mod test {
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1355,6 +1604,12 @@ mod test {
                     addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
             recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
                     addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+                send! { key: HaScopeActorState::msg_key(&scope_id),
+                    data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connected.as_str_name(), "timestamp": 12343i64, "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id),
+                    data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standby.as_str_name(), "timestamp": 12344i64, "term": "0", "vdpu_id": &vdpu1_id, "peer_vdpu_id": &vdpu0_id },
+                    addr: runtime.sp("ha-scope", &peer_scope_id) },
             // Send registration request from ha-scope actor
             send! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true},
                     addr: runtime.sp("ha-scope", &scope_id) },
@@ -1391,14 +1646,14 @@ mod test {
             recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
 
-            // === Phase 3: ha_scope Standalone — triggers VnetRoute with only primary ===
+            // === Phase 3: one ha_scope Standalone — peer kept as backup endpoint ===
 
             send! { key: HaScopeActorState::msg_key(&scope_id),
                     data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "timestamp": 12346i64, "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" },
                     addr: runtime.sp("ha-scope", &scope_id) },
-            // Verify VnetRouteTunnelTable with only primary DPU
+            // Verify VnetRouteTunnelTable still has both endpoints, primary = the Standalone winner
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
-                      "operation": "Set", "field_values": expected_vnet_route_standalone},
+                      "operation": "Set", "field_values": expected_vnet_route_one_standalone},
                     addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
             // Verify DashHaSetTable updated after ha_scope state update
             recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
@@ -1406,7 +1661,20 @@ mod test {
             recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
 
-            // === Phase 4: Cleanup ===
+                // === Phase 4: both ha_scopes Standalone — preferred vDPU remains primary ===
+
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id),
+                    data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "timestamp": 12347i64, "term": "2", "vdpu_id": &vdpu1_id, "peer_vdpu_id": "" },
+                    addr: runtime.sp("ha-scope", &peer_scope_id) },
+                recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                      "operation": "Set", "field_values": expected_vnet_route_both_standalone},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+                recv! { key: &ha_set_id, data: {"key": &ha_set_id,  "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+                recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+
+                // === Phase 5: Cleanup ===
 
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
                     addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
@@ -1479,6 +1747,7 @@ mod test {
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1579,6 +1848,7 @@ mod test {
             dp_channel_is_alive: false,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
             ha_owner: HaOwner::Dpu,
         };
 
@@ -1688,6 +1958,7 @@ mod test {
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1813,6 +2084,7 @@ mod test {
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1857,6 +2129,132 @@ mod test {
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
             recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+
+            // === Phase 4: Cleanup ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
+                       "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<VnetRouteTunnelTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Del", "field_values": {}},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": false },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+        ];
+
+        test::run_commands(&runtime, runtime.sp(HaSetActor::name(), &ha_set_id), &commands).await;
+        if tokio::time::timeout(Duration::from_secs(3), handle).await.is_err() {
+            panic!("timeout waiting for actor to terminate");
+        }
+    }
+
+    // Test that receiving a Connecting HaScopeActorState resets dp_channel_is_alive to true.
+    // Flow: dp_channel starts true → DPU state "down" sets it false → Connecting state resets it to true.
+    #[tokio::test]
+    async fn ha_set_actor_connecting_resets_dp_channel() {
+        sonic_common::log::init_logger_for_test();
+
+        let _redis = Redis::start_config_db();
+        let runtime = test::create_actor_runtime(0, "10.0.0.0", "10::").await;
+
+        // prepare test data
+        let global_cfg = make_dash_ha_global_config();
+        let global_cfg_fvs = serde_json::to_value(swss_serde::to_field_values(&global_cfg).unwrap()).unwrap();
+
+        let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
+        let ha_set_cfg_fvs = protobuf_struct_to_kfv(&ha_set_cfg);
+
+        let dpu0 = make_local_dpu_actor_state(0, 0, true, None, None);
+        let dpu1 = make_remote_dpu_actor_state(1, 0);
+        let (vdpu0_id, vdpu0_state_obj) = make_vdpu_actor_state(true, &dpu0);
+        let (vdpu1_id, _vdpu1_state_obj) = make_vdpu_actor_state(true, &dpu1);
+        let vdpu0_state = serde_json::to_value(&vdpu0_state_obj).unwrap();
+        let vdpu1_state = serde_json::to_value(&_vdpu1_state_obj).unwrap();
+
+        let (_, mut ha_set_obj) = make_dpu_scope_ha_set_obj(0, 0);
+        ha_set_obj.owner = Some("switch".to_string());
+        let ha_set_obj_fvs = serde_json::to_value(swss_serde::to_field_values(&ha_set_obj).unwrap()).unwrap();
+
+        let bfd = BfdSessionTable {
+            tx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            rx_interval: global_cfg.dpu_bfd_probe_interval_in_ms,
+            multiplier: global_cfg.dpu_bfd_probe_multiplier,
+            multihop: true,
+            local_addr: vdpu0_state_obj.dpu.pa_ipv4.clone(),
+            session_type: Some("passive".to_string()),
+            shutdown: false,
+        };
+        let bfd_fvs = serde_json::to_value(swss_serde::to_field_values(&bfd).unwrap()).unwrap();
+
+        let scope_id = format!("{}:{}", vdpu0_id, ha_set_id);
+
+        // DPU HA Set State: dp_channel down
+        let dpu_ha_set_state_down = DpuDashHaSetState {
+            last_updated_time: 1000,
+            dp_channel_is_alive: "down".to_string(),
+        };
+        let dpu_ha_set_state_down_fvs =
+            serde_json::to_value(swss_serde::to_field_values(&dpu_ha_set_state_down).unwrap()).unwrap();
+
+        // Start with dp_channel_is_alive = true
+        let ha_set_actor = HaSetActor {
+            id: ha_set_id.clone(),
+            dash_ha_set_config: None,
+            dp_channel_is_alive: true,
+            ha_owner: HaOwner::Switch,
+            bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states: HashMap::new(),
+        };
+
+        let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
+
+        #[rustfmt::skip]
+        let commands = [
+            // === Phase 1: Initial setup ===
+            send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Set", "field_values": ha_set_cfg_fvs },
+                    addr: crate::common_bridge_sp::<HaSetConfig>(&runtime.get_swbus_edge()) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu0_id) },
+            recv! { key: ActorRegistration::msg_key(RegistrationType::VDPUState, &ha_set_id), data: { "active": true },
+                    addr: runtime.sp(VDpuActor::name(), &vdpu1_id) },
+            send! { key: ActorRegistration::msg_key(RegistrationType::HaSetState, &scope_id), data: { "active": true},
+                    addr: runtime.sp("ha-scope", &scope_id) },
+            send! { key: "DASH_HA_GLOBAL_CONFIG", data: { "key": "DASH_HA_GLOBAL_CONFIG", "operation": "Set", "field_values": global_cfg_fvs } },
+            send! { key: VDpuActorState::msg_key(&vdpu0_id), data: vdpu0_state, addr: runtime.sp("vdpu", &vdpu0_id) },
+            send! { key: VDpuActorState::msg_key(&vdpu1_id), data: vdpu1_state, addr: runtime.sp("vdpu", &vdpu1_id) },
+            // Verify initial state (dp_channel up = true)
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.0.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+            recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
+                    addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
+
+            // === Phase 2: DPU HA Set State "down" sets dp_channel_is_alive to false ===
+            send! { key: DpuDashHaSetState::table_name(), data: { "key": &ha_set_id, "operation": "Set", "field_values": dpu_ha_set_state_down_fvs } },
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+
+            // === Phase 3: HA scope Connecting resets dp_channel_is_alive to true ===
+            send! { key: HaScopeActorState::msg_key(&scope_id),
+                    data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Connecting.as_str_name(), "timestamp": 12345i64, "term": "0", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id },
+                    addr: runtime.sp("ha-scope", &scope_id) },
+            // Verify dp_channel_is_alive is now true again (up = true)
+            recv! { key: &ha_set_id, data: {"key": &ha_set_id, "operation": "Set", "field_values": ha_set_obj_fvs},
+                    addr: crate::common_bridge_sp::<DashHaSetTable>(&runtime.get_swbus_edge()) },
+            recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": true, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
+                    addr: runtime.sp("ha-scope", &scope_id) },
 
             // === Phase 4: Cleanup ===
             send! { key: HaSetActor::table_name(), data: { "key": HaSetActor::table_name(), "operation": "Del", "field_values": ha_set_cfg_fvs },
