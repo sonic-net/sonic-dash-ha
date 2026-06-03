@@ -561,11 +561,7 @@ impl HaSetActor {
 
         let ha_scope_states: Option<Vec<&CachedHaScopeState>> = configured_vdpu_ids
             .iter()
-            .map(|vdpu_id| {
-                self.ha_scope_states
-                    .values()
-                    .find(|state| &state.vdpu_id == vdpu_id)
-            })
+            .map(|vdpu_id| self.ha_scope_states.values().find(|state| &state.vdpu_id == vdpu_id))
             .collect();
         let Some(ha_scope_states) = ha_scope_states else {
             info!("Not all HA scope state is ready yet");
