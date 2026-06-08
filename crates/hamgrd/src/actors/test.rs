@@ -717,9 +717,11 @@ pub fn update_npu_ha_scope_state_by_dpu_scope_state(
     npu_ha_scope_state: &mut NpuDashHaScopeState,
     dpu_ha_scope_state: &DpuDashHaScopeState,
     target_ha_state: &str,
+    version: &str,
 ) {
+    npu_ha_scope_state.version = Some(version.to_string());
     npu_ha_scope_state.local_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
-    npu_ha_scope_state.local_ha_state_last_updated_time_in_ms = Some(dpu_ha_scope_state.ha_role_start_time);
+    npu_ha_scope_state.local_ha_state_last_updated_time_in_ms = Some(dpu_ha_scope_state.ha_state_start_time);
     npu_ha_scope_state.local_ha_state_last_updated_reason = Some("dpu initiated".to_string());
     npu_ha_scope_state.local_target_asic_ha_state = Some(target_ha_state.to_string());
     npu_ha_scope_state.local_acked_asic_ha_state = Some(dpu_ha_scope_state.ha_role.clone());
@@ -753,8 +755,8 @@ pub fn make_dpu_ha_scope_state(role: &str) -> DpuDashHaScopeState {
         ha_term: Some("1".to_string()),
         // The DPU HA state.
         ha_state: role.to_string(),
-        // The time when HA state is moved into current one in milliseconds.
-        ha_state_start_time: now_in_millis(),
+        // The time when HA state is moved into current one in milliseconds. Choose different time from ha_role_start_time to make sure HA state change is detected.
+        ha_state_start_time: now_in_millis() + 1,
         activate_role_pending: false,
         flow_reconcile_pending: false,
         brainsplit_recover_pending: false,
