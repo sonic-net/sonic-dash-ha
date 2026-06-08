@@ -400,6 +400,7 @@ impl HaScopeBase {
 
         let mut npu_ha_scope_state = self.get_npu_ha_scope_state(internal).unwrap_or_default();
 
+        npu_ha_scope_state.version = self.dash_ha_scope_config.as_ref().map(|c| c.version.clone());
         npu_ha_scope_state.creation_time_in_ms = 0; /*todo */
         npu_ha_scope_state.last_heartbeat_time_in_ms = 0; /* todo: wait until heartbeat is implemented */
         npu_ha_scope_state.vip_v4 = haset.ha_set.vip_v4.clone();
