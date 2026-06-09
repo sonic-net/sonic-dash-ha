@@ -34,7 +34,11 @@ Before starting, use the ask-questions tool to collect any missing information:
 - **Test file** — the pytest file to run (e.g., `ha/test_ha_planned_shutdown.py`)
 - **DUT hostnames** — comma-separated DUT names (e.g., `<dut-hostname-1>,<dut-hostname-2>`)
 - **DPU hostnames** — comma-separated DPU names (e.g., `<dut-hostname-1>-dpu-0,<dut-hostname-2>-dpu-0`)
-- **Switch password** — Prompt the user to type it directly into the terminal when needed. **Never** route passwords through ask-questions.
+- **Switch authentication** — Use key-based SSH where possible (install your public
+  key on the switch with `ssh-copy-id admin@<switch_ip>`). If only password auth is
+  available, let `ssh` prompt and type the password directly into the terminal. **Never**
+  pass passwords on the command line (no `sshpass`/`-p`) and never route passwords
+  through ask-questions.
 
 Use the defaults above for inventory, testbed name, and other flags unless the user specifies otherwise.
 
@@ -107,17 +111,18 @@ To debug failures, connect to the DUT switches and inspect syslog. First, look u
 grep -A5 '<DUT_HOSTNAME>' /data/sonic-mgmt-int/ansible/<inventory>
 ```
 
-Then SSH to the switch (from the dev machine, not the container) and check syslog:
+Then SSH to the switch (from the dev machine, not the container) and check syslog.
+Use key-based auth if configured; otherwise `ssh` prompts for the password interactively:
 
 ```bash
-sshpass -p '<password>' ssh -o StrictHostKeyChecking=no admin@<SWITCH_IP> \
+ssh -o StrictHostKeyChecking=no admin@<SWITCH_IP> \
   "sudo grep -E 'ERR|WARN|CRIT' /var/log/syslog | tail -50"
 ```
 
 For DPU-specific logs (dash-hadpu containers):
 
 ```bash
-sshpass -p '<password>' ssh -o StrictHostKeyChecking=no admin@<SWITCH_IP> \
+ssh -o StrictHostKeyChecking=no admin@<SWITCH_IP> \
   "sudo grep 'dash-hadpu0#hamgrd' /var/log/syslog | grep -v DEBUG | tail -30"
 ```
 

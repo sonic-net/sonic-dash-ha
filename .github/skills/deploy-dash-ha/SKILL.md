@@ -13,7 +13,11 @@ argument-hint: 'Optional: switch IPs, credentials, or container names to customi
 ## Prerequisites
 - The `sonic-dash-ha` Docker build container must be running locally (check with `docker ps`)
 - Target switches must be reachable via SSH
-- `sshpass` must be installed on the dev machine
+- SSH access to the switches is configured. **Strongly preferred:** key-based
+  authentication (an SSH public key installed on each switch, e.g. via
+  `ssh-copy-id admin@<switch_ip>`). If only password auth is available, `ssh`/`scp`
+  will prompt for the password interactively — the user types it directly into the
+  terminal.
 
 ## Default Configuration
 
@@ -32,9 +36,13 @@ for the host repo path, switch IPs, username, and container names, and use those
 
 ## Procedure
 
-### Step 0: Ask for switch password
+### Step 0: Confirm SSH access
 
-Before starting deployment, **always** use the ask-questions tool to prompt the user for the switch password. Never store or hardcode the password. Use the password for all subsequent `sshpass` commands.
+Use key-based SSH authentication wherever possible (install your public key on each
+switch with `ssh-copy-id admin@<switch_ip>`). **Never** pass passwords on the command
+line (no `sshpass`, no `-p` flags) and never store or hardcode credentials. If a switch
+only supports password auth, run the `ssh`/`scp` commands below as-is and let the user
+type the password directly into the terminal when prompted.
 
 ### Step 1: Copy repo into build container
 
@@ -59,7 +67,7 @@ docker cp sonic-dash-ha:/dash-ha_1.0.0_amd64.deb /tmp/dash-ha_1.0.0_amd64.deb
 docker cp sonic-dash-ha:/dash-ha-dbgsym_1.0.0_amd64.deb /tmp/dash-ha-dbgsym_1.0.0_amd64.deb
 
 # SCP to all switches
-sshpass -p '<password>' scp -o StrictHostKeyChecking=no \
+scp -o StrictHostKeyChecking=no \
   /tmp/dash-ha_1.0.0_amd64.deb /tmp/dash-ha-dbgsym_1.0.0_amd64.deb \
   admin@<switch_ip>:/tmp/
 ```
@@ -69,7 +77,7 @@ sshpass -p '<password>' scp -o StrictHostKeyChecking=no \
 For each switch, run:
 
 ```bash
-sshpass -p '<password>' ssh -o StrictHostKeyChecking=no admin@<switch_ip> \
+ssh -o StrictHostKeyChecking=no admin@<switch_ip> \
   'for i in 0 1 2 3; do
     echo "=== dash-hadpu$i ===";
     sudo docker cp /tmp/dash-ha_1.0.0_amd64.deb dash-hadpu$i:/dash-ha_1.0.0_amd64.deb;
@@ -85,7 +93,7 @@ Verify each container shows `Setting up dash-ha (1.0.0) ...` and `Setting up das
 ### Step 5: Config reload on each switch
 
 ```bash
-sshpass -p '<password>' ssh -o StrictHostKeyChecking=no admin@<switch_ip> \
+ssh -o StrictHostKeyChecking=no admin@<switch_ip> \
   'sudo config reload -y 2>&1'
 ```
 
