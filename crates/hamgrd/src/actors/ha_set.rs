@@ -29,7 +29,7 @@ fn ha_owner_to_string(ha_owner: &str) -> String {
 pub struct HaSetActor {
     id: String,
     dash_ha_set_config: Option<HaSetConfig>,
-    dp_channel_is_alive: bool,
+    dp_channel_is_alive: Option<bool>,
     ha_owner: HaOwner,
     bridges: Vec<ConsumerBridge>,
     bfd_session_npu_ips: HashSet<String>,
@@ -41,7 +41,7 @@ impl DbBasedActor for HaSetActor {
         let actor = HaSetActor {
             id: key,
             dash_ha_set_config: None,
-            dp_channel_is_alive: true,
+            dp_channel_is_alive: None,
             ha_owner: HaOwner::Unspecified,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -909,7 +909,7 @@ impl HaSetActor {
             );
             return Ok(());
         }
-        self.dp_channel_is_alive = ha_set_state.dp_channel_is_alive == "up";
+        self.dp_channel_is_alive = Some(ha_set_state.dp_channel_is_alive == "up");
         let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
             return Ok(());
         };
@@ -935,7 +935,7 @@ impl HaSetActor {
         // so that we start with an optimistic assumption until the DPU reports otherwise.
         if ha_scope.new_state == HaState::Connecting.as_str_name() {
             info!("HA scope is launching (connecting), resetting dp_channel_is_alive to true");
-            self.dp_channel_is_alive = true;
+            self.dp_channel_is_alive = Some(true);
         }
 
         if self.ha_owner == HaOwner::Switch {
@@ -1086,7 +1086,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id,
             dash_ha_set_config: Some(ha_set_cfg),
-            dp_channel_is_alive: false,
+            dp_channel_is_alive: Some(false),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -1178,7 +1178,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: true,
+            dp_channel_is_alive: Some(true),
             ha_owner: HaOwner::Dpu,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -1386,7 +1386,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: false,
+            dp_channel_is_alive: Some(false),
             ha_owner: HaOwner::Dpu,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -1580,7 +1580,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: false,
+            dp_channel_is_alive: Some(false),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -1739,7 +1739,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: false,
+            dp_channel_is_alive: Some(false),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -1841,7 +1841,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: false,
+            dp_channel_is_alive: Some(false),
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
@@ -1950,7 +1950,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: true,
+            dp_channel_is_alive: Some(true),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -2076,7 +2076,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: true,
+            dp_channel_is_alive: Some(true),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
@@ -2202,7 +2202,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: true,
+            dp_channel_is_alive: Some(true),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),

@@ -34,6 +34,8 @@ pub struct NpuHaScopeActor {
     pub(super) peer_connected: bool,
     /// Is rehydration needed?
     pub(super) rehydration_needed: bool,
+    /// Cached HA set up/down status, used to detect Up -> Down transitions
+    pub(super) ha_set_up: Option<bool>,
     /// Counter object IDs collected from COUNTERS_ENI_NAME_MAP (values of the ENI-to-OID map)
     pub(super) counter_object_ids: HashSet<String>,
     /// Counter statistics for tracked object IDs, keyed by object ID
@@ -48,6 +50,7 @@ impl NpuHaScopeActor {
             retry_count: 0,
             peer_connected: false,
             rehydration_needed: false,
+            ha_set_up: None,
             counter_object_ids: HashSet::new(),
             counter_stats: HashMap::new(),
         }
@@ -551,15 +554,23 @@ impl NpuHaScopeActor {
         // update basic info of NPU HA scope state
         let _ = self.base.update_npu_ha_scope_state_base(state);
 
+        // Cache the HA set up/down status, keeping the previous value to detect transitions
+        let was_up = self.ha_set_up;
+        if let Some(up) = ha_set.up {
+            self.ha_set_up = Some(up);
+        }
+
         if first_time {
             match self.rehydration_needed {
                 true => Ok(HaEvent::Rehydration),
                 false => Ok(HaEvent::Launch),
             }
         } else {
-            match ha_set.up {
-                true => Ok(HaEvent::None),
-                false => Ok(HaEvent::PeerLost),
+            // Only emit PeerLost on an Up -> Down transition
+            if was_up == Some(true) && ha_set.up == Some(false) {
+                Ok(HaEvent::PeerLost)
+            } else {
+                Ok(HaEvent::None)
             }
         }
     }
@@ -1582,7 +1593,7 @@ impl NpuHaScopeActor {
             HaState::Connecting => {
                 // Go to Connected if successfully connected to the peer
                 // Go to Standalone if detecting problem on the peer and the local DPU is healthy
-                if *event == HaEvent::PeerConnected || *event == HaEvent::PeerStateChanged {
+                if self.peer_connected && self.ha_set_up == Some(true) {
                     Some((HaState::Connected, "connection with peer established"))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "remote peer failure while connecting"))
@@ -1813,7 +1824,7 @@ impl NpuHaScopeActor {
         };
 
         let vdpu_up = self.base.get_vdpu(incoming).map(|v| v.up).unwrap_or(false);
-        let dp_channel_is_alive = self.base.get_haset(incoming).map(|h| h.up).unwrap_or(false);
+        let dp_channel_is_alive = self.base.get_haset(incoming).and_then(|h| h.up).unwrap_or(false);
         let pinned_bfd_state = self.base.pinned_bfd_state.clone().unwrap_or_default();
 
         let msg = DPURequestEnterStandalone::new_actor_msg(
