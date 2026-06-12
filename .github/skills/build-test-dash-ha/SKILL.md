@@ -36,14 +36,29 @@ docker ps --filter name=sonic-dash-ha --format '{{.Names}}'
 
 If the container is not running, stop and tell the user. Do not attempt to start it.
 
-### Step 2: Copy repo into build container
+### Step 2: Make the repo available in the build container
+
+**FIRST, check whether the repo is bind-mounted into the container.** Some setups
+bind-mount the host repo at `/sonic-dash-ha` instead of using `docker cp`. Running
+`rm -rf /sonic-dash-ha` inside the container against a bind mount will **delete the
+host repo and its `.git`**. Always check before deleting:
 
 ```bash
-docker exec sonic-dash-ha bash -c "rm -rf /sonic-dash-ha" && \
-docker cp <path-to-sonic-dash-ha> sonic-dash-ha:/sonic-dash-ha
+docker inspect sonic-dash-ha \
+  --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
 ```
 
-This removes the old source tree and copies a fresh one. The cargo build cache under `target/` is preserved for incremental builds.
+- **If the host repo path maps to `/sonic-dash-ha` (bind mount):** do **NOT** run
+  `rm -rf` and do **NOT** `docker cp`. The container already sees the current source.
+  Skip directly to Step 3.
+- **If `/sonic-dash-ha` is NOT a bind mount:** refresh the copy. This removes the old
+  source tree and copies a fresh one; the cargo build cache under `target/` is
+  preserved for incremental builds:
+
+  ```bash
+  docker exec sonic-dash-ha bash -c "rm -rf /sonic-dash-ha" && \
+  docker cp <path-to-sonic-dash-ha> sonic-dash-ha:/sonic-dash-ha
+  ```
 
 ### Step 3: Run compilation check
 

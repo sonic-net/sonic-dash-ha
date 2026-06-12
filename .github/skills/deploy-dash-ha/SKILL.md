@@ -44,12 +44,27 @@ line (no `sshpass`, no `-p` flags) and never store or hardcode credentials. If a
 only supports password auth, run the `ssh`/`scp` commands below as-is and let the user
 type the password directly into the terminal when prompted.
 
-### Step 1: Copy repo into build container
+### Step 1: Make the repo available in the build container
+
+**FIRST, check whether the repo is bind-mounted into the container.** Some setups
+bind-mount the host repo at `/sonic-dash-ha` instead of using `docker cp`. Running
+`rm -rf /sonic-dash-ha` inside the container against a bind mount will **delete the
+host repo and its `.git`**. Always check before deleting:
 
 ```bash
-docker exec sonic-dash-ha bash -c "rm -rf /sonic-dash-ha" && \
-docker cp <path-to-sonic-dash-ha> sonic-dash-ha:/sonic-dash-ha
+docker inspect sonic-dash-ha \
+  --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
 ```
+
+- **If the host repo path maps to `/sonic-dash-ha` (bind mount):** do **NOT** run
+  `rm -rf` and do **NOT** `docker cp`. The container already sees the current source.
+  Skip directly to Step 2.
+- **If `/sonic-dash-ha` is NOT a bind mount:** refresh the copy:
+
+  ```bash
+  docker exec sonic-dash-ha bash -c "rm -rf /sonic-dash-ha" && \
+  docker cp <path-to-sonic-dash-ha> sonic-dash-ha:/sonic-dash-ha
+  ```
 
 ### Step 2: Build debian packages
 
