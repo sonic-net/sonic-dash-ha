@@ -36,6 +36,8 @@ pub struct NpuHaScopeActor {
     pub(super) rehydration_needed: bool,
     /// Cached HA set up/down status, used to detect Up -> Down transitions
     pub(super) ha_set_up: Option<bool>,
+    /// Cached vDPU up/down status, used to detect Up -> Down transitions
+    pub(super) vdpu_up: Option<bool>,
     /// Counter object IDs collected from COUNTERS_ENI_NAME_MAP (values of the ENI-to-OID map)
     pub(super) counter_object_ids: HashSet<String>,
     /// Counter statistics for tracked object IDs, keyed by object ID
@@ -51,6 +53,7 @@ impl NpuHaScopeActor {
             peer_connected: false,
             rehydration_needed: false,
             ha_set_up: None,
+            vdpu_up: None,
             counter_object_ids: HashSet::new(),
             counter_stats: HashMap::new(),
         }
@@ -451,6 +454,10 @@ impl NpuHaScopeActor {
         // update basic info of NPU HA scope state
         self.base.update_npu_ha_scope_state_base(state)?;
 
+        // Cache the vDPU up/down status, keeping the previous value to detect transitions
+        let was_up = self.vdpu_up;
+        self.vdpu_up = Some(vdpu.up);
+
         if first_time {
             // Check if we are rehydrating from a previously persisted state (hamgrd crash recovery).
             // InternalTableEntry::new() already read the persisted NpuDashHaScopeState from Redis.
@@ -472,9 +479,11 @@ impl NpuHaScopeActor {
                 Ok(HaEvent::Launch)
             }
         } else {
-            match vdpu.up {
-                true => Ok(HaEvent::None),
-                false => Ok(HaEvent::LocalFailure),
+            // Only emit LocalFailure on an Up -> Down transition
+            if was_up == Some(true) && !vdpu.up {
+                Ok(HaEvent::LocalFailure)
+            } else {
+                Ok(HaEvent::None)
             }
         }
     }
