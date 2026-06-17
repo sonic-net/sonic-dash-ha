@@ -1557,6 +1557,7 @@ impl NpuHaScopeActor {
         current_state: &HaState,
         event: &HaEvent,
     ) -> Option<(HaState, &'static str)> {
+        // First, handle high-priority HA events that will force state transitions regardless of the current state
         if *event == HaEvent::Shutdown {
             return match current_state {
                 HaState::Dead => None,
@@ -1571,6 +1572,10 @@ impl NpuHaScopeActor {
                 }
                 _ => Some((HaState::Destroying, "planned shutdown")),
             };
+        } else if *event == HaEvent::EnterStandalone {
+            return Some((HaState::Standalone, "won the standalone selection"));
+        } else if *event == HaEvent::EnterStandby {
+            return Some((HaState::Standby, "peer became standalone, entering standby"));
         }
 
         match current_state {
@@ -1731,11 +1736,7 @@ impl NpuHaScopeActor {
                 }
             }
             HaState::SwitchingToStandalone => {
-                if *event == HaEvent::EnterStandalone {
-                    Some((HaState::Standalone, "won the standalone selection"))
-                } else if *event == HaEvent::EnterStandby {
-                    Some((HaState::Standby, "peer became standalone, entering standby"))
-                } else if *event == HaEvent::LeavingStandalone {
+                if *event == HaEvent::LeavingStandalone {
                     match target_state {
                         TargetState::Active => Some((HaState::Active, "failed to enter standalone")),
                         TargetState::Standby => Some((HaState::Standby, "failed to enter standalone")),
