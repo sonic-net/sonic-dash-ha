@@ -79,4 +79,5 @@ ci-lint:
 ci-test:
 	cargo test           --workspace --all-features
 	cargo clean
-	cargo test --release --workspace --all-features
+	cargo test --release --workspace --all-features --exclude hamgrd
+	cargo test --release -p hamgrd --all-features -- --test-threads=1
