@@ -1573,9 +1573,15 @@ impl NpuHaScopeActor {
                 _ => Some((HaState::Destroying, "planned shutdown")),
             };
         } else if *event == HaEvent::EnterStandalone {
-            return Some((HaState::Standalone, "won the standalone selection"));
+            return match current_state {
+                HaState::Unspecified | HaState::Dead | HaState::Destroying => None,
+                _ => Some((HaState::Standalone, "won the standalone selection")),
+            };
         } else if *event == HaEvent::EnterStandby {
-            return Some((HaState::Standby, "peer became standalone, entering standby"));
+            return match current_state {
+                HaState::Unspecified | HaState::Dead | HaState::Destroying => None,
+                _ => Some((HaState::Standby, "peer became standalone, entering standby")),
+            };
         }
 
         match current_state {
