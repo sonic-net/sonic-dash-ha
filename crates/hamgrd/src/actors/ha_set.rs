@@ -1886,7 +1886,7 @@ mod test {
         let ha_set_actor = HaSetActor {
             id: ha_set_id.clone(),
             dash_ha_set_config: None,
-            dp_channel_is_alive: false,
+            dp_channel_is_alive: Some(false),
             ha_owner: HaOwner::Switch,
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
