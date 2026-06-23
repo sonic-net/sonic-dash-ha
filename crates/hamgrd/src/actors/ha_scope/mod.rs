@@ -559,7 +559,7 @@ mod test {
             dpu_ha_scope_state.last_updated_time = now_in_millis();
 
             let mut npu_ha_scope_state = make_npu_ha_scope_state(&vdpu0_state_obj, &ha_set_obj);
-            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state, &dpu_ha_scope_state, "active");
+            update_npu_ha_scope_state_by_dpu_scope_state(&mut npu_ha_scope_state, &dpu_ha_scope_state, "active", "1");
             update_npu_ha_scope_state_pending_ops(
                 &mut npu_ha_scope_state,
                 vec![("1".to_string(), "brainsplit_recover".to_string())],
@@ -625,6 +625,7 @@ mod test {
                 .unwrap();
 
             let mut expected_npu_ha_scope_state = npu_ha_scope_state.clone();
+            expected_npu_ha_scope_state.version = Some("2".to_string());
             update_npu_ha_scope_state_pending_ops(&mut expected_npu_ha_scope_state, vec![]);
             let expected_npu_ha_scope_state_fvs = to_field_values(&expected_npu_ha_scope_state).unwrap();
 
