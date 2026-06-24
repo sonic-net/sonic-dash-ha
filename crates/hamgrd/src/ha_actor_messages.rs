@@ -134,9 +134,10 @@ impl VDpuActorState {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub struct HaSetActorState {
-    pub up: bool,
+    pub up: Option<bool>,
     pub ha_set: DashHaSetTable,
     pub vdpu_ids: Vec<String>,
     pub pinned_vdpu_bfd_probe_states: Vec<String>,
@@ -144,7 +145,7 @@ pub struct HaSetActorState {
 
 impl HaSetActorState {
     pub fn new_actor_msg(
-        up: bool,
+        up: Option<bool>,
         my_id: &str,
         ha_set: DashHaSetTable,
         vdpu_ids: &[String],
