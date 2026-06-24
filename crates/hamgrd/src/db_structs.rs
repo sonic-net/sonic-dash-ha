@@ -497,6 +497,8 @@ pub struct NpuDashHaScopeState {
     pub peer_ha_state_last_updated_time_in_ms: Option<i64>,
     // The current term in peer DPU.
     pub peer_term: Option<String>,
+    // The HA role acked by the peer's ASIC (e.g. "active", "standby"). None when unknown.
+    pub peer_acked_asic_ha_state: Option<String>,
 
     // The state of local vDPU midplane. The value can be "unknown", "up", "down".
     pub local_vdpu_midplane_state: DpuPmonStateType,
