@@ -364,6 +364,7 @@ impl NpuHaScopeActor {
             npu_ha_scope_state.local_target_term.as_deref().unwrap_or("0"),
             &self.base.vdpu_id,
             self.base.peer_vdpu_id.as_deref().unwrap_or(""),
+            npu_ha_scope_state.local_acked_asic_ha_state.as_deref().unwrap_or(""),
         )?;
         outgoing.send(entry.source.clone(), msg);
 
@@ -707,6 +708,11 @@ impl NpuHaScopeActor {
         npu_ha_scope_state.peer_ha_state = Some(change.new_state);
         npu_ha_scope_state.peer_ha_state_last_updated_time_in_ms = Some(change.timestamp);
         npu_ha_scope_state.peer_term = Some(change.term);
+        npu_ha_scope_state.peer_acked_asic_ha_state = if change.acked_asic_ha_state.is_empty() {
+            None
+        } else {
+            Some(change.acked_asic_ha_state.clone())
+        };
         if self.target_ha_scope_state == Some(TargetState::Standby) {
             // Standby HA scope should follow the change of the peer term
             npu_ha_scope_state.local_target_term = npu_ha_scope_state.peer_term.clone();
@@ -1184,6 +1190,16 @@ impl NpuHaScopeActor {
             .unwrap_or(HaState::Unspecified)
     }
 
+    /// Return the HA role acked by the peer's ASIC (e.g. "active", "standby"), as
+    /// reported in the peer's most recent HA Scope State Update. Returns an empty
+    /// string when the peer's acked role is unknown.
+    fn current_npu_peer_acked_asic_ha_state(&self, internal: &Internal) -> String {
+        self.base
+            .get_npu_ha_scope_state(internal)
+            .and_then(|scope| scope.peer_acked_asic_ha_state)
+            .unwrap_or_default()
+    }
+
     /// Restore `target_ha_scope_state` from persisted `local_target_asic_ha_state` in
     /// STATE_DB. This is used during rehydration because `target_ha_scope_state` is
     /// in-memory only and lost on crash.
@@ -1341,8 +1357,10 @@ impl NpuHaScopeActor {
                 self.send_vote_request_to_peer(state, false)?;
             }
             HaState::InitializingToActive => {
-                // If the peer is already in InitializingToStandby
-                if self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby {
+                // If the peer's ASIC has already acked the standby role
+                if self.current_npu_peer_acked_asic_ha_state(state.internal())
+                    == ha_role_to_string(HaRole::Standby.as_str_name())
+                {
                     // Note: it does not really move the HA scope into Active immediately since we need SDN approvals
                     self.send_self_notification(state, "EnterActive", 0)?;
                 }
@@ -1367,10 +1385,19 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerLost {
                     // Peer DPU lost
                     self.send_self_notification(state, "EnterStandalone", 0)?;
-                } else if *event == HaEvent::PeerShutdownRequested
-                    || self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
+                } else if *event == HaEvent::PeerShutdownRequested {
+                    if self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Dead.as_str_name())
+                    {
+                        // Peer DPU planned shutdown and already dead — enter standalone
+                        self.send_self_notification(state, "EnterStandalone", 0)?;
+                    }
+                    // Else wait for peer to become Dead
+                } else if *event == HaEvent::PeerStateChanged
+                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Dead.as_str_name())
                 {
-                    // Peer DPU planned shutdown or forced shutdown
+                    // Peer DPU forced shutdown — enter standalone
                     self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else {
                     // Send DPURequestEnterStandalone to peer with local health signals
@@ -1673,9 +1700,10 @@ impl NpuHaScopeActor {
                 if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer lost during switchover to standby"))
                 } else if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_ha_state(state.internal()) == HaState::Active
+                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Active.as_str_name())
                 {
-                    Some((HaState::Standby, "peer has been active"))
+                    Some((HaState::Standby, "peer acked active role"))
                 } else {
                     None
                 }
@@ -1704,9 +1732,10 @@ impl NpuHaScopeActor {
                 if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer lost during switchover to active"))
                 } else if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_ha_state(state.internal()) == HaState::SwitchingToStandby
+                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Standby.as_str_name())
                 {
-                    Some((HaState::Active, "switchover to active complete"))
+                    Some((HaState::Active, "peer acked standby role"))
                 } else if *event == HaEvent::SwitchoverFailed {
                     Some((HaState::Standby, "switchover failed"))
                 } else {
@@ -1732,11 +1761,12 @@ impl NpuHaScopeActor {
             }
             HaState::Standalone => {
                 // Transition out of Standalone on peer state updates.
-                // When the peer starts initializing to standby, this node becomes Active.
+                // When the peer's ASIC acks the standby role, this node becomes Active.
                 if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby
+                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Standby.as_str_name())
                 {
-                    Some((HaState::Active, "peer initializing to standby"))
+                    Some((HaState::Active, "peer acked standby role"))
                 } else {
                     None
                 }
@@ -1748,6 +1778,11 @@ impl NpuHaScopeActor {
                         TargetState::Standby => Some((HaState::Standby, "failed to enter standalone")),
                         _ => None, // Target Dead and Standalone case should not be handled at this place
                     }
+                } else if *event == HaEvent::PeerStateChanged
+                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Dead.as_str_name())
+                {
+                    Some((HaState::Standalone, "peer acked dead role"))
                 } else {
                     None
                 }
@@ -1774,6 +1809,10 @@ impl NpuHaScopeActor {
         let (internal, _incoming, outgoing) = state.get_all();
         let npu_state = self.base.get_npu_ha_scope_state(internal);
         let local_target_term = npu_state.as_ref().and_then(|s| s.local_target_term.as_deref());
+        let acked_asic_ha_state = npu_state
+            .as_ref()
+            .and_then(|s| s.local_acked_asic_ha_state.as_deref())
+            .unwrap_or("");
         let owner = self
             .base
             .dash_ha_scope_config
@@ -1792,6 +1831,7 @@ impl NpuHaScopeActor {
             term,
             &self.base.vdpu_id,
             self.base.peer_vdpu_id.as_deref().unwrap_or(""),
+            acked_asic_ha_state,
         ) {
             if let Some(peer_sp) = self.peer_sp() {
                 outgoing.send(peer_sp, msg.clone());
