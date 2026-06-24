@@ -187,9 +187,13 @@ pub struct HaScopeActorState {
     pub term: String,
     pub vdpu_id: String,
     pub peer_vdpu_id: String,
+    // The HA role acked by the sender's ASIC (e.g. "active", "standby"). Empty when unknown.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub acked_asic_ha_state: String,
 }
 
 impl HaScopeActorState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new_actor_msg(
         my_id: &str,
         owner: i32,
@@ -198,6 +202,7 @@ impl HaScopeActorState {
         term: &str,
         vdpu_id: &str,
         peer_vdpu_id: &str,
+        acked_asic_ha_state: &str,
     ) -> Result<ActorMessage> {
         ActorMessage::new(
             Self::msg_key(my_id),
@@ -208,6 +213,7 @@ impl HaScopeActorState {
                 term: term.to_string(),
                 vdpu_id: vdpu_id.to_string(),
                 peer_vdpu_id: peer_vdpu_id.to_string(),
+                acked_asic_ha_state: acked_asic_ha_state.to_string(),
             },
         )
     }

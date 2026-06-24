@@ -81,6 +81,7 @@ impl HaScopeBase {
             "0",
             &self.vdpu_id,
             self.peer_vdpu_id.as_deref().unwrap_or(""),
+            "",
         ) {
             if let Some(ha_set_id) = self.get_haset_id() {
                 outgoing.send(outgoing.from_my_sp(HaSetActor::name(), &ha_set_id), msg);
