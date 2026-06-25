@@ -1073,6 +1073,11 @@ mod test {
                         "field_values": serde_json::to_value(to_field_values(&dpu_ha_state_state).unwrap()).unwrap()
                         }},
 
+                // The DPU state change first triggers a broadcast of the current (Destroying) state
+                // carrying the newly ASIC-acked role ("dead"), before the transition to Dead.
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id, "acked_asic_ha_state": "dead" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id, "acked_asic_ha_state": "dead" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
+
                 // Expect HaScopeActorState: Destroying -> Dead
                 // The actor now reports its own ASIC-acked role ("dead") in the state update.
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Dead.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id, "acked_asic_ha_state": "dead" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
@@ -3262,6 +3267,11 @@ mod test {
                 send! { key: DpuDashHaScopeState::table_name(), data: {"key": DpuDashHaScopeState::table_name(), "operation": "Set",
                         "field_values": serde_json::to_value(to_field_values(&dpu_ha_state_dead).unwrap()).unwrap()
                         }},
+
+                // The DPU state change first triggers a broadcast of the current (Destroying) state
+                // carrying the newly ASIC-acked role ("dead"), before the transition to Dead.
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id, "acked_asic_ha_state": "dead" }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
+                recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Destroying.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id, "acked_asic_ha_state": "dead" }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
                 // Expect HaScopeActorState: Destroying -> Dead
                 // The actor now reports its own ASIC-acked role ("dead") in the state update.
