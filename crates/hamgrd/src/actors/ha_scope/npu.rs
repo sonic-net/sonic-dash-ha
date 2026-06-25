@@ -616,6 +616,10 @@ impl NpuHaScopeActor {
             .clone_from(&fvs);
         self.base.dpu_ha_scope_state = Some(new_dpu_ha_scope_state);
 
+        // Broadcast a new HA scope state upon DPU state changes
+        let current_state = self.current_npu_ha_state(state.internal());
+        self.broadcast_ha_scope_state(state, current_state);
+
         if old_acked_asic_ha_state.as_deref() == Some("standalone")
             && npu_ha_scope_state.local_acked_asic_ha_state.as_deref() == Some("active")
         {
