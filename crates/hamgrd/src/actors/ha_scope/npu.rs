@@ -1372,9 +1372,11 @@ impl NpuHaScopeActor {
                 self.send_vote_request_to_peer(state, false)?;
             }
             HaState::InitializingToActive => {
-                // If the peer's ASIC has already acked the standby role
+                // If the peer's ASIC has already acked the standby role and the peer
+                // control plane reports InitializingToStandby
                 if self.current_npu_peer_acked_asic_ha_state(state.internal())
                     == ha_role_to_string(HaRole::Standby.as_str_name())
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby
                 {
                     // Note: it does not really move the HA scope into Active immediately since we need SDN approvals
                     self.send_self_notification(state, "EnterActive", 0)?;
@@ -1403,6 +1405,7 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerShutdownRequested {
                     if self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Dead.as_str_name())
+                        && self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
                     {
                         // Peer DPU planned shutdown and already dead — enter standalone
                         self.send_self_notification(state, "EnterStandalone", 0)?;
@@ -1411,6 +1414,7 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Dead.as_str_name())
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
                 {
                     // Peer DPU forced shutdown — enter standalone
                     self.send_self_notification(state, "EnterStandalone", 0)?;
@@ -1717,8 +1721,9 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Active.as_str_name())
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::Active
                 {
-                    Some((HaState::Standby, "peer acked active role"))
+                    Some((HaState::Standby, "peer become active"))
                 } else {
                     None
                 }
@@ -1749,6 +1754,7 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Standby.as_str_name())
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::SwitchingToStandby
                 {
                     Some((HaState::Active, "peer acked standby role"))
                 } else if *event == HaEvent::SwitchoverFailed {
@@ -1780,8 +1786,9 @@ impl NpuHaScopeActor {
                 if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Standby.as_str_name())
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::InitializingToStandby
                 {
-                    Some((HaState::Active, "peer acked standby role"))
+                    Some((HaState::Active, "peer is ready to become standby"))
                 } else {
                     None
                 }
@@ -1796,8 +1803,9 @@ impl NpuHaScopeActor {
                 } else if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Dead.as_str_name())
+                    && self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
                 {
-                    Some((HaState::Standalone, "peer acked dead role"))
+                    Some((HaState::Standalone, "peer shutdown"))
                 } else {
                     None
                 }
