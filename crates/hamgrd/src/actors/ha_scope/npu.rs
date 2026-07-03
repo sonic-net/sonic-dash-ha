@@ -1403,14 +1403,11 @@ impl NpuHaScopeActor {
                     // Peer DPU lost
                     self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else if *event == HaEvent::PeerShutdownRequested {
-                    if self.current_npu_peer_acked_asic_ha_state(state.internal())
-                        == ha_role_to_string(HaRole::Dead.as_str_name())
-                        && self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
-                    {
-                        // Peer DPU planned shutdown and already dead — enter standalone
-                        self.send_self_notification(state, "EnterStandalone", 0)?;
-                    }
-                    // Else wait for peer to become Dead
+                    // Peer requested a planned shutdown. Enter standalone immediately so that
+                    // we ack the standalone role first. The peer (standby) will only activate
+                    // its dead role after observing our standalone ack, avoiding a window where
+                    // inline sync is unacked
+                    self.send_self_notification(state, "EnterStandalone", 0)?;
                 } else if *event == HaEvent::PeerStateChanged
                     && self.current_npu_peer_acked_asic_ha_state(state.internal())
                         == ha_role_to_string(HaRole::Dead.as_str_name())
@@ -1616,6 +1613,18 @@ impl NpuHaScopeActor {
                         None
                     }
                 }
+                HaState::Standby => {
+                    // Planned shutdown was accepted by the active peer. We must not activate the
+                    // dead role until the active peer has acked the standalone role and thus owns
+                    // all traffic. If it already has, proceed; otherwise wait for its state update.
+                    if self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Standalone.as_str_name())
+                    {
+                        Some((HaState::Destroying, "planned shutdown, peer acked standalone"))
+                    } else {
+                        None
+                    }
+                }
                 _ => Some((HaState::Destroying, "planned shutdown")),
             };
         } else if *event == HaEvent::EnterStandalone {
@@ -1742,6 +1751,18 @@ impl NpuHaScopeActor {
                     Some((HaState::SwitchingToStandalone, "local DPU failure"))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer failure while standby"))
+                } else if self
+                    .base
+                    .dash_ha_scope_config
+                    .as_ref()
+                    .map(|c| c.desired_ha_state == DesiredHaState::Dead as i32)
+                    .unwrap_or(false)
+                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
+                        == ha_role_to_string(HaRole::Standalone.as_str_name())
+                {
+                    // Planned shutdown: the active peer has acked the standalone role and now
+                    // owns all traffic, so it is safe to activate our dead role.
+                    Some((HaState::Destroying, "planned shutdown, peer acked standalone"))
                 } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
                     Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {

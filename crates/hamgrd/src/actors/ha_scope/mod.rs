@@ -1050,6 +1050,10 @@ mod test {
                 // Mock the peer's ShutdownReply with "accepted"
                 send! { key: ShutdownReply::msg_key(&peer_scope_id), data: { "response": "accepted" } },
 
+                // The standby node must NOT activate its dead role yet. It waits until the active
+                // peer acks the standalone role. Mock the active peer acking the standalone role.
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Standalone.as_str_name(), "term": "1", "vdpu_id": "", "peer_vdpu_id": "", "acked_asic_ha_state": "standalone" } },
+
                 // Expect a DPU DASH_HA_SCOPE_TABLE update (Destroying side effect)
                 recv! { key: &ha_set_id, data: {
                         "key": &ha_set_id,
@@ -1241,10 +1245,9 @@ mod test {
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaScopeActor::name(), &peer_scope_id), exclude: "timestamp" },
                 recv! { key: HaScopeActorState::msg_key(&scope_id), data: { "owner": HaOwner::Switch as i32, "new_state": HaState::SwitchingToStandalone.as_str_name(), "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id }, addr: runtime.sp(HaSetActor::name(), &ha_set_id), exclude: "timestamp" },
 
-                // The active node waits in SwitchingToStandalone until the peer's ASIC acks the dead role.
-                // Mock the peer completing its shutdown by broadcasting Dead with acked_asic_ha_state="dead".
-                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Dead.as_str_name(), "term": "1", "vdpu_id": "", "peer_vdpu_id": "", "acked_asic_ha_state": "dead" } },
-
+                // The active node acks the standalone role first, without waiting for the peer to
+                // become Dead. The peer (standby) will only activate its dead role after observing
+                // this standalone ack.
                 // EnterStandalone self-notification is then processed:
                 // Expect DPU DASH_HA_SCOPE_TABLE update with standalone role and incremented term
                 recv! { key: &ha_set_id, data: {
@@ -3244,6 +3247,10 @@ mod test {
 
                 // Mock the peer's ShutdownReply with "accepted"
                 send! { key: ShutdownReply::msg_key(&peer_scope_id), data: { "response": "accepted" } },
+
+                // The standby node must NOT activate its dead role yet. It waits until the active
+                // peer acks the standalone role. Mock the active peer acking the standalone role.
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id), data: { "timestamp": 0, "owner": 0, "new_state": HaState::Standalone.as_str_name(), "term": "1", "vdpu_id": "", "peer_vdpu_id": "", "acked_asic_ha_state": "standalone" } },
 
                 // Expect a DPU DASH_HA_SCOPE_TABLE update (Destroying side effect)
                 recv! { key: &ha_set_id, data: {
