@@ -1408,9 +1408,8 @@ impl NpuHaScopeActor {
                     // its dead role after observing our standalone ack, avoiding a window where
                     // inline sync is unacked
                     self.send_self_notification(state, "EnterStandalone", 0)?;
-                } else if *event == HaEvent::PeerStateChanged
-                    && self.current_npu_peer_acked_asic_ha_state(state.internal())
-                        == ha_role_to_string(HaRole::Dead.as_str_name())
+                } else if self.current_npu_peer_acked_asic_ha_state(state.internal())
+                    == ha_role_to_string(HaRole::Dead.as_str_name())
                     && self.current_npu_peer_ha_state(state.internal()) == HaState::Dead
                 {
                     // Peer DPU forced shutdown — enter standalone
