@@ -157,6 +157,11 @@ impl HaSetActor {
             }
         };
 
+        if kfv.operation == KeyOperation::Del {
+            debug!("Ignoring DASH_HA_SET_STATE deletion for key={}", kfv.key);
+            return None;
+        }
+
         match swss_serde::from_field_values(&kfv.field_values) {
             Ok(state) => Some((kfv.key, state)),
             Err(e) => {
