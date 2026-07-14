@@ -34,6 +34,11 @@ pub struct HaSetActor {
     bridges: Vec<ConsumerBridge>,
     bfd_session_npu_ips: HashSet<String>,
     ha_scope_states: HashMap<String, CachedHaScopeState>,
+    /// Whether this actor has programmed the DASH_HA_SET_TABLE entry into the DPU.
+    /// The HaSetActorState message (which HA scope actors depend on to drive their
+    /// state machine) is only emitted once this is true, so that a dependent HA
+    /// scope never programs DASH_HA_SCOPE_TABLE before the HA set entry exists.
+    dash_ha_set_programmed: bool,
 }
 
 impl DbBasedActor for HaSetActor {
@@ -46,6 +51,7 @@ impl DbBasedActor for HaSetActor {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
         Ok(actor)
     }
@@ -172,7 +178,7 @@ impl HaSetActor {
     }
 
     fn update_dash_ha_set_table(
-        &self,
+        &mut self,
         vdpus: &[VDpuStateExt],
         incoming: &Incoming,
         outgoing: &mut Outgoing,
@@ -189,6 +195,11 @@ impl HaSetActor {
 
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
+
+        // The DASH_HA_SET_TABLE write has now been issued to the DPU. From this point on the
+        // HaSetActorState message we emit below serves as the ack that dependent HA scope
+        // actors wait on before driving their state machine / programming DASH_HA_SCOPE_TABLE.
+        self.dash_ha_set_programmed = true;
 
         let vdpu_ids = self
             .dash_ha_set_config
@@ -215,7 +226,7 @@ impl HaSetActor {
         Ok(())
     }
 
-    fn delete_dash_ha_set_table(&self, vdpus: &[VDpuStateExt], outgoing: &mut Outgoing) -> Result<()> {
+    fn delete_dash_ha_set_table(&mut self, vdpus: &[VDpuStateExt], outgoing: &mut Outgoing) -> Result<()> {
         if !vdpus.iter().any(|vdpu_ext| vdpu_ext.vdpu.dpu.is_managed) {
             debug!("None of DPUs is managed by local HAMGRD. Skip dash_ha_set deletion");
             return Ok(());
@@ -229,6 +240,10 @@ impl HaSetActor {
 
         let msg = ActorMessage::new(self.id.clone(), &kfv)?;
         outgoing.send(outgoing.common_bridge_sp::<DashHaSetTable>(), msg);
+
+        // The DASH_HA_SET_TABLE entry is being removed; dependent HA scope actors must again
+        // wait for it to be reprogrammed before acting.
+        self.dash_ha_set_programmed = false;
 
         Ok(())
     }
@@ -883,6 +898,15 @@ impl HaSetActor {
             .ok_or_else(|| anyhow!("Entry not found for key: {}", key))?;
         let ActorRegistration { active, .. } = entry.msg.deserialize_data()?;
         if active {
+            // Only reply with the HaSetActorState ack once the DASH_HA_SET_TABLE entry has
+            // actually been programmed. A registration arriving before programming must not
+            // hand the HA scope actor an ha-set state it could act on prematurely (which would
+            // let it program DASH_HA_SCOPE_TABLE before the HA set entry exists). The HA scope
+            // will receive the state later via update_dash_ha_set_table once it is programmed.
+            if !self.dash_ha_set_programmed {
+                debug!("DASH_HA_SET_TABLE not programmed yet. Defer HaSetActorState reply to registration");
+                return Ok(());
+            }
             let Some(vdpus) = self.get_vdpus_if_ready(incoming) else {
                 return Ok(());
             };
@@ -1101,6 +1125,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states,
+            dash_ha_set_programmed: false,
         };
 
         assert_eq!(
@@ -1193,6 +1218,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1401,6 +1427,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1595,6 +1622,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1754,6 +1782,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1889,6 +1918,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -1988,6 +2018,7 @@ mod test {
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
             ha_owner: HaOwner::Dpu,
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -2097,6 +2128,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);
@@ -2223,6 +2255,7 @@ mod test {
             bridges: Vec::new(),
             bfd_session_npu_ips: HashSet::new(),
             ha_scope_states: HashMap::new(),
+            dash_ha_set_programmed: false,
         };
 
         let handle = runtime.spawn(ha_set_actor, HaSetActor::name(), &ha_set_id);

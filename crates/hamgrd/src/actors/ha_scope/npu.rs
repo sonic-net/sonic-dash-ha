@@ -1500,6 +1500,11 @@ impl NpuHaScopeActor {
         }
 
         let ha_set_id = self.base.get_haset_id().unwrap_or_default();
+        // Do not drive the state machine (which programs DASH_HA_SCOPE_TABLE, including the
+        // initial dead role) until the HA set actor has acked that DASH_HA_SET_TABLE is
+        // programmed. That ack is the HaSetActorState message: the HA set actor only emits it
+        // after it has issued the DASH_HA_SET_TABLE write, so its presence here guarantees the
+        // HA set entry is programmed before we program any dependent HA scope entry.
         let Some(_haset) = self.base.get_haset(state.incoming()) else {
             info!("HA-SET {} has not been initialized yet", &ha_set_id);
             return Ok(());
