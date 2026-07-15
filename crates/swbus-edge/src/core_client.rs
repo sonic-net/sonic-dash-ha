@@ -13,7 +13,7 @@ use tonic::metadata::MetadataValue;
 use tonic::transport::Endpoint;
 use tonic::Request;
 use tonic::Streaming;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub struct SwbusCoreClient {
     uri: String,
@@ -179,7 +179,7 @@ impl SwbusCoreClient {
 
                 // gRPC error was sent by the sender instead of a valid response message.
                 Err(e) => {
-                    error!("Failed to receive message: {}.", e);
+                    warn!("Connection receive stream closed: {}.", e);
                     return Err(SwbusError::connection(
                         SwbusErrorCode::ConnectionError,
                         io::Error::new(io::ErrorKind::ConnectionReset, e.to_string()),

@@ -104,7 +104,7 @@ where
                         Some(Err(err)) => {
                             if self.info.connection_type() != ConnectionType::Client {
                                 // we don't care CLI client disconnected
-                                error!("Failed to receive message: {}.", err);
+                                warn!("Connection receive stream closed: {}.", err);
                             }
                             return Err(SwbusError::connection(
                                 SwbusErrorCode::ConnectionError,
