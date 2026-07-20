@@ -4,6 +4,7 @@ use crate::mux::SwbusConnMode;
 use crate::mux::SwbusMultiplexer;
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use swbus_config::PeerConfig;
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +19,8 @@ enum ConnTracker {
 pub struct SwbusConnStore {
     mux: Arc<SwbusMultiplexer>,
     connections: DashMap<String, ConnTracker>,
+    // Keep peer replacement and registration atomic across concurrent connection handshakes.
+    connection_update_lock: Mutex<()>,
 }
 
 impl SwbusConnStore {
@@ -25,6 +28,7 @@ impl SwbusConnStore {
         SwbusConnStore {
             mux,
             connections: DashMap::new(),
+            connection_update_lock: Mutex::new(()),
         }
     }
 
@@ -83,9 +87,56 @@ impl SwbusConnStore {
     }
 
     pub fn conn_established(&self, conn: SwbusConn) {
+        // A single critical section prevents two reconnects from each preserving the other as stale.
+        let _guard = self.connection_update_lock.lock().unwrap();
+        self.replace_stale_server_connections(conn.info());
         self.mux.register(conn.info(), conn.new_proxy());
         self.connections
             .insert(conn.info().id().to_string(), ConnTracker::SwbusConn(conn));
+    }
+
+    /// Remove older accepted connections when the same logical peer reconnects.
+    ///
+    /// Server connection IDs contain the peer's ephemeral source port, so a reboot can create
+    /// a new ID while the old half-open connection remains routable. Match those connections by
+    /// peer service path and connection type. Client-mode connections are kept because they are
+    /// independently owned outbound paths with stable endpoint-based IDs.
+    fn replace_stale_server_connections(&self, new_conn_info: &SwbusConnInfo) {
+        if new_conn_info.mode() != SwbusConnMode::Server || new_conn_info.remote_service_path().is_none() {
+            return;
+        }
+
+        // Collect IDs first so no DashMap entry guard is held while removing connections or routes.
+        let stale_connection_ids: Vec<String> = self
+            .connections
+            .iter()
+            .filter_map(|entry| match entry.value() {
+                ConnTracker::SwbusConn(existing_conn)
+                    if existing_conn.info().id() != new_conn_info.id()
+                        && existing_conn.info().mode() == new_conn_info.mode()
+                        && existing_conn.info().connection_type() == new_conn_info.connection_type()
+                        && existing_conn.info().remote_service_path() == new_conn_info.remote_service_path() =>
+                {
+                    Some(entry.key().clone())
+                }
+                _ => None,
+            })
+            .collect();
+
+        for stale_connection_id in stale_connection_ids {
+            let Some((_, ConnTracker::SwbusConn(stale_conn))) = self.connections.remove(&stale_connection_id) else {
+                continue;
+            };
+            info!(
+                old_conn_id = stale_conn.info().id(),
+                new_conn_id = new_conn_info.id(),
+                peer = new_conn_info.remote_service_path().as_ref().unwrap().to_longest_path(),
+                "Replacing stale peer connection"
+            );
+            // Remove stale routes immediately; cancellation then lets the old worker exit cleanly.
+            self.mux.unregister(stale_conn.info());
+            stale_conn.cancel();
+        }
     }
 
     pub async fn shutdown(&self) {
@@ -112,9 +163,7 @@ impl SwbusConnStore {
 mod tests {
     use super::*;
     use swbus_config::RouteConfig;
-    use swbus_proto::swbus::ConnectionType;
-    use swbus_proto::swbus::RouteScope;
-    use swbus_proto::swbus::ServicePath;
+    use swbus_proto::swbus::*;
     use tokio::sync::mpsc;
     #[tokio::test]
     async fn test_add_peer() {
@@ -176,5 +225,58 @@ mod tests {
             .connections
             .iter()
             .any(|entry| entry.key() == conn_info.id() && matches!(entry.value(), ConnTracker::SwbusConn(_))));
+    }
+
+    #[tokio::test]
+    async fn test_conn_established_replaces_stale_server_connection() {
+        let local_sp = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
+        let remote_sp = ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap();
+        let mux = Arc::new(SwbusMultiplexer::new(vec![RouteConfig {
+            key: local_sp.clone(),
+            scope: RouteScope::InCluster,
+        }]));
+        let conn_store = SwbusConnStore::new(mux.clone());
+
+        let client_info = Arc::new(
+            SwbusConnInfo::new_client(ConnectionType::InCluster, "127.0.0.1:9000".parse().unwrap())
+                .with_remote_service_path(remote_sp.clone()),
+        );
+        let (client_tx, mut client_rx) = mpsc::channel(1);
+        conn_store.conn_established(SwbusConn::new(&client_info, client_tx));
+
+        let old_info = Arc::new(SwbusConnInfo::new_server(
+            ConnectionType::InCluster,
+            "127.0.0.1:8080".parse().unwrap(),
+            remote_sp.clone(),
+        ));
+        let (old_tx, mut old_rx) = mpsc::channel(1);
+        conn_store.conn_established(SwbusConn::new(&old_info, old_tx));
+
+        let new_info = Arc::new(SwbusConnInfo::new_server(
+            ConnectionType::InCluster,
+            "127.0.0.1:8081".parse().unwrap(),
+            remote_sp.clone(),
+        ));
+        let (new_tx, mut new_rx) = mpsc::channel(1);
+        conn_store.conn_established(SwbusConn::new(&new_info, new_tx));
+
+        assert!(!conn_store.connections.contains_key(old_info.id()));
+        assert!(conn_store.connections.contains_key(new_info.id()));
+        assert!(conn_store.connections.contains_key(client_info.id()));
+
+        let message = SwbusMessage {
+            header: Some(SwbusMessageHeader::new(local_sp, remote_sp, 1)),
+            body: Some(swbus_message::Body::PingRequest(PingRequest::new())),
+        };
+        mux.route_message(message.clone()).await.unwrap();
+
+        let mut expected = message;
+        expected.header.as_mut().unwrap().ttl -= 1;
+        assert_eq!(new_rx.recv().await.unwrap().unwrap(), expected);
+        assert!(matches!(
+            old_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected)
+        ));
+        assert!(matches!(client_rx.try_recv(), Err(mpsc::error::TryRecvError::Empty)));
     }
 }
