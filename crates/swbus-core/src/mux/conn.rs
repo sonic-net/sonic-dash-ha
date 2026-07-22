@@ -53,8 +53,14 @@ impl SwbusConn {
         SwbusConnProxy::new(self.send_queue_tx.clone())
     }
 
-    pub async fn shutdown(&self) -> Result<()> {
+    /// Signal the worker to stop without requiring an async shutdown path.
+    /// Connection replacement uses this after synchronously removing the old routes.
+    pub(crate) fn cancel(&self) {
         self.shutdown_ct.cancel();
+    }
+
+    pub async fn shutdown(&self) -> Result<()> {
+        self.cancel();
         Ok(())
     }
 }

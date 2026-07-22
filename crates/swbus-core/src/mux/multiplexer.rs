@@ -252,9 +252,8 @@ impl SwbusMultiplexer {
         }
     }
 
-    // Update route for the give service path with the new nexthop. It returns a tuple of (nh_added, route_added).
-    // if inserted is true, the nexthop is newly inserted or updated (hop count changed).
-    // if route_added is true, the route entry is newly created.
+    // Add a next hop or refresh the proxy stored for an equal next-hop identity.
+    // Returns whether a new next hop and a new route entry were added, respectively.
     #[instrument(name = "update_route", level = "info", skip(self, nexthop), fields(nh_type=?nexthop.nh_type(), hop_count=nexthop.hop_count(), conn_info=nexthop.conn_info().as_ref().map(|x| x.id()).unwrap_or(&"None".to_string())))]
     fn update_route(&self, route_key: String, nexthop: SwbusNextHop) -> (bool, bool) {
         // If route entry doesn't exist, we insert the next hop as a new one.
@@ -262,7 +261,7 @@ impl SwbusMultiplexer {
         if self.routes.get(&route_key).is_none() {
             route_added = true;
         }
-        let nh_added = self.routes.entry(route_key).or_default().insert(nexthop.clone());
+        let nh_added = self.routes.entry(route_key).or_default().replace(nexthop).is_none();
         info!("Update route entry: nh_added={nh_added}, route_added={route_added}");
         (nh_added, route_added)
     }
@@ -1446,6 +1445,40 @@ mod tests {
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(matches!(error, SwbusError::InternalError { code: _, detail: _ }));
+    }
+
+    #[tokio::test]
+    async fn test_update_route_replaces_existing_nexthop_proxy() {
+        let local_sp = ServicePath::from_string("region-a.cluster-a.10.0.0.2-dpu0").unwrap();
+        let remote_sp = ServicePath::from_string("region-a.cluster-a.10.0.0.1-dpu0").unwrap();
+        let mux = Arc::new(SwbusMultiplexer::new(vec![RouteConfig {
+            key: local_sp.clone(),
+            scope: RouteScope::InCluster,
+        }]));
+        let conn_info = Arc::new(SwbusConnInfo::new_server(
+            ConnectionType::InCluster,
+            "127.0.0.1:8080".parse().unwrap(),
+            remote_sp.clone(),
+        ));
+
+        let (old_tx, mut old_rx) = mpsc::channel(1);
+        let old_conn = SwbusConn::new(&conn_info, old_tx);
+        mux.register(old_conn.info(), old_conn.new_proxy());
+
+        let (new_tx, mut new_rx) = mpsc::channel(1);
+        let new_conn = SwbusConn::new(&conn_info, new_tx);
+        mux.register(new_conn.info(), new_conn.new_proxy());
+
+        let message = SwbusMessage {
+            header: Some(SwbusMessageHeader::new(local_sp, remote_sp, 1)),
+            body: Some(swbus_message::Body::PingRequest(PingRequest::new())),
+        };
+        mux.route_message(message.clone()).await.unwrap();
+
+        let mut expected = message;
+        expected.header.as_mut().unwrap().ttl -= 1;
+        assert_eq!(new_rx.recv().await.unwrap().unwrap(), expected);
+        assert!(matches!(old_rx.try_recv(), Err(mpsc::error::TryRecvError::Empty)));
     }
 
     #[test]
