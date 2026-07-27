@@ -1,4 +1,3 @@
-use crate::TableCache;
 use std::{future::Future, sync::Arc};
 use swbus_actor::ActorMessage;
 use swbus_edge::{
@@ -32,7 +31,6 @@ where
 {
     let swbus = SimpleSwbusEdgeClient::new(rt, addr, false, false);
     tokio::task::spawn(async move {
-        let mut table_cache = TableCache::default();
         loop {
             let Some(msg) = swbus.recv().await else {
                 // Swbus shut down, we might as well quit.
@@ -47,12 +45,8 @@ where
             let (error_code, error_message) = match ActorMessage::deserialize(&payload) {
                 Ok(actor_msg) => match actor_msg.deserialize_data::<KeyOpFieldValues>() {
                     Ok(kfv) => {
-                        if table_cache.replace_kfv(kfv.clone()) {
-                            table.apply_kfv(kfv).await;
-                            (SwbusErrorCode::Ok, String::new())
-                        } else {
-                            (SwbusErrorCode::Ok, "No change in data".to_string())
-                        }
+                        table.apply_kfv(kfv).await;
+                        (SwbusErrorCode::Ok, String::new())
                     }
                     Err(e) => (
                         SwbusErrorCode::InvalidPayload,
@@ -256,8 +250,14 @@ mod test {
         // Spawn the bridge (keeps the producer alive across consumer recreations)
         let _bridge = ProducerBridge::spawn(rt, sp("mytable-bridge"), zpst);
 
+        let kfvs = vec![KeyOpFieldValues {
+            key: random_string(),
+            operation: KeyOperation::Set,
+            field_values: random_fvs(),
+        }];
+
         // First run
-        timeout(Duration::from_secs(5), run_test_with_swbus(&swbus, zcst))
+        timeout(Duration::from_secs(5), run_test_with_swbus(&swbus, zcst, kfvs.clone()))
             .await
             .unwrap();
 
@@ -270,15 +270,18 @@ mod test {
         let mut zmqs2 = ZmqServer::new(&zmq_endpoint).unwrap();
         let zcst2 = ZmqConsumerStateTable::new(redis.db_connector(), "mytable", &mut zmqs2, None, None).unwrap();
 
-        // Second run with recreated consumer
-        timeout(Duration::from_secs(5), run_test_with_swbus(&swbus, zcst2))
+        // Replay the same data after recreating the consumer.
+        timeout(Duration::from_secs(5), run_test_with_swbus(&swbus, zcst2, kfvs))
             .await
             .unwrap();
     }
 
-    async fn run_test_with_swbus<C: ConsumerTable>(swbus: &SimpleSwbusEdgeClient, mut consumer_table: C) {
-        // Send some updates to the bridge
-        let mut kfvs = random_kfvs();
+    async fn run_test_with_swbus<C: ConsumerTable>(
+        swbus: &SimpleSwbusEdgeClient,
+        mut consumer_table: C,
+        mut kfvs: Vec<KeyOpFieldValues>,
+    ) {
+        // Send updates to the bridge
         for kfv in &kfvs {
             let msg = OutgoingMessage {
                 destination: sp("mytable-bridge"),
@@ -388,25 +391,23 @@ mod test {
         // Resend the same updates to the producer bridge
         for kfv in &kfvs {
             let msg = OutgoingMessage {
-                destination: sp("dpu-bridge"),
+                destination: sp("mytable-bridge"),
                 body: MessageBody::Request {
                     payload: encode_kfv(kfv),
                 },
             };
             swbus.send(msg).await.unwrap();
-            println!("Sent: {}", kfv.key);
         }
-        let result = timeout(Duration::from_secs(3), consumer_table.read_data()).await;
-        if result.is_ok() {
-            // If we got here, it means the bridge did not skip the updates
-            let received = consumer_table.pops().await;
-            if !received.is_empty() {
-                for kfv in received {
-                    println!("Received: {}", kfv.key);
-                }
-                panic!("Expected bridge to skip duplicate updates, but it processed them");
-            }
+
+        // The bridge must replay identical updates because the destination may
+        // have lost its state without the bridge restarting.
+        let mut replayed_kfvs = Vec::new();
+        while replayed_kfvs.len() < kfvs.len() {
+            consumer_table.read_data().await;
+            replayed_kfvs.extend(consumer_table.pops().await);
         }
+        replayed_kfvs.sort_unstable();
+        assert_eq!(kfvs, replayed_kfvs);
     }
 
     fn encode_kfv(kfv: &KeyOpFieldValues) -> Vec<u8> {
