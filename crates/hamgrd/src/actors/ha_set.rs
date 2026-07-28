@@ -600,23 +600,6 @@ impl HaSetActor {
             .cloned()
             .collect();
 
-        let active_states: Vec<&CachedHaScopeState> = available_states
-            .iter()
-            .copied()
-            .filter(|state| state.new_state == HaState::Active.as_str_name())
-            .collect();
-        if active_states.len() == 1 {
-            let primary_id = active_states[0].vdpu_id.clone();
-            let mut selected = vec![(primary_id.clone(), true)];
-            Self::add_backup_vdpu_ids(
-                &mut selected,
-                &primary_id,
-                &available_vdpu_ids,
-                &active_states[0].peer_vdpu_id,
-            );
-            return Some(selected);
-        }
-
         let standalone_states: Vec<&CachedHaScopeState> = available_states
             .iter()
             .copied()
@@ -644,6 +627,23 @@ impl HaSetActor {
             // All available vDPUs are Standalone here, and Standalone scopes have no peer,
             // so this fills in the remaining reported vDPUs as backups in config order.
             Self::add_backup_vdpu_ids(&mut selected, &primary_id, &available_vdpu_ids, "");
+            return Some(selected);
+        }
+
+        let active_states: Vec<&CachedHaScopeState> = available_states
+            .iter()
+            .copied()
+            .filter(|state| state.new_state == HaState::Active.as_str_name())
+            .collect();
+        if active_states.len() == 1 {
+            let primary_id = active_states[0].vdpu_id.clone();
+            let mut selected = vec![(primary_id.clone(), true)];
+            Self::add_backup_vdpu_ids(
+                &mut selected,
+                &primary_id,
+                &available_vdpu_ids,
+                &active_states[0].peer_vdpu_id,
+            );
             return Some(selected);
         }
 
@@ -1134,6 +1134,47 @@ mod test {
         );
     }
 
+    #[test]
+    fn ha_scope_route_selection_prefers_standalone_over_active() {
+        let (ha_set_id, ha_set_cfg) = make_dpu_scope_ha_set_config(0, 0);
+        let active_vdpu_id = ha_set_cfg.vdpu_ids[0].clone();
+        let standalone_vdpu_id = ha_set_cfg.vdpu_ids[1].clone();
+
+        let mut ha_scope_states = HashMap::new();
+        ha_scope_states.insert(
+            format!("HaScopeStateUpdate|{active_vdpu_id}:dummy"),
+            CachedHaScopeState {
+                new_state: HaState::Active.as_str_name().to_string(),
+                vdpu_id: active_vdpu_id.clone(),
+                peer_vdpu_id: standalone_vdpu_id.clone(),
+            },
+        );
+        ha_scope_states.insert(
+            format!("HaScopeStateUpdate|{standalone_vdpu_id}:dummy"),
+            CachedHaScopeState {
+                new_state: HaState::Standalone.as_str_name().to_string(),
+                vdpu_id: standalone_vdpu_id.clone(),
+                peer_vdpu_id: String::new(),
+            },
+        );
+
+        let ha_set_actor = HaSetActor {
+            id: ha_set_id,
+            dash_ha_set_config: Some(ha_set_cfg),
+            dp_channel_is_alive: Some(false),
+            ha_owner: HaOwner::Switch,
+            bridges: Vec::new(),
+            bfd_session_npu_ips: HashSet::new(),
+            ha_scope_states,
+            dash_ha_set_programmed: false,
+        };
+
+        assert_eq!(
+            ha_set_actor.select_vdpu_ids_from_ha_scope_states(),
+            Some(vec![(standalone_vdpu_id, true), (active_vdpu_id, false)])
+        );
+    }
+
     #[tokio::test]
     async fn ha_set_actor() {
         // To enable trace, set ENABLE_TRACE=1 to run test
@@ -1550,18 +1591,18 @@ mod test {
         };
         let bfd_fvs = serde_json::to_value(swss_serde::to_field_values(&bfd).unwrap()).unwrap();
 
-        // Expected VnetRoute when ha_scope state is Active (both primary and secondary)
+        // Expected VnetRoute when the peer ha_scope state is Active (both primary and secondary)
         let expected_vnet_route_active = VnetRouteTunnelTable {
             endpoint: vec![
-                vdpu0_state_obj.dpu.pa_ipv4.clone(),
                 vdpu1_state_obj.dpu.npu_ipv4.clone(),
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
             ],
             endpoint_monitor: Some(vec![
-                vdpu0_state_obj.dpu.pa_ipv4.clone(),
                 vdpu1_state_obj.dpu.pa_ipv4.clone(),
+                vdpu0_state_obj.dpu.pa_ipv4.clone(),
             ]),
             monitoring: Some("custom_bfd".into()),
-            primary: Some(vec![vdpu0_state_obj.dpu.pa_ipv4.clone()]),
+            primary: Some(vec![vdpu1_state_obj.dpu.npu_ipv4.clone()]),
             rx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             tx_monitor_timer: global_cfg.dpu_bfd_probe_interval_in_ms,
             check_directly_connected: Some(true),
@@ -1665,11 +1706,11 @@ mod test {
             recv! { key: &ha_set_id, data: {"key": "default:default:10.0.1.0", "operation": "Set", "field_values": bfd_fvs},
                     addr: crate::common_bridge_sp::<BfdSessionTable>(&runtime.get_swbus_edge()) },
 
-            // === Phase 2: ha_scope Active — triggers VnetRoute with primary + secondary ===
+                // === Phase 2: peer ha_scope Active — triggers VnetRoute with peer primary ===
 
-            send! { key: HaScopeActorState::msg_key(&scope_id),
-                    data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "timestamp": 12345i64, "term": "1", "vdpu_id": &vdpu0_id, "peer_vdpu_id": &vdpu1_id },
-                    addr: runtime.sp("ha-scope", &scope_id) },
+                send! { key: HaScopeActorState::msg_key(&peer_scope_id),
+                    data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Active.as_str_name(), "timestamp": 12345i64, "term": "1", "vdpu_id": &vdpu1_id, "peer_vdpu_id": &vdpu0_id },
+                    addr: runtime.sp("ha-scope", &peer_scope_id) },
             // Verify VnetRouteTunnelTable with both primary and secondary
             recv! { key: &ha_set_id, data: {"key": format!("{}:{}", global_cfg.dpu_vnet.as_ref().unwrap(), ip_to_string(ha_set_cfg.vip_v4.as_ref().unwrap())),
                       "operation": "Set", "field_values": expected_vnet_route_active},
@@ -1680,7 +1721,7 @@ mod test {
             recv! { key: HaSetActorState::msg_key(&ha_set_id), data: { "up": false, "ha_set": &ha_set_obj, "vdpu_ids": vec![vdpu0_id.clone(), vdpu1_id.clone()], "pinned_vdpu_bfd_probe_states": ha_set_cfg.pinned_vdpu_bfd_probe_states.clone() },
                     addr: runtime.sp("ha-scope", &scope_id) },
 
-            // === Phase 3: one ha_scope Standalone — peer kept as backup endpoint ===
+            // === Phase 3: local Standalone overrides the peer's stale Active state ===
 
             send! { key: HaScopeActorState::msg_key(&scope_id),
                     data: { "owner": HaOwner::Switch as i32, "new_state": HaState::Standalone.as_str_name(), "timestamp": 12346i64, "term": "2", "vdpu_id": &vdpu0_id, "peer_vdpu_id": "" },
