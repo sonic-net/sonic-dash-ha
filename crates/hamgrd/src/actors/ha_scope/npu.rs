@@ -24,6 +24,18 @@ fn ha_role_to_string(ha_role: &str) -> String {
     ha_role.strip_prefix("HA_ROLE_").unwrap_or(ha_role).to_lowercase()
 }
 
+pub(super) fn peer_ready_for_switching_to_standby(
+    event: &HaEvent,
+    switchover_state: Option<&str>,
+    peer_ha_state: HaState,
+    peer_acked_asic_ha_state: &str,
+) -> bool {
+    matches!(event, HaEvent::SwitchoverRequested | HaEvent::PeerStateChanged)
+        && switchover_state == Some("in_progress")
+        && peer_ha_state == HaState::SwitchingToActive
+        && peer_acked_asic_ha_state == ha_role_to_string(HaRole::SwitchingToActive.as_str_name())
+}
+
 pub struct NpuHaScopeActor {
     pub(super) base: HaScopeBase,
     /// Target state that HAmgrd should transition to upon HA events
@@ -1709,9 +1721,23 @@ impl NpuHaScopeActor {
             }
             HaState::Active => {
                 // Per HLD Section 8.2.1: The active side transitions to SwitchingToStandby
-                // only when it accepts a SwitchoverRequest from the peer (standby->SwitchingToActive).
-                if *event == HaEvent::SwitchoverRequested {
-                    Some((HaState::SwitchingToStandby, "peer requested switchover"))
+                // only after accepting the peer's SwitchoverRequest and observing that the
+                // peer DPU has entered the switching_to_active role. The request and peer
+                // state update can arrive in either order.
+                let npu_state = self.base.get_npu_ha_scope_state(state.internal());
+                let switchover_state = npu_state.as_ref().and_then(|scope| scope.switchover_state.as_deref());
+                let peer_ha_state = npu_state
+                    .as_ref()
+                    .and_then(|scope| scope.peer_ha_state.as_deref())
+                    .and_then(HaState::from_str_name)
+                    .unwrap_or(HaState::Unspecified);
+                let peer_acked_asic_ha_state = npu_state
+                    .as_ref()
+                    .and_then(|scope| scope.peer_acked_asic_ha_state.as_deref())
+                    .unwrap_or_default();
+                if peer_ready_for_switching_to_standby(event, switchover_state, peer_ha_state, peer_acked_asic_ha_state)
+                {
+                    Some((HaState::SwitchingToStandby, "peer DPU entered switching_to_active role"))
                 } else if *event == HaEvent::PeerLost {
                     Some((HaState::SwitchingToStandalone, "peer failure while active"))
                 } else if *event == HaEvent::LocalFailure {
@@ -1722,7 +1748,7 @@ impl NpuHaScopeActor {
                     Some((HaState::SwitchingToStandalone, "high inline-sync packet drops"))
                 } else if *event == HaEvent::BulkSyncFailure {
                     Some((HaState::SwitchingToStandalone, "bulk sync failure"))
-                } else if self.current_npu_peer_ha_state(state.internal()) == HaState::Dead {
+                } else if peer_ha_state == HaState::Dead {
                     Some((HaState::SwitchingToStandalone, "peer went down"))
                 } else {
                     None

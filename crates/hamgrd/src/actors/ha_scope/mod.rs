@@ -685,6 +685,39 @@ mod test {
 
     mod npu_driven {
         use super::*;
+        use crate::actors::ha_scope::{npu::peer_ready_for_switching_to_standby, HaEvent};
+
+        #[test]
+        fn active_to_switching_to_standby_waits_for_peer_dpu_role() {
+            assert!(!peer_ready_for_switching_to_standby(
+                &HaEvent::SwitchoverRequested,
+                Some("in_progress"),
+                HaState::SwitchingToActive,
+                "standby",
+            ));
+            assert!(peer_ready_for_switching_to_standby(
+                &HaEvent::PeerStateChanged,
+                Some("in_progress"),
+                HaState::SwitchingToActive,
+                "switching_to_active",
+            ));
+        }
+
+        #[test]
+        fn active_to_switching_to_standby_waits_for_accepted_request() {
+            assert!(!peer_ready_for_switching_to_standby(
+                &HaEvent::PeerStateChanged,
+                None,
+                HaState::SwitchingToActive,
+                "switching_to_active",
+            ));
+            assert!(peer_ready_for_switching_to_standby(
+                &HaEvent::SwitchoverRequested,
+                Some("in_progress"),
+                HaState::SwitchingToActive,
+                "switching_to_active",
+            ));
+        }
 
         #[tokio::test]
         async fn ha_scope_npu_launch_to_active_then_down() {
