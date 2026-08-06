@@ -319,7 +319,7 @@ mod tests {
         let message_stream = stream::iter(vec![]);
 
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,
@@ -356,7 +356,7 @@ mod tests {
         };
 
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,
@@ -383,7 +383,7 @@ mod tests {
         let message_stream = stream::iter(vec![]);
 
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap()));
 
         let conn_info = Arc::new(SwbusConnInfo::new_server(
             ConnectionType::InCluster,

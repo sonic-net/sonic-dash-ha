@@ -35,9 +35,10 @@ unused_import_braces = 'warn'
 
 [workspace.dependencies]
 # Async framework
-tokio = { version = "1.37", features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { version = "1.37", features = ["macros", "net", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = "0.1"
+tower = { version = "0.4", features = ["util"] }
 
 # Log and error handling
 tracing = { version = "0.1", features = ["log"] }
@@ -62,6 +63,7 @@ clap = { version = "4", features = ["derive", "cargo", "wrap_help", "unicode", "
 color-eyre = "0.6"
 
 # gRPC
+hyper-util = { version = "0.1", features = ["tokio"] }
 prost = "0.13"
 tonic = "0.12"
 

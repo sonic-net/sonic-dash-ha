@@ -57,6 +57,7 @@ impl SwbusServiceHost {
     pub async fn start(mut self, config: SwbusConfig) -> Result<()> {
         debug!("SwbusServiceServer starting at {}", self.swbus_server_addr);
         let addr = self.swbus_server_addr;
+        let local_addr = config.endpoint.ip();
 
         if config.routes.is_empty() {
             return Err(SwbusError::input(
@@ -80,7 +81,7 @@ impl SwbusServiceHost {
             route_announcer.run().await;
         });
 
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), local_addr));
 
         // add peers to the connection store
         for peer in config.peers {

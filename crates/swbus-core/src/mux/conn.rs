@@ -3,12 +3,15 @@ use super::SwbusConnInfo;
 use super::SwbusConnProxy;
 use super::SwbusConnWorker;
 use super::SwbusMultiplexer;
+use hyper_util::rt::TokioIo;
 use std::io;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use swbus_proto::result::*;
 use swbus_proto::swbus::swbus_service_client::SwbusServiceClient;
 use swbus_proto::swbus::*;
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
@@ -16,7 +19,25 @@ use tokio_util::sync::CancellationToken;
 use tonic::metadata::MetadataValue;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status, Streaming};
+use tower::service_fn;
 use tracing::*;
+
+async fn connect_from_local_addr(local_addr: IpAddr, remote_addr: SocketAddr) -> io::Result<TcpStream> {
+    if local_addr.is_ipv4() != remote_addr.is_ipv4() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Local address {local_addr} and remote address {remote_addr} use different IP families"),
+        ));
+    }
+
+    let socket = if local_addr.is_ipv4() {
+        TcpSocket::new_v4()?
+    } else {
+        TcpSocket::new_v6()?
+    };
+    socket.bind(SocketAddr::new(local_addr, 0))?;
+    socket.connect(remote_addr).await
+}
 
 #[derive(Debug)]
 pub struct SwbusConn {
@@ -69,13 +90,19 @@ impl SwbusConn {
 impl SwbusConn {
     pub async fn connect(
         conn_info: &SwbusConnInfo,
+        local_addr: IpAddr,
         mux: Arc<SwbusMultiplexer>,
         conn_store: Arc<SwbusConnStore>,
     ) -> Result<SwbusConn> {
         let endpoint = Endpoint::from_str(&format!("http://{}", conn_info.remote_addr()))
             .map_err(|e| SwbusError::input(SwbusErrorCode::InvalidArgs, format!("Failed to create endpoint: {e}.")))?;
 
-        let channel = match endpoint.connect().await {
+        let remote_addr = conn_info.remote_addr();
+        let connector =
+            service_fn(
+                move |_| async move { connect_from_local_addr(local_addr, remote_addr).await.map(TokioIo::new) },
+            );
+        let channel = match endpoint.connect_with_connector(connector).await {
             Ok(c) => c,
             Err(e) => {
                 debug!("Failed to connect: {}.", e);
@@ -198,6 +225,27 @@ impl SwbusConn {
     ) -> Result<()> {
         let mut conn_worker = SwbusConnWorker::new(conn_info, shutdown_ct, incoming_stream, mux, conn_store);
         conn_worker.run().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn outbound_connection_binds_to_configured_local_address() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let remote_addr = listener.local_addr().unwrap();
+        let local_addr = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 2));
+
+        let (client, accepted) = tokio::join!(connect_from_local_addr(local_addr, remote_addr), listener.accept());
+        let client = client.unwrap();
+        let (_, peer_addr) = accepted.unwrap();
+
+        assert_eq!(client.local_addr().unwrap().ip(), local_addr);
+        assert_eq!(peer_addr.ip(), local_addr);
     }
 }
 

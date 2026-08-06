@@ -2123,6 +2123,7 @@ dependencies = [
  "derivative",
  "futures-core",
  "getset",
+ "hyper-util",
  "lazy_static",
  "pretty_assertions",
  "prost",
@@ -2140,6 +2141,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tonic-build",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

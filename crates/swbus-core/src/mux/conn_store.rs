@@ -3,6 +3,7 @@ use crate::mux::SwbusConnInfo;
 use crate::mux::SwbusConnMode;
 use crate::mux::SwbusMultiplexer;
 use dashmap::DashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use swbus_config::PeerConfig;
@@ -18,15 +19,17 @@ enum ConnTracker {
 
 pub struct SwbusConnStore {
     mux: Arc<SwbusMultiplexer>,
+    local_addr: IpAddr,
     connections: DashMap<String, ConnTracker>,
     // Keep peer replacement and registration atomic across concurrent connection handshakes.
     connection_update_lock: Mutex<()>,
 }
 
 impl SwbusConnStore {
-    pub fn new(mux: Arc<SwbusMultiplexer>) -> Self {
+    pub fn new(mux: Arc<SwbusMultiplexer>, local_addr: IpAddr) -> Self {
         SwbusConnStore {
             mux,
+            local_addr,
             connections: DashMap::new(),
             connection_update_lock: Mutex::new(()),
         }
@@ -46,13 +49,15 @@ impl SwbusConnStore {
         let token = CancellationToken::new();
         let child_token = token.clone();
         let conn_info_clone = conn_info.clone();
+        let local_addr = self.local_addr;
         tokio::spawn(
             async move {
                 loop {
                     if child_token.is_cancelled() {
                         return;
                     }
-                    match SwbusConn::connect(&conn_info_clone, mux_clone.clone(), conn_store.clone()).await {
+                    match SwbusConn::connect(&conn_info_clone, local_addr, mux_clone.clone(), conn_store.clone()).await
+                    {
                         Ok(conn) => {
                             info!("Successfully connect to the peer");
                             // register the new connection and update the route table
@@ -177,7 +182,7 @@ mod tests {
         };
 
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap()));
 
         conn_store.add_peer(peer_config);
 
@@ -193,7 +198,7 @@ mod tests {
             scope: RouteScope::InCluster,
         };
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap()));
 
         let conn_info = SwbusConnInfo::new_client(ConnectionType::InCluster, "127.0.0.1:8080".parse().unwrap());
         conn_store.conn_lost(&conn_info);
@@ -211,7 +216,7 @@ mod tests {
         };
 
         let mux = Arc::new(SwbusMultiplexer::new(vec![route_config]));
-        let conn_store = Arc::new(SwbusConnStore::new(mux.clone()));
+        let conn_store = Arc::new(SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap()));
 
         let mut conn_info = SwbusConnInfo::new_client(ConnectionType::InCluster, "127.0.0.1:8080".parse().unwrap());
         conn_info =
@@ -235,7 +240,7 @@ mod tests {
             key: local_sp.clone(),
             scope: RouteScope::InCluster,
         }]));
-        let conn_store = SwbusConnStore::new(mux.clone());
+        let conn_store = SwbusConnStore::new(mux.clone(), "127.0.0.1".parse().unwrap());
 
         let client_info = Arc::new(
             SwbusConnInfo::new_client(ConnectionType::InCluster, "127.0.0.1:9000".parse().unwrap())
