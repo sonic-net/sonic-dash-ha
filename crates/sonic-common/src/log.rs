@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use swss_common::{link_to_swsscommon_logger, LoggerConfigChangeHandler};
 
 use lazy_static::lazy_static;
+use std::io::Write;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 use tracing::info;
 use tracing_error::ErrorLayer;
@@ -144,6 +146,43 @@ pub fn init(program_name: &'static str, link_swsscommon_logger: bool, file_log: 
     Ok(())
 }
 
+/// Wraps the rotating writer so a rotation panic can't unwind through the shared `tracing`
+/// writer `Mutex` (which would poison it and crash-loop logging). The panic can leave the
+/// writer's rotation state out of sync with disk, so `rebuild` re-creates it to re-sync.
+struct PanicSafeWriter<W: Write, F: FnMut() -> W> {
+    writer: W,
+    rebuild: F,
+}
+
+impl<W: Write, F: FnMut() -> W> PanicSafeWriter<W, F> {
+    fn new(mut rebuild: F) -> Self {
+        let writer = rebuild();
+        Self { writer, rebuild }
+    }
+}
+
+impl<W: Write, F: FnMut() -> W> Write for PanicSafeWriter<W, F> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match catch_unwind(AssertUnwindSafe(|| self.writer.write(buf))) {
+            Ok(res) => res,
+            Err(_) => {
+                self.writer = (self.rebuild)();
+                Ok(buf.len())
+            }
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match catch_unwind(AssertUnwindSafe(|| self.writer.flush())) {
+            Ok(res) => res,
+            Err(_) => {
+                self.writer = (self.rebuild)();
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Creates an optional independent file logging layer.
 /// When `file_log` is `Some`, returns a boxed layer that writes log records whose target starts
 /// with any of the configured prefixes to a size-rotated file (like syslog: file, file.1, file.2, etc.).
@@ -162,15 +201,21 @@ fn new_independent_file_layer(
         std::fs::create_dir_all(parent).wrap_err(format!("Unable to create log directory: {:?}", parent))?;
     }
 
-    let file_rotate = FileRotate::new(
-        log_path,
-        AppendCount::new(config.max_file_count),
-        ContentLimit::Bytes(config.max_file_size_bytes),
-        Compression::OnRotate(2),
-        #[cfg(unix)]
-        None,
-    );
-    let file_rotate = Mutex::new(file_rotate);
+    // Factory used by PanicSafeWriter to rebuild (and re-scan/re-sync) the writer after a panic.
+    let log_file_path = config.log_file_path.clone();
+    let max_file_count = config.max_file_count;
+    let max_file_size_bytes = config.max_file_size_bytes;
+    let build_file_rotate = move || {
+        FileRotate::new(
+            Path::new(&log_file_path),
+            AppendCount::new(max_file_count),
+            ContentLimit::Bytes(max_file_size_bytes),
+            Compression::OnRotate(2),
+            #[cfg(unix)]
+            None,
+        )
+    };
+    let file_rotate = Mutex::new(PanicSafeWriter::new(build_file_rotate));
 
     let targets = config.targets;
     let mut target_filter = filter::Targets::new();
@@ -272,10 +317,95 @@ pub fn init_logger_for_test() {
         .with(stderr_layer)
         .init();
 }
+#[cfg(test)]
 mod test {
+    use std::io::{self, Write};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    };
+
+    struct TestWriter {
+        panic_on_write: bool,
+        panic_on_flush: bool,
+        writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        flush_count: Arc<AtomicUsize>,
+    }
+
+    impl Write for TestWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.panic_on_write {
+                panic!("write failed");
+            }
+            self.writes.lock().unwrap().push(buf.to_vec());
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            if self.panic_on_flush {
+                panic!("flush failed");
+            }
+            self.flush_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
     #[test]
     fn log_can_be_initialized() {
         let result = super::init("test", true, None);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn panic_safe_writer_recovers_from_write_panic() {
+        let build_count = Arc::new(AtomicUsize::new(0));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let flush_count = Arc::new(AtomicUsize::new(0));
+        let build_count_for_factory = Arc::clone(&build_count);
+        let writes_for_factory = Arc::clone(&writes);
+        let flush_count_for_factory = Arc::clone(&flush_count);
+
+        let writer = Mutex::new(super::PanicSafeWriter::new(move || {
+            let generation = build_count_for_factory.fetch_add(1, Ordering::SeqCst);
+            TestWriter {
+                panic_on_write: generation == 0,
+                panic_on_flush: false,
+                writes: Arc::clone(&writes_for_factory),
+                flush_count: Arc::clone(&flush_count_for_factory),
+            }
+        }));
+
+        let dropped = b"dropped";
+        assert_eq!(writer.lock().unwrap().write(dropped).unwrap(), dropped.len());
+        writer.lock().unwrap().write_all(b"written").unwrap();
+
+        assert_eq!(build_count.load(Ordering::SeqCst), 2);
+        assert_eq!(*writes.lock().unwrap(), vec![b"written".to_vec()]);
+    }
+
+    #[test]
+    fn panic_safe_writer_recovers_from_flush_panic() {
+        let build_count = Arc::new(AtomicUsize::new(0));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let flush_count = Arc::new(AtomicUsize::new(0));
+        let build_count_for_factory = Arc::clone(&build_count);
+        let writes_for_factory = Arc::clone(&writes);
+        let flush_count_for_factory = Arc::clone(&flush_count);
+
+        let writer = Mutex::new(super::PanicSafeWriter::new(move || {
+            let generation = build_count_for_factory.fetch_add(1, Ordering::SeqCst);
+            TestWriter {
+                panic_on_write: false,
+                panic_on_flush: generation == 0,
+                writes: Arc::clone(&writes_for_factory),
+                flush_count: Arc::clone(&flush_count_for_factory),
+            }
+        }));
+
+        writer.lock().unwrap().flush().unwrap();
+        writer.lock().unwrap().flush().unwrap();
+
+        assert_eq!(build_count.load(Ordering::SeqCst), 2);
+        assert_eq!(flush_count.load(Ordering::SeqCst), 1);
     }
 }
