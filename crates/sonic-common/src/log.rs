@@ -154,10 +154,24 @@ struct PanicSafeWriter<W: Write, F: FnMut() -> W> {
     rebuild: F,
 }
 
+const WRITER_RECOVERY_WARNING: &[u8] =
+    b"WARNING: the previous log record may have been duplicated or lost while recovering from a log writer panic\n";
+
 impl<W: Write, F: FnMut() -> W> PanicSafeWriter<W, F> {
     fn new(mut rebuild: F) -> Self {
         let writer = rebuild();
         Self { writer, rebuild }
+    }
+
+    fn rebuild_writer(&mut self) {
+        self.writer = (self.rebuild)();
+    }
+
+    fn write_recovery_warning(&mut self) {
+        let result = catch_unwind(AssertUnwindSafe(|| self.writer.write_all(WRITER_RECOVERY_WARNING)));
+        if !matches!(result, Ok(Ok(()))) {
+            self.rebuild_writer();
+        }
     }
 }
 
@@ -166,7 +180,12 @@ impl<W: Write, F: FnMut() -> W> Write for PanicSafeWriter<W, F> {
         match catch_unwind(AssertUnwindSafe(|| self.writer.write(buf))) {
             Ok(res) => res,
             Err(_) => {
-                self.writer = (self.rebuild)();
+                self.rebuild_writer();
+                let retry = catch_unwind(AssertUnwindSafe(|| self.writer.write_all(buf)));
+                if !matches!(retry, Ok(Ok(()))) {
+                    self.rebuild_writer();
+                }
+                self.write_recovery_warning();
                 Ok(buf.len())
             }
         }
@@ -176,7 +195,8 @@ impl<W: Write, F: FnMut() -> W> Write for PanicSafeWriter<W, F> {
         match catch_unwind(AssertUnwindSafe(|| self.writer.flush())) {
             Ok(res) => res,
             Err(_) => {
-                self.writer = (self.rebuild)();
+                self.rebuild_writer();
+                self.write_recovery_warning();
                 Ok(())
             }
         }
@@ -334,10 +354,10 @@ mod test {
 
     impl Write for TestWriter {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes.lock().unwrap().push(buf.to_vec());
             if self.panic_on_write {
                 panic!("write failed");
             }
-            self.writes.lock().unwrap().push(buf.to_vec());
             Ok(buf.len())
         }
 
@@ -357,7 +377,7 @@ mod test {
     }
 
     #[test]
-    fn panic_safe_writer_recovers_from_write_panic() {
+    fn panic_safe_writer_retries_once_after_write_panic() {
         let build_count = Arc::new(AtomicUsize::new(0));
         let writes = Arc::new(Mutex::new(Vec::new()));
         let flush_count = Arc::new(AtomicUsize::new(0));
@@ -375,12 +395,55 @@ mod test {
             }
         }));
 
-        let dropped = b"dropped";
-        assert_eq!(writer.lock().unwrap().write(dropped).unwrap(), dropped.len());
+        let partial = b"partially written";
+        assert_eq!(writer.lock().unwrap().write(partial).unwrap(), partial.len());
         writer.lock().unwrap().write_all(b"written").unwrap();
 
         assert_eq!(build_count.load(Ordering::SeqCst), 2);
-        assert_eq!(*writes.lock().unwrap(), vec![b"written".to_vec()]);
+        assert_eq!(
+            *writes.lock().unwrap(),
+            vec![
+                partial.to_vec(),
+                partial.to_vec(),
+                super::WRITER_RECOVERY_WARNING.to_vec(),
+                b"written".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn panic_safe_writer_recovers_when_write_retry_panics() {
+        let build_count = Arc::new(AtomicUsize::new(0));
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let flush_count = Arc::new(AtomicUsize::new(0));
+        let build_count_for_factory = Arc::clone(&build_count);
+        let writes_for_factory = Arc::clone(&writes);
+        let flush_count_for_factory = Arc::clone(&flush_count);
+
+        let writer = Mutex::new(super::PanicSafeWriter::new(move || {
+            let generation = build_count_for_factory.fetch_add(1, Ordering::SeqCst);
+            TestWriter {
+                panic_on_write: generation < 2,
+                panic_on_flush: false,
+                writes: Arc::clone(&writes_for_factory),
+                flush_count: Arc::clone(&flush_count_for_factory),
+            }
+        }));
+
+        let partial = b"partially written";
+        assert_eq!(writer.lock().unwrap().write(partial).unwrap(), partial.len());
+        writer.lock().unwrap().write_all(b"written").unwrap();
+
+        assert_eq!(build_count.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            *writes.lock().unwrap(),
+            vec![
+                partial.to_vec(),
+                partial.to_vec(),
+                super::WRITER_RECOVERY_WARNING.to_vec(),
+                b"written".to_vec(),
+            ]
+        );
     }
 
     #[test]
@@ -407,5 +470,6 @@ mod test {
 
         assert_eq!(build_count.load(Ordering::SeqCst), 2);
         assert_eq!(flush_count.load(Ordering::SeqCst), 1);
+        assert_eq!(*writes.lock().unwrap(), vec![super::WRITER_RECOVERY_WARNING.to_vec()]);
     }
 }
