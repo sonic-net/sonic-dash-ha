@@ -1,0 +1,81 @@
+load("@rules_distroless//distroless:defs.bzl", "flatten")
+load("@rules_python//python:defs.bzl", "py_binary")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "run_test_fixture.py",
+    "package_test.py",
+])
+
+# Test tools are separate from the installed HA payload. Common's original
+# helper starts and kills its own private Redis server with its original TTL.
+flatten(
+    name = "test_runtime",
+    testonly = True,
+    deduplicate = True,
+    tars = [
+        "@sonic_swss_common//tools/bazel/runtime:test_runtime",
+        "@sonic_swss_common//common:lua_runtime",
+        "@trixie//redis-server",
+        "@trixie//coreutils",
+        "@trixie//procps",
+    ],
+)
+
+# Installed package acceptance adds source Common and debugger tools privately.
+flatten(
+    name = "installed_runtime",
+    testonly = True,
+    deduplicate = True,
+    tars = [
+        ":test_runtime",
+        "@sonic_swss_common//dist:libswsscommon_pkg",
+        "@trixie//binutils",
+        "@trixie//gdb",
+    ],
+)
+
+sh_test(
+    name = "installed_package_test",
+    timeout = "long",
+    srcs = ["@sonic_swss_common//tools/bazel/runtime:run_with_runtime.py"],
+    args = [
+        "$(location @patchelf//:patchelf)",
+        "$(location :installed_runtime)",
+        "-",
+        "enabled",
+        "$(location :package_test.py)",
+        "--runtime-tar",
+        "$(location //:dash_ha_pkg)",
+        "--debug-tar",
+        "$(location //:dash_ha_pkg.debug_symbols)",
+        "--script",
+        "$(location //:scripts/wait_for_loopback.py)",
+    ],
+    data = [
+        ":installed_runtime",
+        ":package_test.py",
+        "//:dash_ha_pkg",
+        "//:dash_ha_pkg.debug_symbols",
+        "//:scripts/wait_for_loopback.py",
+        "@patchelf",
+    ],
+    tags = ["exclusive"],
+)
+
+# Supply the original Common tests' declared libraries through --run_under;
+# their private target visibility and reusable library interfaces stay intact.
+py_binary(
+    name = "common_test_runner",
+    testonly = True,
+    srcs = ["common_test_runner.py"],
+    data = [
+        ":test_runtime",
+        "@patchelf",
+        "@sonic_swss_common//tools/bazel/runtime:run_with_runtime.py",
+    ],
+    main = "common_test_runner.py",
+    deps = ["@rules_python//python/runfiles"],
+)

@@ -6,3 +6,9 @@
 # Build related files
 target/
 *.log
+# Bazel output and generated resolution evidence.
+/bazel-*
+/MODULE.bazel.lock
+/Cargo.Bazel.lock
+/.bazelrc.user
+/artifacts/
