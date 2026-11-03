@@ -2199,7 +2199,7 @@ dependencies = [
 [[package]]
 name = "swss-common"
 version = "0.1.0"
-source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#e67092c38fea4d487f856202a4e8e7521e1207fc"
+source = "git+https://github.com/securely1g/sonic-swss-common.git?rev=43598143ef4a46431eae0859915cd7d951dad1ed#43598143ef4a46431eae0859915cd7d951dad1ed"
 dependencies = [
  "bindgen",
  "getset",
@@ -2234,7 +2234,7 @@ dependencies = [
 [[package]]
 name = "swss-common-testing"
 version = "0.1.0"
-source = "git+https://github.com/sonic-net/sonic-swss-common.git?branch=master#e67092c38fea4d487f856202a4e8e7521e1207fc"
+source = "git+https://github.com/securely1g/sonic-swss-common.git?rev=43598143ef4a46431eae0859915cd7d951dad1ed#43598143ef4a46431eae0859915cd7d951dad1ed"
 dependencies = [
  "lazy_static",
  "rand",

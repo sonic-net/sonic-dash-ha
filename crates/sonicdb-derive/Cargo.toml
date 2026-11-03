@@ -12,6 +12,9 @@ edition.workspace = true
 syn = "2.0"         # For parsing Rust code
 quote = "1.0"       # For generating Rust code
 proc-macro2 = "1.0" # For working with procedural macros
+# These crates are referenced by emitted tokens, not by the macro process.
+# The integration test compiles those tokens against the real owner interfaces.
+[dev-dependencies]
 swss-common.workspace = true
 sonic-common.workspace = true
 

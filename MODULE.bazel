@@ -1,0 +1,88 @@
+module(
+    name = "sonic-dash-ha",
+    version = "0.0.1",
+    bazel_compatibility = [
+        ">=8.5.1",
+        "<=8.5.1",
+    ],
+)
+
+bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3", dev_dependency = True)
+
+bazel_dep(name = "rules_rs", version = "0.1.0")
+bazel_dep(name = "rules_cc", version = "0.2.22")
+bazel_dep(name = "rules_python", version = "1.8.0")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "rules_distroless", version = "0.9.4.sonic.15")
+bazel_dep(name = "platforms", version = "1.1.0")
+bazel_dep(name = "tar.bzl", version = "0.10.5-sonic.1")
+bazel_dep(name = "protobuf-legacy", version = "3.21.12-sonic.1", repo_name = "protobuf_legacy")
+bazel_dep(name = "sonic-rust-deps", version = "0.0.5-c53741eb56e55e4f1c9b48c577ed5de986e62192", repo_name = "sonic_rust_deps")
+bazel_dep(name = "sonic-swss-common", version = "0.0.8-43598143ef4a46431eae0859915cd7d951dad1ed", repo_name = "sonic_swss_common")
+bazel_dep(name = "sonic-dash-api", version = "0.0.5-fd8eab1b90a6f67124996d24417cff5d4d849edd", repo_name = "sonic_dash_api")
+bazel_dep(name = "sonic-build-infra", version = "0.0.26-51c838da6ff57295fde6e0bc3807841cb31a8568", repo_name = "sonic_build_infra")
+
+# Select one coherent native tooling candidate during the review stack.
+single_version_override(
+    module_name = "sonic-build-infra",
+    version = "0.0.26-51c838da6ff57295fde6e0bc3807841cb31a8568",
+)
+
+single_version_override(
+    module_name = "tar.bzl",
+    version = "0.10.5-sonic.1",
+)
+
+single_version_override(
+    module_name = "rules_go",
+    version = "0.64.1-sonic.1",
+)
+
+gcc = use_extension("@sonic_build_infra//toolchains/gcc:extensions.bzl", "gcc")
+use_repo(gcc, "gcc_toolchains")
+
+register_toolchains("@gcc_toolchains//:all")
+
+# The shared owner reads canonical Cargo inputs directly with rules_rs.
+rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
+use_repo(rules_rust, "rules_rust")
+
+rust = use_extension("@rules_rs//rs:rules_rust_reexported_extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2021",
+    versions = ["1.90.0"],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+bindgen = use_extension("@rules_rs//rs:rules_rust_bindgen.bzl", "rules_rust_bindgen")
+use_repo(bindgen, "rules_rust_bindgen")
+
+register_toolchains("@rules_rust_bindgen//:all")
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(python_version = "3.13")
+use_repo(python, "python_3_13")
+
+register_toolchains("@python_3_13//:all")
+
+bazel_dep(name = "patchelf", version = "0.18.0.bcr.1")
+
+apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")
+apt.install(
+    dependency_set = "trixie",
+    packages = [
+        "binutils",
+        "coreutils",
+        "gdb",
+        "procps",
+        "redis-server",
+    ],
+    suites = [
+        "trixie",
+        "trixie-updates",
+        "trixie-security",
+    ],
+)
+use_repo(apt, "trixie")
