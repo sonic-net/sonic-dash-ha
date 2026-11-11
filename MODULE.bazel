@@ -17,12 +17,12 @@ bazel_dep(name = "rules_distroless", version = "0.9.4.sonic.15")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "tar.bzl", version = "0.10.5-sonic.1")
 bazel_dep(name = "protobuf-legacy", version = "3.21.12-sonic.1", repo_name = "protobuf_legacy")
-bazel_dep(name = "sonic-rust-deps", version = "0.0.5-c53741eb56e55e4f1c9b48c577ed5de986e62192", repo_name = "sonic_rust_deps")
-bazel_dep(name = "sonic-swss-common", version = "0.0.8-43598143ef4a46431eae0859915cd7d951dad1ed", repo_name = "sonic_swss_common")
-bazel_dep(name = "sonic-dash-api", version = "0.0.5-fd8eab1b90a6f67124996d24417cff5d4d849edd", repo_name = "sonic_dash_api")
+bazel_dep(name = "sonic-rust-deps", version = "0.0.5-dd364f207d7b320a5af12c81da6d10893f292205", repo_name = "sonic_rust_deps")
+bazel_dep(name = "sonic-swss-common", version = "0.0.9-334389eae54afd1f4f5ee69f89c3a7ad2062ee61", repo_name = "sonic_swss_common")
+bazel_dep(name = "sonic-dash-api", version = "0.0.5-9b2893e890734a2db0c53a5e5c64b031ec0dcfbd", repo_name = "sonic_dash_api")
 bazel_dep(name = "sonic-build-infra", version = "0.0.26-51c838da6ff57295fde6e0bc3807841cb31a8568", repo_name = "sonic_build_infra")
 
-# Select one coherent native tooling candidate during the review stack.
+# Keep the native tooling version used by this source package.
 single_version_override(
     module_name = "sonic-build-infra",
     version = "0.0.26-51c838da6ff57295fde6e0bc3807841cb31a8568",
