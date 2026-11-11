@@ -8,8 +8,10 @@ Docker integration is a separate consumer; these targets do not produce DEBs.
 
 ## Build and test
 
-Use Bazel 8.5.1 on native Linux AMD64. GCC, Rust 1.90.0, Protobuf, Common's
-native/Rust libraries, and the runtime test tools are declared dependencies.
+Use Bazel 8.5.1 on native Debian Trixie AMD64. The target and host platform
+settings both select Trixie for the native dependency graph. GCC, Rust 1.90.0,
+Protobuf, Common's native/Rust libraries, and the runtime test tools are declared
+dependencies.
 
 ```sh
 bazel build --config=release //:dash_ha_pkg //:dash_ha_pkg.debug_symbols //:runtime_packages.json
@@ -17,18 +19,18 @@ bazel test --config=release //crates/... //bazel:installed_package_test
 bazel build --config=release //crates/container:container
 ```
 
-The normal registry configuration is maintained SONiC `main` plus BCR. While
-this migration's dependency PRs are under review, reproduce CI's immutable
-catalog through the source driver:
+The normal registry configuration is maintained SONiC `main` plus BCR.
+Reproduce CI with the published catalog containing the merged shared Rust
+dependencies through the source driver:
 
 ```sh
-SONIC_BAZEL_REGISTRY_REVISION=835371b997089a604befa58be78689e5182e131e python3 bazel/ci.py
+SONIC_BAZEL_REGISTRY_REVISION=25a8d5c4a12ffcc6df13941e6cf4a066685d955a python3 bazel/ci.py
 ```
 
 The driver requires a clean checkout, uses one SONiC catalog plus BCR, and
 retains the resolved inputs, configured no-DEB graph, packages, and test
-results under `artifacts/`. Review catalog selection is temporary; the source
-module and default registry configuration remain ordinary Bzlmod inputs.
+results under `artifacts/`. The pinned catalog and source
+module use published Bzlmod inputs; the default registry follows maintained main.
 Generated `MODULE.bazel.lock` files are evidence and remain untracked.
 `Cargo.lock` is the canonical Cargo lock. Repeated local runs reuse Bazel's
 output tree. Optional shared local caches belong in ignored `.bazelrc.user`:
