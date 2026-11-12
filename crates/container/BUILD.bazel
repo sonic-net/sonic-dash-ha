@@ -1,0 +1,59 @@
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:runtime.bzl", "ha_rust_test")
+load("//bazel:rust.bzl", "RUST_FLAGS")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+_CARGO_ENV = {
+    "CARGO_PKG_AUTHORS": "SONiC",
+    "CARGO_PKG_DESCRIPTION": "",
+    "CARGO_PKG_HOMEPAGE": "",
+    "CARGO_PKG_NAME": "container",
+    "CARGO_PKG_REPOSITORY": "https://github.com/sonic/sonic-dash-ha",
+}
+
+rust_binary(
+    name = "container",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "container",
+    crate_root = "src/main.rs",
+    edition = "2021",
+    experimental_use_cc_common_link = 1,
+    rustc_env = _CARGO_ENV,
+    rustc_flags = RUST_FLAGS,
+    version = "0.1.0",
+    deps = [
+        "@sonic_rust_deps//:bollard",
+        "@sonic_rust_deps//:chrono",
+        "@sonic_rust_deps//:clap",
+        "@sonic_rust_deps//:enumset",
+        "@sonic_rust_deps//:futures-util",
+        "@sonic_rust_deps//:serde_json",
+        "@sonic_rust_deps//:thiserror",
+        "@sonic_rust_deps//:tokio",
+        "@sonic_swss_common//crates/swss-common:swss_common_async",
+    ],
+)
+
+# Preserve the original crate unit tests; installed runners supply native
+# runtime libraries and private Redis/fixture working directories.
+rust_test(
+    name = "unit_test_binary",
+    crate = ":container",
+    experimental_use_cc_common_link = 1,
+    tags = ["manual"],
+    deps = [
+    ],
+)
+
+ha_rust_test(
+    name = "unit_test",
+    binary = ":unit_test_binary",
+    fixtures = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+)

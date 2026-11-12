@@ -1,0 +1,63 @@
+name: Bazel source TARs
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bazel-source-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: AMD64 source packages and original tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: debian:trixie-20260918@sha256:9cc080028c43b27d2074d63a5f9caf7166d731494965616c1a6d2827a004585c
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install the native build launcher
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates curl git patch python3 tar unzip xz-utils zip
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify the host and install Bazel
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == x86_64 ]]
+          [[ "$(dpkg --print-architecture)" == amd64 ]]
+          . /etc/os-release
+          [[ "$ID" == debian && "$VERSION_CODENAME" == trixie ]]
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          curl --fail --location --retry 3 --output /tmp/bazel https://releases.bazel.build/8.5.1/release/bazel-8.5.1-linux-x86_64
+          printf '%s  %s\n' 61d89402f0368e64b6c827be5de79d8e65382e8124c3cbb97325611a1851392e /tmp/bazel | sha256sum --check --strict
+          install -m 0755 /tmp/bazel /usr/local/bin/bazel
+      - name: Fetch the shared source downloader configuration
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/source_mirrors.cfg" https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/183f87dac018d365d4bd0bbcdcbad52993f681ab/ci/source_mirrors.cfg
+          printf '%s  %s\n' 2e01494e18c47475b29309b9f6ac1506665b3331498996d24f69d6dfc77eacc8 "$RUNNER_TEMP/source_mirrors.cfg" | sha256sum --check --strict
+          printf 'BAZEL_DOWNLOADER_CONFIG=%s\n' "$RUNNER_TEMP/source_mirrors.cfg" >> "$GITHUB_ENV"
+      - name: Build source TARs and validate the installed programs
+        run: python3 bazel/ci.py
+      - name: Retain source packages and test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dash-ha-amd64-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
