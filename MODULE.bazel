@@ -10,32 +10,37 @@ module(
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3", dev_dependency = True)
 
 bazel_dep(name = "rules_rs", version = "0.1.0")
-bazel_dep(name = "rules_cc", version = "0.2.22")
-bazel_dep(name = "rules_python", version = "1.8.0")
+bazel_dep(name = "rules_cc", version = "0.2.20")
+bazel_dep(name = "rules_python", version = "1.9.0.sonic.1")
 bazel_dep(name = "rules_shell", version = "0.6.1")
-bazel_dep(name = "rules_distroless", version = "0.9.4.sonic.15")
+bazel_dep(name = "rules_distroless", version = "0.9.4.sonic.18")
 bazel_dep(name = "platforms", version = "1.1.0")
-bazel_dep(name = "tar.bzl", version = "0.10.5-sonic.1")
-bazel_dep(name = "protobuf-legacy", version = "3.21.12-sonic.1", repo_name = "protobuf_legacy")
+bazel_dep(name = "tar.bzl", version = "0.10.5.sonic.2")
+bazel_dep(name = "protobuf-legacy", version = "3.21.12.sonic.2", repo_name = "protobuf_legacy")
 bazel_dep(name = "sonic-rust-deps", version = "0.0.5-dd364f207d7b320a5af12c81da6d10893f292205", repo_name = "sonic_rust_deps")
 bazel_dep(name = "sonic-swss-common", version = "0.0.9-334389eae54afd1f4f5ee69f89c3a7ad2062ee61", repo_name = "sonic_swss_common")
 bazel_dep(name = "sonic-dash-api", version = "0.0.5-9b2893e890734a2db0c53a5e5c64b031ec0dcfbd", repo_name = "sonic_dash_api")
-bazel_dep(name = "sonic-build-infra", version = "0.0.26-51c838da6ff57295fde6e0bc3807841cb31a8568", repo_name = "sonic_build_infra")
+bazel_dep(name = "sonic-build-infra", version = "0.0.33-0d2435b572eca4a6f1db6e003b04956c09fb1a39", repo_name = "sonic_build_infra")
 
-# Keep the native tooling version used by this source package.
+# Align the shared native toolchain with the maintained infrastructure source.
 single_version_override(
     module_name = "sonic-build-infra",
-    version = "0.0.26-51c838da6ff57295fde6e0bc3807841cb31a8568",
+    version = "0.0.33-0d2435b572eca4a6f1db6e003b04956c09fb1a39",
 )
 
 single_version_override(
     module_name = "tar.bzl",
-    version = "0.10.5-sonic.1",
+    version = "0.10.5.sonic.2",
+)
+
+single_version_override(
+    module_name = "rules_cc",
+    version = "0.2.20",
 )
 
 single_version_override(
     module_name = "rules_go",
-    version = "0.64.1-sonic.1",
+    version = "0.64.1",
 )
 
 gcc = use_extension("@sonic_build_infra//toolchains/gcc:extensions.bzl", "gcc")
@@ -70,19 +75,10 @@ register_toolchains("@python_3_13//:all")
 bazel_dep(name = "patchelf", version = "0.18.0.bcr.1")
 
 apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")
-apt.install(
-    dependency_set = "trixie",
-    packages = [
-        "binutils",
-        "coreutils",
-        "gdb",
-        "procps",
-        "redis-server",
-    ],
-    suites = [
-        "trixie",
-        "trixie-updates",
-        "trixie-security",
-    ],
+apt.import_lock(
+    dependency_sets = ["trixie"],
+    lock = "@sonic_build_infra//apt:apt.lock.json",
+    requests = "@sonic_build_infra//apt:requests.json",
+    sources = "@sonic_build_infra//apt:sources.json",
 )
 use_repo(apt, "trixie")

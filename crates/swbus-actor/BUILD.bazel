@@ -1,5 +1,6 @@
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:rust_doc_test.bzl", "rust_doc_test")
 load("//bazel:runtime.bzl", "ha_rust_test")
 load("//bazel:rust.bzl", "RUST_FLAGS")
 
@@ -35,6 +36,12 @@ rust_library(
         "@sonic_rust_deps//:tracing",
         "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
+)
+
+# Run the original compile_fail and no_run examples through rustdoc itself.
+rust_doc_test(
+    name = "doc_test",
+    crate = ":swbus_actor",
 )
 
 # Preserve the original crate unit tests; installed runners supply native
