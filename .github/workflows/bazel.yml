@@ -25,8 +25,6 @@ jobs:
         shell: bash
     env:
       DEBIAN_FRONTEND: noninteractive
-      # Pin the published catalog containing the merged shared Rust dependencies.
-      SONIC_BAZEL_REGISTRY_REVISION: 25a8d5c4a12ffcc6df13941e6cf4a066685d955a
     steps:
       - name: Install the native build launcher
         run: |
@@ -47,6 +45,12 @@ jobs:
           curl --fail --location --retry 3 --output /tmp/bazel https://releases.bazel.build/8.5.1/release/bazel-8.5.1-linux-x86_64
           printf '%s  %s\n' 61d89402f0368e64b6c827be5de79d8e65382e8124c3cbb97325611a1851392e /tmp/bazel | sha256sum --check --strict
           install -m 0755 /tmp/bazel /usr/local/bin/bazel
+      - name: Fetch the shared source downloader configuration
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/source_mirrors.cfg" https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/183f87dac018d365d4bd0bbcdcbad52993f681ab/ci/source_mirrors.cfg
+          printf '%s  %s\n' 2e01494e18c47475b29309b9f6ac1506665b3331498996d24f69d6dfc77eacc8 "$RUNNER_TEMP/source_mirrors.cfg" | sha256sum --check --strict
+          printf 'BAZEL_DOWNLOADER_CONFIG=%s\n' "$RUNNER_TEMP/source_mirrors.cfg" >> "$GITHUB_ENV"
       - name: Build source TARs and validate the installed programs
         run: python3 bazel/ci.py
       - name: Retain source packages and test evidence

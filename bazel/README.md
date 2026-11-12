@@ -20,17 +20,23 @@ bazel build --config=release //crates/container:container
 ```
 
 The normal registry configuration is maintained SONiC `main` plus BCR.
-Reproduce CI with the published catalog containing the merged shared Rust
-dependencies through the source driver:
+Run the same dev and release checks as CI:
 
 ```sh
-SONIC_BAZEL_REGISTRY_REVISION=25a8d5c4a12ffcc6df13941e6cf4a066685d955a python3 bazel/ci.py
+python3 bazel/ci.py
 ```
 
-The driver requires a clean checkout, uses one SONiC catalog plus BCR, and
-retains the resolved inputs, configured no-DEB graph, packages, and test
-results under `artifacts/`. The pinned catalog and source
-module use published Bzlmod inputs; the default registry follows maintained main.
+The driver requires a clean checkout and uses maintained SONiC `main` plus BCR.
+It retains resolved inputs, the configured no-DEB graph, matching runtime/debug
+packages, Rustdoc output, and test XML/logs separately under `artifacts/dev/`
+and `artifacts/release/`, before switching configuration. The two original
+Rustdoc examples are compiled by `//crates/swbus-actor:doc_test`.
+This preserves the dev/release selection in `make ci-test`. Cargo metadata
+reports no optional features in the current workspace members, so its
+`--all-features` option adds no workspace feature variants.
+The shared infrastructure owns the immutable APT source configuration and
+production lock; this consumer imports its existing `trixie` collection.
+The root registry configuration is retained as `root.bazelrc` for artifact upload.
 Generated `MODULE.bazel.lock` files are evidence and remain untracked.
 `Cargo.lock` is the canonical Cargo lock. Repeated local runs reuse Bazel's
 output tree. Optional shared local caches belong in ignored `.bazelrc.user`:

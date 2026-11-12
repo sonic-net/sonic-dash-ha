@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -16,30 +15,34 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ["//:dash_ha_pkg", "//:dash_ha_pkg.debug_symbols", "//:runtime_packages.json"]
 BUILD = PACKAGES + ["//crates/container:container"]
+DOC_TEST = "//crates/swbus-actor:doc_test"
 TESTS = ["//crates/...", "//bazel:installed_package_test", "@sonic_swss_common//tools/bazel/rust:testing_interface_test",
          "@sonic_swss_common//tools/bazel/rust:async_testing_interface_test", "@sonic_swss_common//crates/swss-common:swss_common_async_test"]
 
 
-def main():
-    output = ROOT / "artifacts"
-    output.mkdir(exist_ok=True)
+def profile_acceptance(profile, registry_head):
+    output = ROOT / "artifacts" / profile
+    output.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     bazel = [env.get("BAZEL", "bazel"), "--host_jvm_args=-Xmx3g"]
-    registry = env.get("SONIC_BAZEL_REGISTRY_REVISION")
-    flags = ["--config=release", "--lockfile_mode=update", "--jobs=2"]
-    if registry:
-        assert re.fullmatch(r"[0-9a-f]{40}", registry), "Review catalog must be a full commit"
-        bazel += ["--nosystem_rc", "--nohome_rc", "--noworkspace_rc", "--bazelrc=bazel/common.bazelrc"]
-        flags += ["--registry=https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/" + registry,
-                  "--registry=https://bcr.bazel.build"]
+    flags = ["--lockfile_mode=update", "--jobs=2"]
+    downloader = None
+    if env.get("BAZEL_DOWNLOADER_CONFIG"):
+        downloader_path = Path(env["BAZEL_DOWNLOADER_CONFIG"]).resolve(strict=True)
+        flags.append("--downloader_config=" + str(downloader_path))
+        retained_config = output / "downloader.cfg"
+        shutil.copyfile(downloader_path, retained_config)
+        downloader = {"path": retained_config.name,
+            "sha256": hashlib.sha256(retained_config.read_bytes()).hexdigest()}
+    flags += ["--compilation_mode=dbg"] if profile == "dev" else ["--config=release"]
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     status = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
     assert not status, "Build acceptance requires a clean source checkout: " + status
     assert not subprocess.check_output(["git", "ls-files", "MODULE.bazel.lock", "Cargo.Bazel.lock"], cwd=ROOT)
-    input_hashes = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in ("Cargo.toml", "Cargo.lock", "MODULE.bazel")}
+    input_hashes = {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in ("Cargo.toml", "Cargo.lock", "MODULE.bazel", ".bazelrc", "bazel/common.bazelrc")}
 
     def run(command, *arguments, capture=None, log_name=None, allow_failure=False):
-        command_flags = [item for item in flags if item.startswith(("--registry=", "--lockfile_mode="))] if command == "query" else flags
+        command_flags = [item for item in flags if item.startswith(("--lockfile_mode=", "--downloader_config="))] if command == "query" else flags
         argv = [*bazel, command, *command_flags, *arguments]
         if capture:
             with capture.open("w") as stream:
@@ -82,7 +85,8 @@ def main():
         selection + ' except attr("tags", "manual", ' + selection + ')', "--output=label").splitlines()}
     common_tests = {normalized(label) for label in TESTS if label.startswith("@")}
     assert {label for label in expected_tests if label.startswith("@") } == common_tests
-    assert len([label for label in expected_tests if label.startswith("//crates/")]) == 19
+    assert DOC_TEST in expected_tests
+    original_crate_tests = sorted(label for label in expected_tests if label.startswith("//crates/") and label != DOC_TEST)
     assert expected_tests - common_tests - {label for label in expected_tests if label.startswith("//crates/")} == {"//bazel:installed_package_test"}
 
     # Retain the complete configured closure. Omitting commandline serialization
@@ -105,7 +109,7 @@ def main():
     # This path-only query does not analyze or build a configured target.
     execution = Path(run("info", "--platforms=", "execution_root").strip()).resolve()
     retained = {}
-    for label in PACKAGES:
+    for label in BUILD:
         names = run("cquery", label, "--output=files").splitlines()
         assert names, label
         for name in names:
@@ -119,13 +123,18 @@ def main():
     # Retain successfully built payloads before tests, including on test failure.
     for name, digest in input_hashes.items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
-        shutil.copyfile(ROOT / name, output / name)
+        # upload-artifact excludes hidden files by default.
+        destination = output / ("root.bazelrc" if name == ".bazelrc" else name)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / name, destination)
     shutil.copyfile(ROOT / "MODULE.bazel.lock", output / "MODULE.bazel.lock")
     (output / "build-provenance.json").write_text(json.dumps({"source": head,
-        "architecture": "amd64", "configuration": "release", "review_registry": registry,
-        "source_inputs": input_hashes, "outputs": retained, "status": "built; test acceptance pending"}, indent=2) + "\n")
+        "architecture": "amd64", "configuration": profile, "registry_head": registry_head, "downloader_config": downloader,
+        "source_inputs": input_hashes, "module_lock_sha256": hashlib.sha256((output / "MODULE.bazel.lock").read_bytes()).hexdigest(),
+        "outputs": retained, "status": "built; test acceptance pending"}, indent=2) + "\n")
     groups = [
-        ("ha", sorted(expected_tests - common_tests), []),
+        ("ha", sorted(expected_tests - common_tests - {DOC_TEST}), []),
+        ("docs", [DOC_TEST], []),
         ("common", sorted(common_tests), ["--run_under=//bazel:common_test_runner"]),
     ]
     statuses = []
@@ -136,6 +145,21 @@ def main():
         statuses.append(run("test", "--nocache_test_results", "--test_output=errors",
             "--build_event_json_file=" + str(events), *extra, *labels,
             log_name=name + "-test.log", allow_failure=True))
+    # Rustdoc runs in a build action; its native result files are independent
+    # of the Bazel test runner's replayed XML/log. Retain both before switching
+    # compilation modes, including the original failure output.
+    doc_outputs = {}
+    doc_binary = run("cquery", DOC_TEST, "--output=files").splitlines()
+    assert len(doc_binary) == 1, doc_binary
+    for suffix in ("stdout", "stderr", "exit_code"):
+        source = execution / (doc_binary[0] + "." + suffix)
+        assert source.is_file(), source
+        destination = output / "rustdoc" / source.name
+        destination.parent.mkdir(exist_ok=True)
+        shutil.copyfile(source, destination)
+        doc_outputs[suffix] = {"path": str(destination.relative_to(output)),
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "size": source.stat().st_size}
+    (output / "rustdoc-results.json").write_text(json.dumps(doc_outputs, indent=2) + "\n")
     tests = {}
     attempts = []
     identities = set()
@@ -177,14 +201,25 @@ def main():
         tests.setdefault(label, []).append(xmls[0])
         attempts.append(attempt)
     assert set(tests) == expected_tests, ("Missing or unexpected tests", sorted(expected_tests - set(tests)), sorted(set(tests) - expected_tests))
-    (output / "test-results.json").write_text(json.dumps({"expected_labels": sorted(expected_tests), "attempts": attempts, "failures": failures}, indent=2) + "\n")
+    (output / "test-results.json").write_text(json.dumps({"expected_labels": sorted(expected_tests), "original_crate_test_count": len(original_crate_tests), "attempts": attempts, "failures": failures}, indent=2) + "\n")
     assert not failures and all(status == 0 for status in statuses), (failures, statuses)
     for name, digest in input_hashes.items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
     assert not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)
-    (output / "provenance.json").write_text(json.dumps({"source": head, "architecture": "amd64", "configuration": "release",
-        "review_registry": registry, "source_inputs": input_hashes, "outputs": retained, "tests": tests,
+    (output / "provenance.json").write_text(json.dumps({"source": head, "architecture": "amd64", "configuration": profile,
+        "registry_head": registry_head, "downloader_config": downloader, "source_inputs": input_hashes, "module_lock_sha256": hashlib.sha256((output / "MODULE.bazel.lock").read_bytes()).hexdigest(),
+        "outputs": retained, "tests": tests, "rustdoc": doc_outputs,
         "scope": "HA source runtime/debug TARs and original tests; Docker integration is separate"}, indent=2) + "\n")
+
+
+def main():
+    # Record the observed canonical registry revision without changing the root
+    # .bazelrc's main+BCR selection or bypassing workspace/local configuration.
+    registry_head = subprocess.check_output([
+        "git", "ls-remote", "https://github.com/securely1g/sonic-bazel-registry.git", "refs/heads/main",
+    ], cwd=ROOT, text=True).split()[0]
+    for profile in ("dev", "release"):
+        profile_acceptance(profile, registry_head)
 
 
 if __name__ == "__main__":
