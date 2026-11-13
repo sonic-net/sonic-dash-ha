@@ -62,21 +62,21 @@ ci-format:
 	cargo fmt --check --all
 
 ci-build:
-	RUSTFLAGS="--deny warnings" cargo build           --workspace --all-features
+	RUSTFLAGS="--deny warnings" cargo build           --locked --workspace --all-features
 	cargo clean
-	RUSTFLAGS="--deny warnings" cargo build --release --workspace --all-features
+	RUSTFLAGS="--deny warnings" cargo build --release --locked --workspace --all-features
 
 ci-doc:
-	RUSTDOCFLAGS="--deny warnings" cargo doc           --workspace --all-features
+	RUSTDOCFLAGS="--deny warnings" cargo doc           --locked --workspace --all-features
 	cargo clean
-	RUSTDOCFLAGS="--deny warnings" cargo doc --release --workspace --all-features
+	RUSTDOCFLAGS="--deny warnings" cargo doc --release --locked --workspace --all-features
 
 ci-lint:
-	cargo clippy           --workspace --all-features --no-deps -- --deny "clippy::all"
+	cargo clippy           --locked --workspace --all-features --no-deps -- --deny "clippy::all"
 	cargo clean
-	cargo clippy --release --workspace --all-features --no-deps -- --deny "clippy::all"
+	cargo clippy --release --locked --workspace --all-features --no-deps -- --deny "clippy::all"
 
 ci-test:
-	cargo test           --workspace --all-features
+	cargo test           --locked --workspace --all-features
 	cargo clean
-	cargo test --release --workspace --all-features
+	cargo test --release --locked --workspace --all-features
