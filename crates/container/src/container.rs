@@ -48,8 +48,24 @@ struct DbConnections {
 impl DbConnections {
     fn initialize_connection() -> DbConnections {
         DbConnections {
-            config_db: DbConnector::new_with_auth(swss_common::DbConnectionInfo::Named { db_name: "CONFIG_DB".into(), is_tcp_conn: false }, 0, true).expect("Unable to connect to Redis DB"),
-            state_db: DbConnector::new_with_auth(swss_common::DbConnectionInfo::Named { db_name: "STATE_DB".into(), is_tcp_conn: false }, 0, true).expect("Unable to connect to Redis DB"),
+            config_db: DbConnector::new_with_auth(
+                swss_common::DbConnectionInfo::Named {
+                    db_name: "CONFIG_DB".into(),
+                    is_tcp_conn: false,
+                },
+                0,
+                true,
+            )
+            .expect("Unable to connect to Redis DB"),
+            state_db: DbConnector::new_with_auth(
+                swss_common::DbConnectionInfo::Named {
+                    db_name: "STATE_DB".into(),
+                    is_tcp_conn: false,
+                },
+                0,
+                true,
+            )
+            .expect("Unable to connect to Redis DB"),
             remote_ctr_enabled: Path::new("/lib/systemd/system/ctrmgrd.service").exists(),
         }
     }
