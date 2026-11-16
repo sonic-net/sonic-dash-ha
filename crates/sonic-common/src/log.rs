@@ -105,7 +105,10 @@ pub fn init(program_name: &'static str, link_swsscommon_logger: bool, file_log: 
         let handler = LoggerConfigHandler { level_reload_handle };
         // connect to swsscommon logger
         let result = link_to_swsscommon_logger(program_name, handler);
-        if result.is_ok() {
+        if let Err(e) = result {
+            eprintln!("Unable to link to swsscommon logger: {e}");
+            // fall back to EnvFilter
+        } else {
             println!("Link to swsscommon logger successfully.");
             let file_subscriber = file_subscriber
                 .with_line_number(true)
@@ -121,9 +124,6 @@ pub fn init(program_name: &'static str, link_swsscommon_logger: bool, file_log: 
 
             tracing_subscriber::registry().with(layers).init();
             return Ok(());
-        } else {
-            eprintln!("Unable to link to swsscommon logger: {}", result.unwrap_err());
-            // fall back to EnvFilter
         }
     }
 
