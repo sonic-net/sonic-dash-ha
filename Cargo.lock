@@ -1842,9 +1842,9 @@ dependencies = [
 
 [[package]]
 name = "serde_serializer_quick_unsupported"
-version = "0.1.2"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "deb65c5dbc9079c6913d2120b1b4112cce4e2295b7f152ca52d7f48e19ad5396"
+checksum = "910d138e01d68a0af36685fee444b2224a3926eba836812ba887442bc778f8d4"
 
 [[package]]
 name = "serde_spanned"

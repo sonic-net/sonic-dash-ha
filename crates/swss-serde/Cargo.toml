@@ -11,7 +11,7 @@ edition.workspace = true
 [dependencies]
 serde.workspace = true
 swss-common.workspace = true
-serde_serializer_quick_unsupported = "0.1"
+serde_serializer_quick_unsupported = "1.0"
 
 [lints]
 workspace = true
