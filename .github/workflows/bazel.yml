@@ -48,7 +48,7 @@ jobs:
       - name: Fetch the shared source downloader configuration
         run: |
           set -euo pipefail
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/source_mirrors.cfg" https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/e7ee462aaa8fbd137ea2187f175506e308d81dcb/ci/source_mirrors.cfg
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/source_mirrors.cfg" https://raw.githubusercontent.com/sonic-net/sonic-bazel-registry/e73724fb0134430da236e501e0770fe4d273782b/ci/source_mirrors.cfg
           printf '%s  %s\n' c28e6882aa9ebed84fd32586112e5fbfe9684af4e4aaa9942170919a3cbd308e "$RUNNER_TEMP/source_mirrors.cfg" | sha256sum --check --strict
           printf 'BAZEL_DOWNLOADER_CONFIG=%s\n' "$RUNNER_TEMP/source_mirrors.cfg" >> "$GITHUB_ENV"
       - name: Build source TARs and validate the installed programs
