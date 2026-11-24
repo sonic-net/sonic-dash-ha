@@ -216,7 +216,7 @@ def main():
     # Record the observed canonical registry revision without changing the root
     # .bazelrc's main+BCR selection or bypassing workspace/local configuration.
     registry_head = subprocess.check_output([
-        "git", "ls-remote", "https://github.com/securely1g/sonic-bazel-registry.git", "refs/heads/main",
+        "git", "ls-remote", "https://github.com/sonic-net/sonic-bazel-registry.git", "refs/heads/main",
     ], cwd=ROOT, text=True).split()[0]
     for profile in ("dev", "release"):
         profile_acceptance(profile, registry_head)
