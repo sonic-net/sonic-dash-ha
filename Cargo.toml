@@ -64,7 +64,7 @@ color-eyre = "0.6"
 
 # gRPC
 hyper-util = { version = "0.1", features = ["tokio"] }
-prost = "0.13"
+prost = "0.14"
 tonic = "0.12"
 
 # Utility

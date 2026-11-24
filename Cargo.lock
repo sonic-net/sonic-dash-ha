@@ -876,7 +876,7 @@ dependencies = [
  "futures-util",
  "hex",
  "lazy_static",
- "prost",
+ "prost 0.14.6",
  "serde",
  "serde_json",
  "serde_with",
@@ -1317,7 +1317,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.4",
 ]
 
 [[package]]
@@ -1649,7 +1649,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13db3d3fde688c61e2446b4d843bc27a7e8af269a69440c0308021dc92333cc"
 dependencies = [
  "bytes",
- "prost-derive",
+ "prost-derive 0.13.1",
+]
+
+[[package]]
+name = "prost"
+version = "0.14.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ef0b569d1d907ab3a28596aee62cf1f61dacb0529a4bedcd8e7460e2d5228b4"
+dependencies = [
+ "bytes",
+ "prost-derive 0.14.6",
 ]
 
 [[package]]
@@ -1666,7 +1676,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "prettyplease",
- "prost",
+ "prost 0.13.1",
  "prost-types",
  "regex",
  "syn 2.0.58",
@@ -1687,12 +1697,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-derive"
+version = "0.14.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ad9c5423459fa2f729b8d9235fab810aa29628b171467744fc86d21460ad70d"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.58",
+]
+
+[[package]]
 name = "prost-types"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cee5168b05f49d4b0ca581206eb14a7b22fafd963efe729ac48eb03266e25cc2"
 dependencies = [
- "prost",
+ "prost 0.13.1",
 ]
 
 [[package]]
@@ -2083,7 +2106,7 @@ name = "sonic-dash-api-proto"
 version = "0.1.0"
 dependencies = [
  "hex",
- "prost",
+ "prost 0.14.6",
  "prost-build",
  "serde",
  "serde_json",
@@ -2211,7 +2234,7 @@ dependencies = [
  "hyper-util",
  "lazy_static",
  "pretty_assertions",
- "prost",
+ "prost 0.14.6",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -2237,7 +2260,7 @@ version = "0.1.0"
 dependencies = [
  "contracts",
  "dashmap",
- "prost",
+ "prost 0.14.6",
  "rand",
  "serde_yaml",
  "sonic-common",
@@ -2258,7 +2281,7 @@ version = "0.1.0"
 dependencies = [
  "contracts",
  "pretty_assertions",
- "prost",
+ "prost 0.14.6",
  "serde",
  "serde_json",
  "strum",
@@ -2301,7 +2324,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hex",
- "prost",
+ "prost 0.14.6",
  "serde",
  "serde_json",
  "sonic-common",
@@ -2650,7 +2673,7 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "prost",
+ "prost 0.13.1",
  "socket2 0.5.6",
  "tokio",
  "tokio-stream",
