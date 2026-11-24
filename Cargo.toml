@@ -80,7 +80,7 @@ strum = { version = "0.26", features = ["derive"] }
 strum_macros = "0.26"
 regex = "1"
 dashmap = "6"
-itertools = "0.13"
+itertools = "0.15"
 atomic_enum = "0.3"
 tempfile = "3"
 tabled = "0.17"
