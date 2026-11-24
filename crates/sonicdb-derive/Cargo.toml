@@ -9,7 +9,7 @@ keywords.workspace = true
 edition.workspace = true
 
 [dependencies]
-syn = "2.0"         # For parsing Rust code
+syn = "3.0"         # For parsing Rust code
 quote = "1.0"       # For generating Rust code
 proc-macro2 = "1.0" # For working with procedural macros
 swss-common.workspace = true
