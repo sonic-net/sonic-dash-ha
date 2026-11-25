@@ -104,7 +104,7 @@ swss-common = { git = "https://github.com/sonic-net/sonic-swss-common.git", bran
 swss-common-testing = { git = "https://github.com/sonic-net/sonic-swss-common.git", branch = "master" }
 
 # Dev dependencies
-criterion = "0.5"
+criterion = "0.8"
 fakeit = "1.1"
 pretty_assertions = "1"
 
