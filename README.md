@@ -1,5 +1,7 @@
 # SONiC - DASH HA (High Availability)
 
+For native AMD64 source TARs and matching debug symbols, see the [Bazel build guide](bazel/README.md).
+
 ## Getting Started
 
 ### Prerequisites

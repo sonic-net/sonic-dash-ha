@@ -1,0 +1,174 @@
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:rust_doc_test.bzl", "rust_doc_test")
+load("//bazel:runtime.bzl", "ha_rust_test")
+load("//bazel:rust.bzl", "RUST_FLAGS")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+_CARGO_ENV = {
+    "CARGO_PKG_AUTHORS": "SONiC",
+    "CARGO_PKG_DESCRIPTION": "",
+    "CARGO_PKG_HOMEPAGE": "",
+    "CARGO_PKG_NAME": "swbus-actor",
+    "CARGO_PKG_REPOSITORY": "https://github.com/sonic/sonic-dash-ha",
+}
+
+rust_library(
+    name = "swbus_actor",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "swbus_actor",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    rustc_env = _CARGO_ENV,
+    rustc_flags = RUST_FLAGS,
+    version = "0.1.0",
+    deps = [
+        "//crates/sonic-common:sonic_common",
+        "//crates/swbus-edge:swbus_edge",
+        "@sonic_rust_deps//:anyhow",
+        "@sonic_rust_deps//:serde",
+        "@sonic_rust_deps//:serde_json",
+        "@sonic_rust_deps//:serde_with",
+        "@sonic_rust_deps//:tokio",
+        "@sonic_rust_deps//:tracing",
+        "@sonic_swss_common//crates/swss-common:swss_common_async",
+    ],
+)
+
+# Run the original compile_fail and no_run examples through rustdoc itself.
+rust_doc_test(
+    name = "doc_test",
+    crate = ":swbus_actor",
+)
+
+# Preserve the original crate unit tests; installed runners supply native
+# runtime libraries and private Redis/fixture working directories.
+rust_test(
+    name = "unit_test_binary",
+    crate = ":swbus_actor",
+    experimental_use_cc_common_link = 1,
+    tags = ["manual"],
+    deps = [
+        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
+    ],
+)
+
+rust_test(
+    name = "echo_test_binary",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/echo.rs",
+    data = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+    edition = "2021",
+    experimental_use_cc_common_link = 1,
+    rustc_env = _CARGO_ENV,
+    tags = ["manual"],
+    deps = [
+        ":swbus_actor",
+        "//crates/sonic-common:sonic_common",
+        "//crates/swbus-edge:swbus_edge",
+        "@sonic_rust_deps//:anyhow",
+        "@sonic_rust_deps//:serde",
+        "@sonic_rust_deps//:serde_json",
+        "@sonic_rust_deps//:serde_with",
+        "@sonic_rust_deps//:tokio",
+        "@sonic_rust_deps//:tracing",
+        "@sonic_swss_common//crates/swss-common:swss_common_async",
+        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
+    ],
+)
+
+rust_test(
+    name = "kvstore_test_binary",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/kvstore.rs",
+    data = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+    edition = "2021",
+    experimental_use_cc_common_link = 1,
+    rustc_env = _CARGO_ENV,
+    tags = ["manual"],
+    deps = [
+        ":swbus_actor",
+        "//crates/sonic-common:sonic_common",
+        "//crates/swbus-edge:swbus_edge",
+        "@sonic_rust_deps//:anyhow",
+        "@sonic_rust_deps//:serde",
+        "@sonic_rust_deps//:serde_json",
+        "@sonic_rust_deps//:serde_with",
+        "@sonic_rust_deps//:tokio",
+        "@sonic_rust_deps//:tracing",
+        "@sonic_swss_common//crates/swss-common:swss_common_async",
+        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
+    ],
+)
+
+rust_test(
+    name = "test_executor_test_binary",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/test_executor.rs",
+    data = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+    edition = "2021",
+    experimental_use_cc_common_link = 1,
+    rustc_env = _CARGO_ENV,
+    tags = ["manual"],
+    deps = [
+        ":swbus_actor",
+        "//crates/sonic-common:sonic_common",
+        "//crates/swbus-edge:swbus_edge",
+        "@sonic_rust_deps//:anyhow",
+        "@sonic_rust_deps//:serde",
+        "@sonic_rust_deps//:serde_json",
+        "@sonic_rust_deps//:serde_with",
+        "@sonic_rust_deps//:tokio",
+        "@sonic_rust_deps//:tracing",
+        "@sonic_swss_common//crates/swss-common:swss_common_async",
+        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
+    ],
+)
+
+ha_rust_test(
+    name = "unit_test",
+    binary = ":unit_test_binary",
+    fixtures = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+)
+
+ha_rust_test(
+    name = "echo_test",
+    binary = ":echo_test_binary",
+    fixtures = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+)
+
+ha_rust_test(
+    name = "kvstore_test",
+    binary = ":kvstore_test_binary",
+    fixtures = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+)
+
+ha_rust_test(
+    name = "test_executor_test",
+    binary = ":test_executor_test_binary",
+    fixtures = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+)

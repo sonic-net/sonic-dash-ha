@@ -1,0 +1,61 @@
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//bazel:runtime.bzl", "ha_rust_test")
+load("//bazel:rust.bzl", "RUST_FLAGS")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["Cargo.toml"])
+
+_CARGO_ENV = {
+    "CARGO_PKG_AUTHORS": "SONiC",
+    "CARGO_PKG_DESCRIPTION": "SONiC common library",
+    "CARGO_PKG_HOMEPAGE": "",
+    "CARGO_PKG_NAME": "sonic-common",
+    "CARGO_PKG_REPOSITORY": "https://github.com/sonic/sonic-dash-ha",
+}
+
+rust_library(
+    name = "sonic_common",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "sonic_common",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    rustc_env = _CARGO_ENV,
+    rustc_flags = RUST_FLAGS,
+    version = "0.1.0",
+    deps = [
+        "@sonic_rust_deps//:better-panic",
+        "@sonic_rust_deps//:color-eyre",
+        "@sonic_rust_deps//:file-rotate",
+        "@sonic_rust_deps//:human-panic",
+        "@sonic_rust_deps//:lazy_static",
+        "@sonic_rust_deps//:signal-hook",
+        "@sonic_rust_deps//:syslog-tracing",
+        "@sonic_rust_deps//:tracing",
+        "@sonic_rust_deps//:tracing-error",
+        "@sonic_rust_deps//:tracing-subscriber",
+        "@sonic_swss_common//crates/swss-common:swss_common_async",
+    ],
+)
+
+# Preserve the original crate unit tests; installed runners supply native
+# runtime libraries and private Redis/fixture working directories.
+rust_test(
+    name = "unit_test_binary",
+    crate = ":sonic_common",
+    experimental_use_cc_common_link = 1,
+    tags = ["manual"],
+    deps = [
+        "@sonic_rust_deps//:pretty_assertions",
+    ],
+)
+
+ha_rust_test(
+    name = "unit_test",
+    binary = ":unit_test_binary",
+    fixtures = glob(
+        ["tests/**/*.json"],
+        allow_empty = True,
+    ),
+)
