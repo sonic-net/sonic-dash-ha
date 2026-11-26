@@ -238,7 +238,7 @@ impl HaScopeBase {
             "{}{}{}",
             self.peer_vdpu_id.as_deref().unwrap_or_default(),
             HaScopeConfig::key_separator(),
-            &self.ha_scope_id
+            self.ha_scope_id
         ))
     }
 

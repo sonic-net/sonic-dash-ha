@@ -26,7 +26,7 @@ rust_library(
     version = "0.1.0",
     deps = [
         "@sonic_rust_deps//:serde",
-        "@sonic_rust_deps//:serde_serializer_quick_unsupported",
+        "@sonic_rust_deps//:serde_serializer_quick_unsupported1",
         "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
 )

@@ -32,7 +32,7 @@ rust_binary(
         "@sonic_rust_deps//:enumset",
         "@sonic_rust_deps//:futures-util",
         "@sonic_rust_deps//:serde_json",
-        "@sonic_rust_deps//:thiserror",
+        "@sonic_rust_deps//:thiserror2",
         "@sonic_rust_deps//:tokio",
         "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
