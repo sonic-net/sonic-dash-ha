@@ -1,6 +1,6 @@
 module(
     name = "sonic-dash-ha",
-    version = "0.0.1",
+    version = "0.0.2",
     bazel_compatibility = [
         ">=8.5.1",
         "<=8.5.1",
@@ -20,7 +20,7 @@ bazel_dep(name = "protobuf-legacy", version = "3.21.12.sonic.4", repo_name = "pr
 bazel_dep(name = "sonic-rust-deps", version = "0.0.5-4064a814e8530300a7acbad4a9aff0621e2fb98e", repo_name = "sonic_rust_deps")
 bazel_dep(name = "sonic-swss-common", version = "0.0.8-2a4ddd070edb719f2e969a880a5cfff711e64e72", repo_name = "sonic_swss_common")
 bazel_dep(name = "sonic-dash-api", version = "0.0.6-55310bf7437d67411418c974587adcdc1b194d6b", repo_name = "sonic_dash_api")
-bazel_dep(name = "sonic-build-infra", version = "0.0.44-35726399908a3beb947174e9359f902077928289", repo_name = "sonic_build_infra")
+bazel_dep(name = "sonic-build-infra", version = "0.0.45-77ef625a4ddafc8cdc15f3cc6aee31eabac8a5de", repo_name = "sonic_build_infra")
 
 # Align the shared native toolchain with the maintained infrastructure source.
 # SWSS Common's older commit sorts higher. Pin the crates selected by Cargo.lock.
@@ -31,7 +31,7 @@ single_version_override(
 
 single_version_override(
     module_name = "sonic-build-infra",
-    version = "0.0.44-35726399908a3beb947174e9359f902077928289",
+    version = "0.0.45-77ef625a4ddafc8cdc15f3cc6aee31eabac8a5de",
 )
 
 single_version_override(

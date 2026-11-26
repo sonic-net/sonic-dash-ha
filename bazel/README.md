@@ -22,6 +22,8 @@ bazel build --config=release //crates/container:container
 The normal registry configuration is maintained SONiC `main` plus BCR.
 Run the same dev and release checks as CI:
 
+Install the Debian `python3-defusedxml` package to read the test result XML.
+
 ```sh
 python3 bazel/ci.py
 ```
