@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import struct
 import subprocess
@@ -34,7 +35,18 @@ def unpack(path, destination, expected, mode, epoch=EPOCH, directory_epochs=None
                 assert member.mode == 0o755 and (name == "." or any(x.startswith(name + "/") for x in expected)), member.name
             else:
                 assert member.isfile() and member.mode == mode, member.name
-        archive.extractall(destination, filter="data")
+        # Materialize only the declared regular files; archive paths and links
+        # never choose a destination on the host.
+        by_name = dict(zip(names, members))
+        for name in sorted(expected):
+            member = by_name[name]
+            if not member.isfile():
+                raise ValueError(f"Expected a regular package file: {name}")
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.extractfile(member) as source, target.open("xb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(mode)
 
 
 def main():

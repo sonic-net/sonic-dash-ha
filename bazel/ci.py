@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tomllib
 from urllib.parse import unquote, urlparse
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ["//:dash_ha_pkg", "//:dash_ha_pkg.debug_symbols", "//:runtime_packages.json"]
@@ -193,7 +193,7 @@ def profile_acceptance(profile, registry_head):
                 "source": str(source.relative_to(execution)), "size": source.stat().st_size,
                 "sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
             if artifact["name"] == "test.xml":
-                tree = ET.parse(source)
+                tree = ET.parse(source, forbid_dtd=True)
                 if any(list(tree.iter(kind)) for kind in ("failure", "error", "skipped")) or not list(tree.iter("testcase")):
                     failures.append({"identity": identity, "xml": "Failed, skipped or empty test XML"})
                 xmls.append(str(destination.relative_to(output)))
