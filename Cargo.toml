@@ -77,7 +77,7 @@ lazy_static = "1.4"
 owning_ref = "0.4"
 prost-build = "0.13"
 strum = { version = "0.26", features = ["derive"] }
-strum_macros = "0.26"
+strum_macros = "0.28"
 regex = "1"
 dashmap = "6"
 itertools = "0.15"
