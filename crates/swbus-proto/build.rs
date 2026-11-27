@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
     let includes: &[&str] = &[];
-    builder.compile(&["proto/swbus.proto"], includes)?;
+    builder.compile_protos(&["proto/swbus.proto"], includes)?;
 
     Ok(())
 }
