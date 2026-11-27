@@ -27,7 +27,7 @@ rust_proc_macro(
     deps = [
         "@sonic_rust_deps//:proc-macro2",
         "@sonic_rust_deps//:quote",
-        "@sonic_rust_deps//:syn3",
+        "@sonic_rust_deps//:syn",
     ],
 )
 
@@ -48,10 +48,10 @@ rust_test(
     tags = ["manual"],
     deps = [
         "//crates/sonic-common:sonic_common",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
         "@sonic_rust_deps//:proc-macro2",
         "@sonic_rust_deps//:quote",
-        "@sonic_rust_deps//:syn3",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
+        "@sonic_rust_deps//:syn",
     ],
 )
 

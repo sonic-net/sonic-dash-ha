@@ -17,18 +17,9 @@ bazel_dep(name = "rules_distroless", version = "0.9.4.sonic.26")
 bazel_dep(name = "platforms", version = "1.1.0")
 bazel_dep(name = "tar.bzl", version = "0.10.5.sonic.2")
 bazel_dep(name = "protobuf-legacy", version = "3.21.12.sonic.4", repo_name = "protobuf_legacy")
-bazel_dep(name = "sonic-rust-deps", version = "0.0.5-4064a814e8530300a7acbad4a9aff0621e2fb98e", repo_name = "sonic_rust_deps")
 bazel_dep(name = "sonic-swss-common", version = "0.0.8-2a4ddd070edb719f2e969a880a5cfff711e64e72", repo_name = "sonic_swss_common")
 bazel_dep(name = "sonic-dash-api", version = "0.0.6-55310bf7437d67411418c974587adcdc1b194d6b", repo_name = "sonic_dash_api")
 bazel_dep(name = "sonic-build-infra", version = "0.0.45-77ef625a4ddafc8cdc15f3cc6aee31eabac8a5de", repo_name = "sonic_build_infra")
-
-# Align the shared native toolchain with the maintained infrastructure source.
-# SWSS Common's older commit sorts higher. Pin the crates selected by Cargo.lock.
-single_version_override(
-    module_name = "sonic-rust-deps",
-    version = "0.0.5-4064a814e8530300a7acbad4a9aff0621e2fb98e",
-)
-
 single_version_override(
     module_name = "sonic-build-infra",
     version = "0.0.45-77ef625a4ddafc8cdc15f3cc6aee31eabac8a5de",
@@ -54,7 +45,44 @@ use_repo(gcc, "gcc_toolchains")
 
 register_toolchains("@gcc_toolchains//:all")
 
-# The shared owner reads canonical Cargo inputs directly with rules_rs.
+# Resolve the DASH HA workspace with its own Cargo versions and features.
+crate = use_extension("@rules_rs//rs:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "dash_ha_crates",
+    cargo_lock = "//:Cargo.lock",
+    cargo_toml = "//:Cargo.toml",
+    platform_triples = [
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+    ],
+    use_legacy_rules_rust_platforms = True,
+)
+
+# libc is a direct dependency of the locked SWSS Common Rust crate and a
+# transitive dependency of DASH HA. Publish its unversioned owner label.
+crate.annotation(
+    crate = "libc",
+    extra_aliased_targets = {"swss-libc": "libc"},
+    repositories = ["dash_ha_crates"],
+)
+
+# The owner also exercises the public serde::Serialize / serde_core trait boundary.
+crate.annotation(
+    crate = "serde_core",
+    extra_aliased_targets = {"swss-serde-core": "serde_core"},
+    repositories = ["dash_ha_crates"],
+)
+use_repo(
+    crate,
+    dash_ha_swss_sources = "dash_ha_crates__github.com_sonic-net_sonic-swss-common.git_e67092c3",
+    sonic_rust_deps = "dash_ha_crates",
+)
+
+swss_rust = use_repo_rule("//bazel:swss_rust.bzl", "swss_rust")
+
+swss_rust(name = "dash_ha_swss_rust")
+
+# Use the Rust implementation supplied by rules_rs.
 rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
 use_repo(rules_rust, "rules_rust")
 

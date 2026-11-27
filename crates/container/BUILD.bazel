@@ -26,15 +26,15 @@ rust_binary(
     rustc_flags = RUST_FLAGS,
     version = "0.1.0",
     deps = [
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
         "@sonic_rust_deps//:bollard",
         "@sonic_rust_deps//:chrono",
         "@sonic_rust_deps//:clap",
         "@sonic_rust_deps//:enumset",
         "@sonic_rust_deps//:futures-util",
         "@sonic_rust_deps//:serde_json",
-        "@sonic_rust_deps//:thiserror2",
+        "@sonic_rust_deps//:thiserror",
         "@sonic_rust_deps//:tokio",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
 )
 

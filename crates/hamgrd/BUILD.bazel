@@ -36,6 +36,8 @@ rust_binary(
         "//crates/swbus-edge:swbus_edge",
         "//crates/swss-common-bridge:swss_common_bridge",
         "//crates/swss-serde:swss_serde",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
+        "@dash_ha_swss_rust//crates/swss-common-testing:swss_common_testing_async",
         "@sonic_rust_deps//:anyhow",
         "@sonic_rust_deps//:chrono",
         "@sonic_rust_deps//:clap",
@@ -49,8 +51,6 @@ rust_binary(
         "@sonic_rust_deps//:tokio",
         "@sonic_rust_deps//:tracing",
         "@sonic_rust_deps//:uuid",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
-        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
     ],
 )
 
