@@ -76,7 +76,7 @@ hex = "0.4"
 lazy_static = "1.4"
 owning_ref = "0.4"
 prost-build = "0.13"
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 strum_macros = "0.26"
 regex = "1"
 dashmap = "6"
