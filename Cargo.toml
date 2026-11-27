@@ -38,7 +38,7 @@ unused_import_braces = 'warn'
 tokio = { version = "1.37", features = ["macros", "net", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tokio-stream = { version = "0.1", features = ["net"] }
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
 
 # Log and error handling
 tracing = { version = "0.1", features = ["log"] }
@@ -64,8 +64,8 @@ color-eyre = "0.6"
 
 # gRPC
 hyper-util = { version = "0.1", features = ["tokio"] }
-prost = "0.13"
-tonic = "0.12"
+prost = "0.14"
+tonic = "0.14"
 
 # Utility
 contracts = "0.6"
@@ -75,20 +75,20 @@ getset = "0.1"
 hex = "0.4"
 lazy_static = "1.4"
 owning_ref = "0.4"
-prost-build = "0.13"
-strum = { version = "0.26", features = ["derive"] }
-strum_macros = "0.26"
+prost-build = "0.14"
+strum = { version = "0.28", features = ["derive"] }
+strum_macros = "0.28"
 regex = "1"
 dashmap = "6"
 itertools = "0.15"
 atomic_enum = "0.3"
 tempfile = "3"
-tabled = "0.17"
+tabled = "0.22"
 futures-core = "0.3"
 futures-util = "0.3"
 chrono = "0.4"
 enumset = "1"
-bollard = { version = "0.17.1", features = ["chrono"] }
+bollard = { version = "0.21.0", features = ["chrono"] }
 uuid = { version = "1.15", features = ["v4"] }
 # Internal dependencies
 sonic-common = { version = "0.1.0", path = "crates/sonic-common" }
@@ -109,5 +109,5 @@ fakeit = "1.1"
 pretty_assertions = "1"
 
 # Build dependencies
-tonic-build = "0.12"
+tonic-build = "0.14"
 vergen = { version = "10.0", features = [ "build", "git", "gitoxide", "cargo", "rustc", "si" ]}
