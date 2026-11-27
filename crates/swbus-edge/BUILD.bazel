@@ -32,7 +32,7 @@ rust_library(
         "@sonic_rust_deps//:dashmap",
         "@sonic_rust_deps//:prost",
         "@sonic_rust_deps//:strum",
-        "@sonic_rust_deps//:thiserror2",
+        "@sonic_rust_deps//:thiserror",
         "@sonic_rust_deps//:tokio",
         "@sonic_rust_deps//:tokio-stream",
         "@sonic_rust_deps//:tonic",

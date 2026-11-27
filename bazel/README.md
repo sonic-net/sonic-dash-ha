@@ -50,11 +50,12 @@ build --disk_cache=/absolute/path/to/bazel/disk-cache
 
 ## Source ownership and compatibility
 
-Each crate has a maintained `BUILD.bazel` beside its Rust code. Shared third
-party crates come from `sonic-rust-deps`; reusable Common Rust libraries and
-its testing helpers come from `sonic-swss-common`. Cargo and Bazel select the
-same reviewed Common source. Common's default and async variants retain
-matching testing helpers and shared Serde/Tokio types.
+Bazel resolves the workspace's Rust crates from `Cargo.toml` and `Cargo.lock`.
+This preserves Cargo's tracing features so `hamgrd` can record DEBUG events
+in release builds. Both the SWSS Common Rust library and its test helper use
+the Git revision in that lock. The `sonic-swss-common` Bazel module supplies
+the native library and matching C bindings. When the locked Common revision
+changes, update the Git repository name imported as `dash_ha_swss_sources` in `MODULE.bazel`.
 
 Both original `build.rs` generators remain intact. The SWBus generator uses
 its existing Tonic protocol. The HA API generator consumes the API owner's
@@ -80,9 +81,9 @@ debug links, and source lines in GDB. A negative GDB control omits the debug
 TAR. A private loopback `swbusd`/`swbus-cli` exchange exercises the installed
 programs. This does not prove ASIC HA operation or Docker integration.
 
-For a normal Rust source addition, update the owning crate; recursive source
-globs include its module files. Add each dependency to that crate's `deps`,
-and extend the shared crate owner when a reusable third party is missing.
+For a new Rust dependency, update the owning crate's Cargo manifest and Bazel
+`deps`, then refresh the workspace Cargo lock. Source globs pick up new Rust
+modules in existing crates.
 When adding a Cargo workspace member, add its component `BUILD.bazel`; CI
 compares the two inventories. Add integration test targets and fixture labels
 beside their source, preserving each original test entry point. An installed

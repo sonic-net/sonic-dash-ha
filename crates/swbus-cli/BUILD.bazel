@@ -55,8 +55,8 @@ rust_test(
     tags = ["manual"],
     deps = [
         "//crates/swss-serde:swss_serde",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
-        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
+        "@dash_ha_swss_rust//crates/swss-common-testing:swss_common_testing_async",
     ],
 )
 

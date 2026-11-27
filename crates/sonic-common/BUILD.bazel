@@ -25,6 +25,7 @@ rust_library(
     rustc_flags = RUST_FLAGS,
     version = "0.1.0",
     deps = [
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
         "@sonic_rust_deps//:better-panic",
         "@sonic_rust_deps//:color-eyre",
         "@sonic_rust_deps//:file-rotate",
@@ -35,7 +36,6 @@ rust_library(
         "@sonic_rust_deps//:tracing",
         "@sonic_rust_deps//:tracing-error",
         "@sonic_rust_deps//:tracing-subscriber",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
 )
 
