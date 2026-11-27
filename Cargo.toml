@@ -75,7 +75,7 @@ getset = "0.1"
 hex = "0.4"
 lazy_static = "1.4"
 owning_ref = "0.4"
-prost-build = "0.13"
+prost-build = "0.14"
 strum = { version = "0.26", features = ["derive"] }
 strum_macros = "0.26"
 regex = "1"
