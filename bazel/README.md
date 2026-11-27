@@ -89,9 +89,9 @@ compares the two inventories. Add integration test targets and fixture labels
 beside their source, preserving each original test entry point. An installed
 program change must update `debian/install`, the root TAR target and installed
 acceptance together. CI checks the source inventory and retains every test
-configuration through Bazel's build events. The three original Common
-async/testing compatibility targets run separately through the test-only
-`//bazel:common_test_runner` launcher, which delegates to Common's existing
-declared-runtime runner. This keeps the original owner tests and shared
-Rust types intact. CI retains built packages before running tests, so a
-failing test still uploads its exact source inputs and produced TARs.
+configuration through Bazel's build events. Common's sync interface and async
+unit tests run through `//bazel:common_test_runner`. The bridge's Cargo and
+Bazel tests also check shared Rust and Serde types and an async round trip to
+a private Redis instance using the locked Common revision. CI retains built
+packages before running tests, so a failing test still uploads its exact source
+inputs and produced TARs.

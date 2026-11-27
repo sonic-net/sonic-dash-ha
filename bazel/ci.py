@@ -17,7 +17,7 @@ PACKAGES = ["//:dash_ha_pkg", "//:dash_ha_pkg.debug_symbols", "//:runtime_packag
 BUILD = PACKAGES + ["//crates/container:container"]
 DOC_TEST = "//crates/swbus-actor:doc_test"
 TESTS = ["//crates/...", "//bazel:installed_package_test", "@dash_ha_swss_rust//tools/bazel/rust:testing_interface_test",
-         "@dash_ha_swss_rust//tools/bazel/rust:async_testing_interface_test", "@dash_ha_swss_rust//crates/swss-common:swss_common_async_test"]
+         "@dash_ha_swss_rust//crates/swss-common:swss_common_async_test"]
 
 
 def profile_acceptance(profile, registry_head):

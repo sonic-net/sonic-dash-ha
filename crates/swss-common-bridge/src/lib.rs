@@ -40,3 +40,29 @@ impl TableCache {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use swss_common::{CxxString, DbConnector, FieldValues, KeyOpFieldValues};
+    use swss_common_testing::{random_fvs, random_kfv, Redis};
+
+    #[test]
+    fn async_helper_shares_the_consumers_types_and_serde() {
+        let _: fn(&Redis) -> DbConnector = Redis::db_connector;
+        let _: FieldValues = random_fvs();
+        let _: KeyOpFieldValues = random_kfv();
+
+        let value = CxxString::new("shared async value");
+        let encoded = serde_json::to_string(&value).unwrap();
+        assert_eq!(serde_json::from_str::<CxxString>(&encoded).unwrap(), value);
+    }
+
+    #[tokio::test]
+    async fn async_connector_uses_the_shared_tokio_runtime() {
+        let redis = Redis::start();
+        let mut db = DbConnector::new_unix_async(0, &redis.sock, 1_000).await.unwrap();
+        let value = CxxString::new("hello, world!");
+        db.set_async("greeting", &value).await.unwrap();
+        assert_eq!(db.get_async("greeting").await.unwrap().unwrap(), value);
+    }
+}
