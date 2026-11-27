@@ -28,13 +28,13 @@ rust_library(
     deps = [
         "//crates/sonic-common:sonic_common",
         "//crates/swbus-edge:swbus_edge",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
         "@sonic_rust_deps//:anyhow",
         "@sonic_rust_deps//:serde",
         "@sonic_rust_deps//:serde_json",
         "@sonic_rust_deps//:serde_with",
         "@sonic_rust_deps//:tokio",
         "@sonic_rust_deps//:tracing",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
 )
 
@@ -52,7 +52,7 @@ rust_test(
     experimental_use_cc_common_link = 1,
     tags = ["manual"],
     deps = [
-        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
+        "@dash_ha_swss_rust//crates/swss-common-testing:swss_common_testing_async",
     ],
 )
 
@@ -72,14 +72,14 @@ rust_test(
         ":swbus_actor",
         "//crates/sonic-common:sonic_common",
         "//crates/swbus-edge:swbus_edge",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
+        "@dash_ha_swss_rust//crates/swss-common-testing:swss_common_testing_async",
         "@sonic_rust_deps//:anyhow",
         "@sonic_rust_deps//:serde",
         "@sonic_rust_deps//:serde_json",
         "@sonic_rust_deps//:serde_with",
         "@sonic_rust_deps//:tokio",
         "@sonic_rust_deps//:tracing",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
-        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
     ],
 )
 
@@ -99,14 +99,14 @@ rust_test(
         ":swbus_actor",
         "//crates/sonic-common:sonic_common",
         "//crates/swbus-edge:swbus_edge",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
+        "@dash_ha_swss_rust//crates/swss-common-testing:swss_common_testing_async",
         "@sonic_rust_deps//:anyhow",
         "@sonic_rust_deps//:serde",
         "@sonic_rust_deps//:serde_json",
         "@sonic_rust_deps//:serde_with",
         "@sonic_rust_deps//:tokio",
         "@sonic_rust_deps//:tracing",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
-        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
     ],
 )
 
@@ -126,14 +126,14 @@ rust_test(
         ":swbus_actor",
         "//crates/sonic-common:sonic_common",
         "//crates/swbus-edge:swbus_edge",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
+        "@dash_ha_swss_rust//crates/swss-common-testing:swss_common_testing_async",
         "@sonic_rust_deps//:anyhow",
         "@sonic_rust_deps//:serde",
         "@sonic_rust_deps//:serde_json",
         "@sonic_rust_deps//:serde_with",
         "@sonic_rust_deps//:tokio",
         "@sonic_rust_deps//:tracing",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
-        "@sonic_swss_common//crates/swss-common-testing:swss_common_testing_async",
     ],
 )
 

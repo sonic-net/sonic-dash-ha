@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = ["//:dash_ha_pkg", "//:dash_ha_pkg.debug_symbols", "//:runtime_packages.json"]
 BUILD = PACKAGES + ["//crates/container:container"]
 DOC_TEST = "//crates/swbus-actor:doc_test"
-TESTS = ["//crates/...", "//bazel:installed_package_test", "@sonic_swss_common//tools/bazel/rust:testing_interface_test",
-         "@sonic_swss_common//tools/bazel/rust:async_testing_interface_test", "@sonic_swss_common//crates/swss-common:swss_common_async_test"]
+TESTS = ["//crates/...", "//bazel:installed_package_test", "@dash_ha_swss_rust//tools/bazel/rust:testing_interface_test",
+         "@dash_ha_swss_rust//crates/swss-common:swss_common_async_test"]
 
 
 def profile_acceptance(profile, registry_head):
@@ -76,9 +76,9 @@ def profile_acceptance(profile, registry_head):
         "bazel_targets": definitions, "native_install": sorted(native_install)}, indent=2) + "\n")
 
     def normalized(label):
-        for prefix in ("@@sonic-swss-common+//", "@sonic-swss-common//"):
-            if label.startswith(prefix):
-                return "@sonic_swss_common//" + label[len(prefix):]
+        repo, _, target = label.partition("//")
+        if repo.startswith("@") and repo.endswith("+dash_ha_swss_rust"):
+            return "@dash_ha_swss_rust//" + target
         return label
     selection = "tests(set(" + " ".join(TESTS) + "))"
     expected_tests = {normalized(label) for label in run("query",

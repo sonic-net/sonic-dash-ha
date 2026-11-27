@@ -48,7 +48,7 @@ rust_library(
         "@sonic_rust_deps//:serde",
         "@sonic_rust_deps//:serde_json",
         "@sonic_rust_deps//:strum",
-        "@sonic_rust_deps//:thiserror2",
+        "@sonic_rust_deps//:thiserror",
         "@sonic_rust_deps//:tonic",
     ],
 )

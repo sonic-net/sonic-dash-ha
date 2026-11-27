@@ -58,12 +58,12 @@ rust_library(
     deps = [
         ":generate",
         "//crates/sonic-common:sonic_common",
+        "@dash_ha_swss_rust//crates/swss-common:swss_common_async",
         "@sonic_rust_deps//:hex",
         "@sonic_rust_deps//:prost",
         "@sonic_rust_deps//:serde",
         "@sonic_rust_deps//:serde_json",
         "@sonic_rust_deps//:strum",
-        "@sonic_swss_common//crates/swss-common:swss_common_async",
     ],
 )
 

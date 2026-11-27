@@ -377,6 +377,31 @@ mod test {
     }
 
     #[test]
+    fn recorder_writes_debug_events() -> color_eyre::Result<()> {
+        use tracing_subscriber::prelude::*;
+
+        let path = std::env::temp_dir().join(format!("hamgrd-recorder-test-{}.rec", std::process::id()));
+        std::fs::File::create_new(&path)?;
+        let layer = super::new_independent_file_layer(Some(super::FileLogConfig {
+            log_file_path: path.to_string_lossy().into_owned(),
+            max_file_size_bytes: 4096,
+            max_file_count: 1,
+            targets: vec!["hamgrd-recorder".into()],
+        }))?;
+        tracing::subscriber::with_default(tracing_subscriber::registry().with(layer), || {
+            tracing::debug!(target: "hamgrd-recorder", "received recorder test message");
+        });
+
+        let output = std::fs::read_to_string(&path)?;
+        std::fs::remove_file(path)?;
+        assert!(
+            output.contains("received recorder test message"),
+            "recorder did not write the DEBUG event: {output:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn panic_safe_writer_retries_once_after_write_panic() {
         let build_count = Arc::new(AtomicUsize::new(0));
         let writes = Arc::new(Mutex::new(Vec::new()));
